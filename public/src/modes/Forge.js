@@ -566,10 +566,10 @@ export class Forge {
         display:flex; flex-direction:column; z-index:50; }
 
       /* ── Poignées ── */
-      .fg-handle { position:fixed; top:0; bottom:0; width:10px; z-index:61;
+      .fg-handle { position:fixed; top:0; bottom:0; width:28px; z-index:61;
         cursor:col-resize; touch-action:none; }
-      .fg-handle-left  { left:var(--fg-left-w,172px); }
-      .fg-handle-right { right:var(--fg-right-w,300px); }
+      .fg-handle-left  { left:calc(var(--fg-left-w,172px) - 14px); }
+      .fg-handle-right { right:calc(var(--fg-right-w,300px) - 14px); }
 
       /* ── En-têtes ── */
       .fg-head { padding:9px 12px; font:700 9px/1 sans-serif; color:var(--fg-text);
