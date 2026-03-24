@@ -1,0 +1,269 @@
+{
+  "type": "modeler-shape",
+  "name": "technic bar 3x",
+  "rootId": "step-leiya26",
+  "steps": [
+    {
+      "id": "step-nsu13q7",
+      "kind": "cylinder",
+      "label": "technic hole - master",
+      "params": {
+        "r": 0.3,
+        "h": 2,
+        "segs": 48
+      },
+      "translate": [
+        0,
+        0,
+        0
+      ],
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-twchbi1",
+      "kind": "cylinder",
+      "label": "technic hole - ep z-",
+      "params": {
+        "r": 0.4,
+        "h": 1,
+        "segs": 64
+      },
+      "translate": [
+        0,
+        0,
+        -0.9
+      ],
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-tvxz9a8",
+      "kind": "cylinder",
+      "label": "technic hole - ep z+",
+      "params": {
+        "r": 0.4,
+        "h": 1,
+        "segs": 64
+      },
+      "translate": [
+        0,
+        0,
+        0.9
+      ],
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-c6q15e0",
+      "kind": "union",
+      "label": "Union ep",
+      "params": {
+        "a": "step-twchbi1",
+        "b": "step-tvxz9a8"
+      },
+      "translate": [
+        0,
+        0,
+        0
+      ],
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-28w0xv5",
+      "kind": "union",
+      "label": "technic hole [z]",
+      "params": {
+        "a": "step-c6q15e0",
+        "b": "step-nsu13q7"
+      },
+      "translate": [
+        0,
+        0,
+        0
+      ],
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-zv1l3nb",
+      "kind": "roundedBox",
+      "label": "Cube arrondi",
+      "params": {
+        "x": 3,
+        "y": 1,
+        "z": 5,
+        "r": 0.5,
+        "segs": 64
+      },
+      "translate": [
+        0,
+        0,
+        0
+      ],
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-r4wr7s0",
+      "kind": "cube",
+      "label": "Cube",
+      "params": {
+        "x": 30,
+        "y": 2,
+        "z": 1
+      },
+      "translate": [
+        0,
+        0,
+        0
+      ],
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-57g2f46",
+      "kind": "intersect",
+      "label": "Intersection",
+      "params": {
+        "a": "step-zv1l3nb",
+        "b": "step-r4wr7s0"
+      },
+      "translate": [
+        0,
+        0,
+        0
+      ],
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-laousys",
+      "kind": "repeat",
+      "label": "Répétition",
+      "params": {
+        "src": "step-28w0xv5",
+        "n": 3,
+        "dx": 1,
+        "dy": 0,
+        "dz": 0
+      },
+      "translate": [
+        -1,
+        0,
+        0
+      ],
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-leiya26",
+      "kind": "subtract",
+      "label": "technic bar 3x",
+      "params": {
+        "a": "step-57g2f46",
+        "b": "step-laousys"
+      },
+      "translate": [
+        0,
+        0,
+        0
+      ],
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": true
+    }
+  ],
+  "createdAt": "2026-03-24T08:25:34.732Z",
+  "updatedAt": "2026-03-24T08:25:34.732Z"
+}

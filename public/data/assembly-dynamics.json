@@ -1,0 +1,105 @@
+{
+  "version": 1,
+
+  "slotTypes": {
+    "system plate pin":        { "label": "Plaque · Plot",            "role": "pin",  "family": "system",  "color": "#ffa500" },
+    "brick pin":               { "label": "Brique · Plot",            "role": "pin",  "family": "classic", "color": "#ff8c00" },
+    "technics pin":            { "label": "Technic · Pin",            "role": "pin",  "family": "technic", "color": "#44dd88" },
+    "technics brick pin":      { "label": "Technic · Pin brique",     "role": "pin",  "family": "technic", "color": "#22bb66" },
+    "system plate hole":       { "label": "Plaque · Trou",            "role": "hole", "family": "system",  "color": "#4488ff" },
+    "system plate mid hole":   { "label": "Plaque · Trou anti-frot.", "role": "hole", "family": "system",  "color": "#2266dd" },
+    "system brick hole":       { "label": "Brique · Trou",            "role": "hole", "family": "system",  "color": "#6699ff" },
+    "technics hole":           { "label": "Technic · Trou lisse",     "role": "hole", "family": "technic", "color": "#cc44cc" },
+    "technics brick hole":     { "label": "Technic · Trou brique",    "role": "hole", "family": "technic", "color": "#aa22aa" },
+    "technics brick mid hole": { "label": "Technic · Trou mi-brique", "role": "hole", "family": "technic", "color": "#882288" }
+  },
+
+  "jointDefs": {
+    "fixed":     { "label": "Fixe",       "dof": 0, "icon": "🔒", "description": "Aucun mouvement, solidaire" },
+    "revolute":  { "label": "Pivot",      "dof": 1, "icon": "🔄", "description": "Rotation autour d'un axe" },
+    "prismatic": { "label": "Glissière",  "dof": 1, "icon": "↔",  "description": "Translation le long d'un axe" },
+    "spherical": { "label": "Rotule",     "dof": 3, "icon": "⚫",  "description": "3 rotations libres" },
+    "spring":    { "label": "Ressort",    "dof": 1, "icon": "〰",  "description": "Liaison élastique" },
+    "none":      { "label": "Aucune",     "dof": 6, "icon": "✕",  "description": "Pas de liaison, contact uniquement" }
+  },
+
+  "compatibilities": [
+    {
+      "id": "sys-pin-hole",
+      "slotA": "system plate pin",
+      "slotB": "system plate hole",
+      "joint": "fixed",
+      "description": "Emboîtement plaque system standard"
+    },
+    {
+      "id": "sys-pin-midhole",
+      "slotA": "system plate pin",
+      "slotB": "system plate mid hole",
+      "joint": "fixed",
+      "description": "Emboîtement plaque system anti-friction"
+    },
+    {
+      "id": "sys-pin-brickhole",
+      "slotA": "system plate pin",
+      "slotB": "system brick hole",
+      "joint": "fixed",
+      "description": "Plot plaque dans trou brique system"
+    },
+    {
+      "id": "classic-pin-hole",
+      "slotA": "brick pin",
+      "slotB": "system plate hole",
+      "joint": "fixed",
+      "description": "Plot brique classique dans trou plate"
+    },
+    {
+      "id": "classic-pin-midhole",
+      "slotA": "brick pin",
+      "slotB": "system plate mid hole",
+      "joint": "fixed",
+      "description": "Plot brique classique dans trou anti-friction"
+    },
+    {
+      "id": "tech-pin-hole",
+      "slotA": "technics pin",
+      "slotB": "technics hole",
+      "joint": "revolute",
+      "description": "Axe Technic dans trou lisse — pivot libre"
+    },
+    {
+      "id": "tech-pin-brickhole",
+      "slotA": "technics pin",
+      "slotB": "technics brick hole",
+      "joint": "fixed",
+      "description": "Axe Technic dans trou brique — solidaire"
+    },
+    {
+      "id": "tech-pin-midbrickhole",
+      "slotA": "technics pin",
+      "slotB": "technics brick mid hole",
+      "joint": "revolute",
+      "description": "Axe Technic dans trou mi-brique — pivot"
+    },
+    {
+      "id": "tech-brickpin-hole",
+      "slotA": "technics brick pin",
+      "slotB": "technics hole",
+      "joint": "revolute",
+      "description": "Pin brique Technic dans trou lisse — pivot"
+    },
+    {
+      "id": "tech-brickpin-brickhole",
+      "slotA": "technics brick pin",
+      "slotB": "technics brick hole",
+      "joint": "fixed",
+      "description": "Pin brique Technic dans trou brique — solidaire"
+    },
+    {
+      "id": "tech-brickpin-midbrickhole",
+      "slotA": "technics brick pin",
+      "slotB": "technics brick mid hole",
+      "joint": "revolute",
+      "description": "Pin brique Technic dans trou mi-brique — pivot"
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "type": "modeler-shape",
+  "name": "plot",
+  "rootId": "step-49a4g0u",
+  "steps": [
+    {
+      "id": "step-01zsabo",
+      "kind": "cylinder",
+      "label": "Cylindre plot - 1",
+      "params": {
+        "r": 0.3,
+        "h": 0.22,
+        "segs": 32
+      },
+      "translate": [
+        0,
+        0,
+        0.59
+      ],
+      "rotate": [
+        -90,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-2avf5x3",
+      "kind": "cylinder",
+      "label": "Cylindre plot def",
+      "params": {
+        "r": 0.2,
+        "h": 2,
+        "segs": 24
+      },
+      "translate": [
+        0,
+        0,
+        0
+      ],
+      "rotate": [
+        90,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-49a4g0u",
+      "kind": "subtract",
+      "label": "plot",
+      "params": {
+        "a": "step-01zsabo",
+        "b": "step-2avf5x3"
+      },
+      "translate": [
+        0,
+        0,
+        0
+      ],
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": true
+    }
+  ],
+  "createdAt": "2026-03-24T07:19:00.032Z",
+  "updatedAt": "2026-03-24T07:19:00.032Z"
+}

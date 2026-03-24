@@ -1,0 +1,178 @@
+{
+  "type": "modeler-shape",
+  "name": "Union",
+  "rootId": "step-ph396c4",
+  "steps": [
+    {
+      "id": "step-tt0qalq",
+      "kind": "cylinder",
+      "label": "Cylindre",
+      "params": {
+        "r": 0.3,
+        "h": 2,
+        "segs": 128
+      },
+      "visible": false
+    },
+    {
+      "id": "step-jkp2tu2",
+      "kind": "cylinder",
+      "label": "Cylindre plot - 1",
+      "params": {
+        "r": 0.3,
+        "h": 0.22,
+        "segs": 32
+      },
+      "translate": [
+        0,
+        0,
+        0.59
+      ],
+      "rotate": [
+        -90,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-u0124wn",
+      "kind": "cylinder",
+      "label": "Cylindre plot def",
+      "params": {
+        "r": 0.2,
+        "h": 2,
+        "segs": 24
+      },
+      "translate": [
+        0,
+        0,
+        0
+      ],
+      "rotate": [
+        90,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-p8sdicq",
+      "kind": "subtract",
+      "label": "plot",
+      "params": {
+        "a": "step-jkp2tu2",
+        "b": "step-u0124wn"
+      },
+      "translate": [
+        0,
+        0,
+        0
+      ],
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-97f9s3y",
+      "kind": "repeat",
+      "label": "Répétition hole x3",
+      "params": {
+        "src": "step-tt0qalq",
+        "n": 3,
+        "dx": 1,
+        "dy": 0,
+        "dz": 0
+      },
+      "translate": [
+        0,
+        0,
+        0
+      ],
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-wa2ld4f",
+      "kind": "repeat",
+      "label": "Répétition plots x4",
+      "params": {
+        "src": "step-p8sdicq",
+        "n": 4,
+        "dx": 1,
+        "dy": 0,
+        "dz": 0
+      },
+      "translate": [
+        -0.5,
+        0,
+        0
+      ],
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-ph396c4",
+      "kind": "union",
+      "label": "Union",
+      "params": {
+        "a": "step-97f9s3y",
+        "b": "step-wa2ld4f"
+      },
+      "translate": [
+        0,
+        0,
+        0
+      ],
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": true
+    }
+  ],
+  "createdAt": "2026-03-24T09:28:59.492Z",
+  "updatedAt": "2026-03-24T09:28:59.492Z"
+}

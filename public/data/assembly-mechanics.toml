@@ -1,0 +1,241 @@
+# ════════════════════════════════════════════════════════════════
+#  assembly-mechanics.toml
+#  Source de vérité des types de slots et des liaisons rBang
+#  Format : TOML simplifié  —  sections [[slot]], [[joint]], [[liaison]]
+# ════════════════════════════════════════════════════════════════
+
+
+# ────────────────────────────────────────────────────────────────
+#  SECTION 1 · TYPES DE SLOTS
+#
+#  Champs :
+#    id          identifiant interne (doit être unique)
+#    label       nom affiché dans l'interface
+#    role        pin | hole
+#    family      system | classic | technic
+#    color       couleur hex du marqueur 3D
+#    description phrase courte expliquant la géométrie / fonction
+# ────────────────────────────────────────────────────────────────
+
+[[slot]]
+id          = system plate pin
+label       = Plaque · Plot
+role        = pin
+family      = system
+color       = #ffa500
+description = Plot cylindrique sur le dessus des plaques system
+
+[[slot]]
+id          = brick pin
+label       = Brique · Plot
+role        = pin
+family      = classic
+color       = #ff8c00
+description = Plot cylindrique classique des briques ABS
+
+[[slot]]
+id          = technics pin
+label       = Technic · Pin
+role        = pin
+family      = technic
+color       = #44dd88
+description = Axe cylindrique traversant Technic
+
+[[slot]]
+id          = technics brick pin
+label       = Technic · Pin brique
+role        = pin
+family      = technic
+color       = #22bb66
+description = Pin Technic intégré dans un corps de brique
+
+[[slot]]
+id          = system plate hole
+label       = Plaque · Trou
+role        = hole
+family      = system
+color       = #4488ff
+description = Cavité de réception d'un plot plaque system
+
+[[slot]]
+id          = system plate mid hole
+label       = Plaque · Trou anti-friction
+role        = hole
+family      = system
+color       = #2266dd
+description = Cavité avec jeu réduit (ajustement serré)
+
+[[slot]]
+id          = system brick hole
+label       = Brique · Trou
+role        = hole
+family      = system
+color       = #6699ff
+description = Cavité latérale dans un corps de brique system
+
+[[slot]]
+id          = technics hole
+label       = Technic · Trou lisse
+role        = hole
+family      = technic
+color       = #cc44cc
+description = Trou cylindrique lisse — rotation libre
+
+[[slot]]
+id          = technics brick hole
+label       = Technic · Trou brique
+role        = hole
+family      = technic
+color       = #aa22aa
+description = Trou cylindrique dans un corps de brique (serré)
+
+[[slot]]
+id          = technics brick mid hole
+label       = Technic · Trou mi-brique
+role        = hole
+family      = technic
+color       = #882288
+description = Trou mi-hauteur dans un corps de brique Technic
+
+
+# ────────────────────────────────────────────────────────────────
+#  SECTION 2 · TYPES DE JOINTS
+#
+#  Champs :
+#    id          identifiant interne (référencé par les liaisons)
+#    label       nom affiché
+#    dof         degrés de liberté laissés (0 = fixe, 6 = libre)
+#    icon        emoji ou symbole court pour la grille
+#    description comportement mécanique résultant
+# ────────────────────────────────────────────────────────────────
+
+[[joint]]
+id          = fixed
+label       = Fixe
+dof         = 0
+icon        = 🔒
+description = Aucun mouvement — pièces solidaires
+
+[[joint]]
+id          = revolute
+label       = Pivot
+dof         = 1
+icon        = 🔄
+description = Rotation libre autour d'un axe
+
+[[joint]]
+id          = prismatic
+label       = Glissière
+dof         = 1
+icon        = ↔
+description = Translation libre le long d'un axe
+
+[[joint]]
+id          = spherical
+label       = Rotule
+dof         = 3
+icon        = ⚫
+description = 3 rotations libres, aucune translation
+
+[[joint]]
+id          = spring
+label       = Ressort
+dof         = 1
+icon        = 〰
+description = Liaison élastique — raideur et amortissement paramétrables
+
+[[joint]]
+id          = none
+label       = Aucune
+dof         = 6
+icon        = ✕
+description = Pas de liaison — contact physique uniquement
+
+
+# ────────────────────────────────────────────────────────────────
+#  SECTION 3 · LIAISONS (compatibilités entre slots)
+#
+#  Champs :
+#    id          identifiant unique de la règle
+#    slotA       id du premier slot (en général le pin)
+#    slotB       id du second slot (en général le hole)
+#    joint       id du joint résultant (référence section [[joint]])
+#    description explication fonctionnelle de cette connexion
+# ────────────────────────────────────────────────────────────────
+
+[[liaison]]
+id          = sys-pin-hole
+slotA       = system plate pin
+slotB       = system plate hole
+joint       = fixed
+description = Emboîtement plaque system standard
+
+[[liaison]]
+id          = sys-pin-midhole
+slotA       = system plate pin
+slotB       = system plate mid hole
+joint       = fixed
+description = Emboîtement plaque system anti-friction
+
+[[liaison]]
+id          = sys-pin-brickhole
+slotA       = system plate pin
+slotB       = system brick hole
+joint       = fixed
+description = Plot plaque dans trou brique system
+
+[[liaison]]
+id          = classic-pin-hole
+slotA       = brick pin
+slotB       = system plate hole
+joint       = fixed
+description = Plot brique classique dans trou plate
+
+[[liaison]]
+id          = classic-pin-midhole
+slotA       = brick pin
+slotB       = system plate mid hole
+joint       = fixed
+description = Plot brique classique dans trou anti-friction
+
+[[liaison]]
+id          = tech-pin-hole
+slotA       = technics pin
+slotB       = technics hole
+joint       = revolute
+description = Axe Technic dans trou lisse — pivot libre
+
+[[liaison]]
+id          = tech-pin-brickhole
+slotA       = technics pin
+slotB       = technics brick hole
+joint       = fixed
+description = Axe Technic dans trou brique — solidaire
+
+[[liaison]]
+id          = tech-pin-midbrickhole
+slotA       = technics pin
+slotB       = technics brick mid hole
+joint       = revolute
+description = Axe Technic dans trou mi-brique — pivot
+
+[[liaison]]
+id          = tech-brickpin-hole
+slotA       = technics brick pin
+slotB       = technics hole
+joint       = revolute
+description = Pin brique Technic dans trou lisse — pivot
+
+[[liaison]]
+id          = tech-brickpin-brickhole
+slotA       = technics brick pin
+slotB       = technics brick hole
+joint       = fixed
+description = Pin brique Technic dans trou brique — solidaire
+
+[[liaison]]
+id          = tech-brickpin-midbrickhole
+slotA       = technics brick pin
+slotB       = technics brick mid hole
+joint       = revolute
+description = Pin brique Technic dans trou mi-brique — pivot

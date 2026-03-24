@@ -1,0 +1,352 @@
+{
+  "type": "modeler-shape",
+  "name": "brique technic 1x1",
+  "rootId": "step-epraccn",
+  "steps": [
+    {
+      "id": "step-hkno6ih",
+      "kind": "cube",
+      "label": "Corp",
+      "params": {
+        "x": 1,
+        "y": 1.2,
+        "z": 1
+      },
+      "translate": [
+        0,
+        -0.1,
+        0
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-91w6s1p",
+      "kind": "cylinder",
+      "label": "Cylindre",
+      "params": {
+        "r": 0.3,
+        "h": 2,
+        "segs": 128
+      },
+      "visible": false
+    },
+    {
+      "id": "step-k1caqw7",
+      "kind": "subtract",
+      "label": "Soustraire 1",
+      "params": {
+        "a": "step-hkno6ih",
+        "b": "step-91w6s1p"
+      },
+      "visible": false
+    },
+    {
+      "id": "step-f9yhman",
+      "kind": "cube",
+      "label": "Cube 2",
+      "params": {
+        "x": 0.6,
+        "y": 1,
+        "z": 0.6
+      },
+      "translate": [
+        0,
+        -0.5,
+        0
+      ],
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-54a1q2b",
+      "kind": "cylinder",
+      "label": "Cylindre 2",
+      "params": {
+        "r": 0.45,
+        "h": 2,
+        "segs": 32
+      },
+      "translate": [
+        0,
+        0,
+        0
+      ],
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-ocbfr4s",
+      "kind": "subtract",
+      "label": "Soustraire bottom",
+      "params": {
+        "a": "step-f9yhman",
+        "b": "step-54a1q2b"
+      },
+      "translate": [
+        0,
+        0,
+        0
+      ],
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-ptxodhq",
+      "kind": "cylinder",
+      "label": "Cylindre ep-0",
+      "params": {
+        "r": 0.4,
+        "h": 1.5,
+        "segs": 32
+      },
+      "translate": [
+        0,
+        0,
+        0
+      ],
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-ggsyujx",
+      "kind": "cylinder",
+      "label": "Cylindre ep-1",
+      "params": {
+        "r": 0.5,
+        "h": 0.8,
+        "segs": 24
+      },
+      "translate": [
+        0,
+        0,
+        0
+      ],
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-druev12",
+      "kind": "subtract",
+      "label": "ep-soustr",
+      "params": {
+        "a": "step-ptxodhq",
+        "b": "step-ggsyujx"
+      },
+      "translate": [
+        0,
+        0,
+        0
+      ],
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-ug0qoyv",
+      "kind": "subtract",
+      "label": "Soustraire - 0",
+      "params": {
+        "a": "step-k1caqw7",
+        "b": "step-druev12"
+      },
+      "translate": [
+        0,
+        0,
+        0
+      ],
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-w2kqlb1",
+      "kind": "subtract",
+      "label": "Soustraire - 3",
+      "params": {
+        "a": "step-ug0qoyv",
+        "b": "step-ocbfr4s"
+      },
+      "translate": [
+        0,
+        0,
+        0
+      ],
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-j4dz4tc",
+      "kind": "cylinder",
+      "label": "Cylindre plot - 1",
+      "params": {
+        "r": 0.3,
+        "h": 0.22,
+        "segs": 32
+      },
+      "translate": [
+        0,
+        0,
+        0.59
+      ],
+      "rotate": [
+        -90,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-j5qllf2",
+      "kind": "cylinder",
+      "label": "Cylindre plot def",
+      "params": {
+        "r": 0.2,
+        "h": 2,
+        "segs": 24
+      },
+      "translate": [
+        0,
+        0,
+        0
+      ],
+      "rotate": [
+        90,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-lktgtsn",
+      "kind": "subtract",
+      "label": "plot",
+      "params": {
+        "a": "step-j4dz4tc",
+        "b": "step-j5qllf2"
+      },
+      "translate": [
+        0,
+        0,
+        0
+      ],
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": false
+    },
+    {
+      "id": "step-epraccn",
+      "kind": "union",
+      "label": "brique technic 1x1 ",
+      "params": {
+        "a": "step-w2kqlb1",
+        "b": "step-lktgtsn"
+      },
+      "translate": [
+        0,
+        0,
+        0
+      ],
+      "rotate": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": true
+    }
+  ],
+  "createdAt": "2026-03-24T07:18:34.715Z",
+  "updatedAt": "2026-03-24T07:18:34.715Z"
+}
