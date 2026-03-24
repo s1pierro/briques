@@ -1,81 +1,64 @@
 import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
-import * as dynamics from '../dynamics.js';
+import { getManifold, buildCache, manifoldToGeometry } from '../csg-utils.js';
 
-const SCALE = 0.008;
+// ─── Stores localStorage ──────────────────────────────────────────────────────
 
-// ─── Géométrie depuis JSON ────────────────────────────────────────────────────
+const LS_BRICKS     = 'rbang_bricks';
+const LS_SLOT_TYPES = 'rbang_slot_types';
+const LS_LIAISONS   = 'rbang_liaisons';
 
-function buildGeometry(obj, highlightSurfaces = null) {
-  const verts = obj.vertices;
-  const tris  = obj.triangles;
-  const normalTris = [], hlTris = [];
+function loadStore(key)       { try { return JSON.parse(localStorage.getItem(key) || '{}'); } catch { return {}; } }
+function saveStore(key, data) { localStorage.setItem(key, JSON.stringify(data)); }
+function uid(prefix = 'id')   { return prefix + '-' + Math.random().toString(36).slice(2, 9); }
 
-  if (highlightSurfaces?.length) {
-    const hlSet = new Set();
-    for (const si of highlightSurfaces) {
-      obj.surfaces[si]?.triangleset.forEach(ti => hlSet.add(ti));
-    }
-    tris.forEach((t, i) => (hlSet.has(i) ? hlTris : normalTris).push(t));
-  } else {
-    tris.forEach(t => normalTris.push(t));
-  }
+// ─── Couleurs DOF ─────────────────────────────────────────────────────────────
 
-  function buf(list) {
-    const pos = new Float32Array(list.length * 9);
-    const nm  = new Float32Array(list.length * 9);
-    list.forEach((t, i) => {
-      const v0=verts[t['0']], v1=verts[t['1']], v2=verts[t['2']];
-      const ax=v0['0']*SCALE,ay=v0['1']*SCALE,az=v0['2']*SCALE;
-      const bx=v1['0']*SCALE,by=v1['1']*SCALE,bz=v1['2']*SCALE;
-      const cx=v2['0']*SCALE,cy=v2['1']*SCALE,cz=v2['2']*SCALE;
-      pos.set([ax,ay,az,bx,by,bz,cx,cy,cz], i*9);
-      const ux=bx-ax,uy=by-ay,uz=bz-az,vx=cx-ax,vy=cy-ay,vz=cz-az;
-      const nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;
-      const nl=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;
-      for(let k=0;k<3;k++) nm.set([nx/nl,ny/nl,nz/nl], i*9+k*3);
-    });
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(pos,3));
-    g.setAttribute('normal',   new THREE.BufferAttribute(nm,3));
-    return g;
-  }
+const DOF_COLOR = {
+  rotation:    0x7aafc8,
+  translation: 0xffcc44,
+  ball:        0x88cc88,
+  cylindrical: 0xff8844,
+};
 
-  return { normalGeo: buf(normalTris), highlightGeo: hlTris.length ? buf(hlTris) : null };
-}
+const DOF_LABELS = {
+  rotation:    'Pivot',
+  translation: 'Glissière',
+  ball:        'Rotule',
+  cylindrical: 'Pivot glissant',
+};
 
-// ─── Mode Forge ───────────────────────────────────────────────────────────────
+// ─── Forge ────────────────────────────────────────────────────────────────────
 
 export class Forge {
 
   constructor(engine) {
-    this.engine        = engine;
-    this._ui           = [];
-    this._bankList     = [];
-    this._brickData    = null;
-    this._brickName    = null;
-    this._meshGroup    = null;
-    this._slotMarkers  = [];
-    this._selectedIdx  = null;
-    this._dirtyBrick   = false;
-    this._dirtyDyn     = false;
-    this._raycaster    = new THREE.Raycaster();
-    this._mouse        = new THREE.Vector2(-9999, -9999);
-    this._activeTab    = 'brick'; // 'brick' | 'slots' | 'meca'
-    this._mecaSubTab   = 'slots'; // 'slots' | 'liaisons'
-    this._leftW        = 172;
-    this._rightW       = 296;
+    this.engine          = engine;
+    this._ui             = [];
+    this._activeTab      = 'brick';
+    this._mecaSubTab     = 'types';
+    this._currentBrick   = null;
+    this._selectedSlotId = null;
+    this._helpers        = [];
+    this._xray           = false;
+    this._meshGroup      = null;
+    this._brickMat       = null;
+    this._leftW          = 172;
+    this._rightW         = 300;
+    this._dirty          = false;
+    this._lockedAxis     = null;
+    this._lockOffset     = 0;
   }
 
   // ─── Cycle de vie ─────────────────────────────────────────────────────────
 
   async start() {
     this._setupScene();
-    this._setupEvents();
     this._setupUI();
+    this._setupResizeHandles();
+    this._setupViewWidget();
+    this._applyPanelWidths();
     this.engine.start();
-    await dynamics.init();
-    await this._loadBankList();
   }
 
   stop() {
@@ -83,13 +66,9 @@ export class Forge {
     this._clearScene();
     this._ui.forEach(el => el.remove());
     this._ui = [];
-    window.removeEventListener('click',   this._onClick);
-    window.removeEventListener('keydown', this._onKeyDown);
     document.documentElement.style.removeProperty('--fg-left-w');
     document.documentElement.style.removeProperty('--fg-right-w');
     this.engine.resizeViewport(0, 0);
-
-    // Restaurer OrbitControls
     this.engine.controls.dispose();
     this.engine.controls = this._origControls;
     this._origControls.enabled = true;
@@ -103,8 +82,7 @@ export class Forge {
     this._grid = new THREE.GridHelper(4, 20, 0x181825, 0x111120);
     e.scene.add(this._grid);
 
-    // ── Remplacer OrbitControls par TrackballControls ──────────────────────
-    this._origControls = e.controls;
+    this._origControls         = e.controls;
     this._origControls.enabled = false;
 
     const tb = new TrackballControls(e.camera, e.renderer.domElement);
@@ -114,7 +92,6 @@ export class Forge {
     tb.dynamicDampingFactor = 0.18;
     tb.minDistance          = 0.2;
     tb.maxDistance          = 20;
-    // Touch : 1 doigt rotate, 2 doigts zoom, 3 doigts pan
     tb.keys = ['KeyA', 'KeyS', 'KeyD'];
     e.controls = tb;
 
@@ -126,16 +103,12 @@ export class Forge {
     this._fillLight.position.set(-1, 0.5, -1);
     e.scene.add(this._fillLight);
 
-    // Axe verrouillé : null | 'x' | 'y' | 'z'
-    this._lockedAxis  = null;
-    this._lockOffset  = 0; // composante conservée le long de l'axe
-
     e.onPostUpdate = () => this._applyAxisLock();
   }
 
   _clearScene() {
     this._disposeMeshGroup();
-    this._clearSlotMarkers();
+    this._clearHelpers();
     if (this._grid)      this.engine.scene.remove(this._grid);
     if (this._fillLight) this.engine.scene.remove(this._fillLight);
   }
@@ -148,252 +121,423 @@ export class Forge {
       if (o.material) [].concat(o.material).forEach(m => m.dispose());
     });
     this._meshGroup = null;
-  }
-
-  // ─── Banque ───────────────────────────────────────────────────────────────
-
-  async _loadBankList() {
-    const res = await fetch('/bank-index');
-    this._bankList = await res.json();
-    this._renderBankList();
-  }
-
-  async _loadBrick(name) {
-    const res  = await fetch(`/bank/${encodeURIComponent(name)}.json`);
-    const data = await res.json();
-    this._brickName  = name;
-    this._brickData  = data;
-    this._selectedIdx = null;
-    this._dirtyBrick  = false;
-    this._rebuildMesh();
-    this._rebuildSlotMarkers();
-    this._renderActiveTab();
-    this._updateSaveBtns();
-    this._updateHint();
+    this._brickMat  = null;
   }
 
   // ─── Maillage ─────────────────────────────────────────────────────────────
 
-  _rebuildMesh(hlSurfaces = null) {
+  async _rebuildMesh() {
     this._disposeMeshGroup();
-    const data = this._brickData;
-    const { normalGeo, highlightGeo } = buildGeometry(data.object, hlSurfaces);
-    const col = data.color ? parseInt(data.color.replace('#',''), 16) : 0x888888;
+    if (!this._currentBrick?.shapeRef) return;
+    try {
+      const shapes = JSON.parse(localStorage.getItem('rbang_shapes') || '{}');
+      const data   = shapes[this._currentBrick.shapeRef];
+      if (!data?.steps || !data.rootId) { this._setStatus('Shape introuvable dans le catalogue'); return; }
 
-    const group = new THREE.Group();
-    this._brickMat = new THREE.MeshStandardMaterial({ color: col, roughness: 0.55, side: THREE.DoubleSide });
-    group.add(new THREE.Mesh(normalGeo, this._brickMat));
+      const M     = await getManifold();
+      const cache = buildCache(data.steps, M);
+      const mf    = cache.get(data.rootId);
+      if (!mf) { this._setStatus('Erreur CSG'); return; }
 
-    if (highlightGeo) {
-      const hlMat = new THREE.MeshStandardMaterial({ color: 0xffee44, roughness: 0.3, side: THREE.DoubleSide, emissive: 0x332200 });
-      group.add(new THREE.Mesh(highlightGeo, hlMat));
-    }
+      const { geo } = manifoldToGeometry(mf);
+      const color   = parseInt((this._currentBrick.color || '#888888').replace('#', ''), 16);
+      this._brickMat = new THREE.MeshStandardMaterial({ color, roughness: 0.55, side: THREE.DoubleSide });
 
-    const box = new THREE.Box3().setFromObject(group.children[0]);
-    this._brickCenter = box.getCenter(new THREE.Vector3());
-    group.position.sub(this._brickCenter);
+      const mesh = new THREE.Mesh(geo, this._brickMat);
+      mesh.castShadow = mesh.receiveShadow = true;
 
-    this.engine.scene.add(group);
-    this._meshGroup = group;
-  }
-
-  // ─── Marqueurs slots ──────────────────────────────────────────────────────
-
-  _clearSlotMarkers() {
-    for (const m of this._slotMarkers) {
-      this.engine.scene.remove(m.group);
-      m.group.traverse(o => { o.geometry?.dispose(); o.material?.dispose(); });
-    }
-    this._slotMarkers = [];
-  }
-
-  _rebuildSlotMarkers() {
-    this._clearSlotMarkers();
-    if (!this._brickData?.slots?.length) return;
-
-    this._brickData.slots.forEach((slot, i) => {
-      const e   = slot.mat.elements;
-      const col = dynamics.getSlotColor(slot.type);
-      const pos = new THREE.Vector3(e[12]*SCALE, e[13]*SCALE, e[14]*SCALE).sub(this._brickCenter);
-      const axis = new THREE.Vector3(e[4], e[5], e[6]).normalize();
-
-      const group = new THREE.Group();
-      group.position.copy(pos);
-
-      const sphere = new THREE.Mesh(
-        new THREE.SphereGeometry(0.03, 10, 10),
-        new THREE.MeshBasicMaterial({ color: col, depthTest: false, transparent: true, opacity: 0.92 })
-      );
-      sphere.userData.slotIndex = i;
-      sphere.renderOrder = 999;
-      group.add(sphere);
-
-      const arrow = new THREE.ArrowHelper(axis, new THREE.Vector3(), 0.15, col, 0.04, 0.025);
-      arrow.traverse(o => {
-        if (o.material) {
-          o.material = o.material.clone();
-          o.material.depthTest   = false;
-          o.material.transparent = true;
-          o.material.opacity     = 0.75;
-        }
-        o.renderOrder = 999;
-      });
-      group.add(arrow);
+      const group  = new THREE.Group();
+      group.add(mesh);
+      const center = new THREE.Box3().setFromObject(mesh).getCenter(new THREE.Vector3());
+      group.position.sub(center);
 
       this.engine.scene.add(group);
-      this._slotMarkers.push({ group, sphere, slotIndex: i });
-    });
+      this._meshGroup = group;
+      this._brickCenter = center;
+    } catch (err) {
+      this._setStatus('Erreur chargement géométrie');
+      console.error(err);
+    }
+    this._rebuildHelpers();
   }
 
-  _highlightMarker(idx) {
-    this._slotMarkers.forEach(m => {
-      const sel = m.slotIndex === idx;
-      const col = dynamics.getSlotColor(this._brickData.slots[m.slotIndex]?.type);
-      m.sphere.material.color.setHex(sel ? 0xffffff : col);
-      m.sphere.material.opacity = sel ? 1.0 : 0.92;
-      m.sphere.scale.setScalar(sel ? 1.7 : 1.0);
-    });
+  // ─── Helpers ──────────────────────────────────────────────────────────────
+
+  _clearHelpers() {
+    for (const g of this._helpers) {
+      this.engine.scene.remove(g);
+      g.traverse(o => {
+        o.geometry?.dispose();
+        if (o.material) [].concat(o.material).forEach(m => m.dispose());
+      });
+    }
+    this._helpers = [];
   }
 
-  // ─── Sélection slot ───────────────────────────────────────────────────────
+  _rebuildHelpers() {
+    this._clearHelpers();
+    if (!this._currentBrick?.slots?.length) return;
+    const liaisons = Object.values(loadStore(LS_LIAISONS));
+    const offset   = this._meshGroup?.position ?? new THREE.Vector3();
 
-  _selectSlot(idx) {
-    this._selectedIdx = idx;
-    const slot = this._brickData.slots[idx];
-    this._rebuildMesh(slot.surfaces);
-    this._rebuildSlotMarkers();
-    this._highlightMarker(idx);
-    this._switchTab('slots');
-    this._renderSlotsTab();
+    for (const slot of this._currentBrick.slots) {
+      const g = this._buildSlotHelper(slot, liaisons, offset);
+      this.engine.scene.add(g);
+      this._helpers.push(g);
+    }
+    this._applyXrayToHelpers();
   }
 
-  _pickSlot(event) {
-    const rect = this.engine.renderer.domElement.getBoundingClientRect();
-    this._mouse.set(
-      ((event.clientX - rect.left) / rect.width)  * 2 - 1,
-     -((event.clientY - rect.top)  / rect.height) * 2 + 1
+  _buildSlotHelper(slot, liaisons, groupOffset) {
+    const group = new THREE.Group();
+    const [px, py, pz] = slot.position;
+    group.position.set(px + groupOffset.x, py + groupOffset.y, pz + groupOffset.z);
+    const [qx, qy, qz, qw] = slot.quaternion;
+    group.quaternion.set(qx, qy, qz, qw);
+
+    const selected = slot.id === this._selectedSlotId;
+    const axLen    = 0.12;
+
+    // Trièdre XYZ
+    const addArrow = (dir, baseColor, selColor) => {
+      const color = selected ? selColor : baseColor;
+      const a     = new THREE.ArrowHelper(dir, new THREE.Vector3(), axLen, color, axLen * 0.3, axLen * 0.15);
+      a.traverse(o => { if (o.material) { o.material = o.material.clone(); o.material.depthWrite = false; } o.renderOrder = 998; });
+      group.add(a);
+    };
+    addArrow(new THREE.Vector3(1, 0, 0), 0x992222, 0xff4444);
+    addArrow(new THREE.Vector3(0, 1, 0), 0x229922, 0x44ff44);
+    addArrow(new THREE.Vector3(0, 0, 1), 0x224499, 0x4488ff);
+
+    // Sphère origine
+    const sp = new THREE.Mesh(
+      new THREE.SphereGeometry(0.022, 8, 8),
+      new THREE.MeshBasicMaterial({ color: selected ? 0xffffff : 0x999999, depthWrite: false })
     );
-    this._raycaster.setFromCamera(this._mouse, this.engine.camera);
-    const hits = this._raycaster.intersectObjects(this._slotMarkers.map(m => m.sphere), false);
-    if (hits.length) { this._selectSlot(hits[0].object.userData.slotIndex); return true; }
-    return false;
+    sp.renderOrder = 999;
+    group.add(sp);
+
+    // DOF helpers — liaisons référençant ce type de slot
+    for (const liaison of liaisons) {
+      if (!liaison.pairs?.some(p => p.typeA === slot.typeId || p.typeB === slot.typeId)) continue;
+      for (const dof of (liaison.dof || [])) this._addDofHelper(group, dof);
+    }
+
+    return group;
   }
 
-  // ─── Modifications brique ─────────────────────────────────────────────────
+  _addDofHelper(group, dof) {
+    const [ax, ay, az] = dof.axis || [0, 0, 1];
+    const axis  = new THREE.Vector3(ax, ay, az).normalize();
+    const color = DOF_COLOR[dof.type] ?? 0xffffff;
+    const mat   = () => new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide });
+
+    const alignToAxis = (mesh) => {
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis);
+      mesh.renderOrder = 997;
+    };
+
+    const addArrows = () => {
+      [axis.clone(), axis.clone().negate()].forEach(dir => {
+        const a = new THREE.ArrowHelper(dir, new THREE.Vector3(), 0.16, color, 0.05, 0.03);
+        a.traverse(o => { if (o.material) { o.material = o.material.clone(); o.material.depthWrite = false; } o.renderOrder = 997; });
+        group.add(a);
+      });
+    };
+
+    switch (dof.type) {
+      case 'rotation': {
+        const m = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.014, 24, 1, true), mat());
+        alignToAxis(m);
+        group.add(m);
+        break;
+      }
+      case 'translation': {
+        addArrows();
+        break;
+      }
+      case 'ball': {
+        const m = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 8), mat());
+        m.renderOrder = 997;
+        group.add(m);
+        break;
+      }
+      case 'cylindrical': {
+        const m = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.014, 24, 1, true), mat());
+        alignToAxis(m);
+        group.add(m);
+        addArrows();
+        break;
+      }
+    }
+  }
+
+  _applyXrayToHelpers() {
+    for (const g of this._helpers) {
+      g.traverse(o => { if (o.material) o.material.depthTest = !this._xray; });
+    }
+  }
+
+  _setXray(v) {
+    this._xray = v;
+    if (this._xrayBtn) this._xrayBtn.classList.toggle('active', v);
+    this._applyXrayToHelpers();
+  }
+
+  // ─── Stores ───────────────────────────────────────────────────────────────
+
+  _bricks()         { return loadStore(LS_BRICKS); }
+  _slotTypes()      { return loadStore(LS_SLOT_TYPES); }
+  _liaisons()       { return loadStore(LS_LIAISONS); }
+  _saveBricks(s)    { saveStore(LS_BRICKS, s); }
+  _saveSlotTypes(s) { saveStore(LS_SLOT_TYPES, s); }
+  _saveLiaisons(s)  { saveStore(LS_LIAISONS, s); }
+
+  // ─── Briques ──────────────────────────────────────────────────────────────
+
+  _saveBrick() {
+    if (!this._currentBrick) return;
+    const store = this._bricks();
+    store[this._currentBrick.id] = { ...this._currentBrick, updatedAt: new Date().toISOString() };
+    this._saveBricks(store);
+    this._dirty = false;
+    this._updateSaveBtn();
+    this._renderBrickList();
+    this._setStatus('Brique sauvegardée');
+  }
+
+  _markDirty() { this._dirty = true; this._updateSaveBtn(); }
+
+  _updateSaveBtn() {
+    if (this._saveBrickBtn) this._saveBrickBtn.classList.toggle('active', this._dirty);
+  }
+
+  _newBrickFromShape(shapeName) {
+    this._currentBrick   = { id: uid('br'), name: shapeName, shapeRef: shapeName, color: '#7aafc8', slots: [], createdAt: new Date().toISOString() };
+    this._selectedSlotId = null;
+    this._dirty          = true;
+    this._rebuildMesh();
+    this._renderBrickList();
+    this._renderActiveTab();
+    this._updateSaveBtn();
+  }
+
+  _loadBrick(id) {
+    const b = this._bricks()[id];
+    if (!b) return;
+    this._currentBrick   = { ...b, slots: b.slots ? b.slots.map(s => ({ ...s })) : [] };
+    this._selectedSlotId = null;
+    this._dirty          = false;
+    this._rebuildMesh();
+    this._renderActiveTab();
+    this._updateSaveBtn();
+  }
+
+  _deleteBrick(id) {
+    const store = this._bricks();
+    delete store[id];
+    this._saveBricks(store);
+    if (this._currentBrick?.id === id) {
+      this._currentBrick = null;
+      this._disposeMeshGroup();
+      this._clearHelpers();
+      this._renderActiveTab();
+    }
+    this._renderBrickList();
+  }
 
   _setBrickColor(hex) {
-    this._brickData.color = hex;
+    if (!this._currentBrick) return;
+    this._currentBrick.color = hex;
     if (this._brickMat) this._brickMat.color.setStyle(hex);
-    this._markDirtyBrick();
+    this._markDirty();
   }
 
   _setBrickName(name) {
-    this._brickData.name = name;
-    this._markDirtyBrick();
+    if (!this._currentBrick) return;
+    this._currentBrick.name = name;
+    this._markDirty();
+    this._renderBrickList();
   }
 
-  _setAuthors(authors) {
-    this._brickData.authors = authors;
-    this._markDirtyBrick();
+  // ─── Slots ────────────────────────────────────────────────────────────────
+
+  _addSlot() {
+    if (!this._currentBrick) return;
+    const slot = { id: uid('sl'), typeId: null, position: [0, 0, 0], quaternion: [0, 0, 0, 1] };
+    this._currentBrick.slots.push(slot);
+    this._selectedSlotId = slot.id;
+    this._markDirty();
+    this._rebuildHelpers();
+    this._renderSlotsTab();
   }
 
-  _setDescription(desc) {
-    this._brickData.description = desc;
-    this._markDirtyBrick();
+  _deleteSlot(id) {
+    if (!this._currentBrick) return;
+    this._currentBrick.slots = this._currentBrick.slots.filter(s => s.id !== id);
+    if (this._selectedSlotId === id) this._selectedSlotId = null;
+    this._markDirty();
+    this._rebuildHelpers();
+    this._renderSlotsTab();
   }
 
-  _markDirtyBrick() {
-    this._dirtyBrick = true;
-    this._updateSaveBtns();
-    this._updateBankListItem();
+  _selectSlot(id) {
+    this._selectedSlotId = id;
+    this._rebuildHelpers();
+    this._renderSlotsTab();
   }
 
-  // ─── Modifications slot ───────────────────────────────────────────────────
-
-  _setSlotType(idx, type) {
-    this._brickData.slots[idx].type = type;
-    this._markDirtyBrick();
-    this._rebuildSlotMarkers();
-    this._highlightMarker(idx);
+  _updateSlotPos(id, xyz) {
+    const s = this._currentBrick?.slots.find(s => s.id === id);
+    if (!s) return;
+    s.position = xyz;
+    this._markDirty();
+    this._rebuildHelpers();
   }
 
-  _setSlotPosition(idx, x, y, z) {
-    const e = this._brickData.slots[idx].mat.elements;
-    e[12] = x; e[13] = y; e[14] = z;
-    this._markDirtyBrick();
-    this._rebuildSlotMarkers();
-    this._highlightMarker(idx);
+  _rotateSlot(id, axis, deg) {
+    const s = this._currentBrick?.slots.find(s => s.id === id);
+    if (!s) return;
+    const q   = new THREE.Quaternion(...s.quaternion);
+    const rot = new THREE.Quaternion().setFromAxisAngle(
+      { x: new THREE.Vector3(1,0,0), y: new THREE.Vector3(0,1,0), z: new THREE.Vector3(0,0,1) }[axis],
+      deg * Math.PI / 180
+    );
+    q.premultiply(rot);
+    s.quaternion = [q.x, q.y, q.z, q.w];
+    this._markDirty();
+    this._rebuildHelpers();
+    this._renderSlotEditor(id);
   }
 
-  _rotateSlotAxis(idx, rx, ry, rz) {
-    const e   = this._brickData.slots[idx].mat.elements;
-    const mat = new THREE.Matrix4().fromArray(e);
-    const pos = new THREE.Vector3(e[12], e[13], e[14]);
-    mat.premultiply(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(rx, ry, rz)));
-    mat.setPosition(pos);
-    this._brickData.slots[idx].mat.elements = Array.from(mat.elements);
-    this._markDirtyBrick();
-    this._rebuildSlotMarkers();
-    this._highlightMarker(idx);
-    this._renderSlotsTab(); // refresh axe affiché
+  _setSlotType(id, typeId) {
+    const s = this._currentBrick?.slots.find(s => s.id === id);
+    if (!s) return;
+    s.typeId = typeId || null;
+    this._markDirty();
+    this._rebuildHelpers();
   }
 
-  // ─── Sauvegarde ───────────────────────────────────────────────────────────
+  // ─── Types de slots ───────────────────────────────────────────────────────
 
-  async _saveBrick() {
-    if (!this._brickName || !this._brickData) return;
-    // Injection des métadonnées temporelles
-    if (!this._brickData.createdAt) this._brickData.createdAt = new Date().toISOString();
-    this._brickData.updatedAt = new Date().toISOString();
+  _addSlotType(name) {
+    const store = this._slotTypes();
+    const id    = uid('st');
+    store[id]   = { id, name: name || ('Type ' + (Object.keys(store).length + 1)) };
+    this._saveSlotTypes(store);
+    return id;
+  }
 
-    const res = await fetch(`/bank/${encodeURIComponent(this._brickName)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(this._brickData),
+  _deleteSlotType(id) {
+    const store = this._slotTypes();
+    delete store[id];
+    this._saveSlotTypes(store);
+    this._renderMecaTab();
+  }
+
+  _renameSlotType(id, name) {
+    const store = this._slotTypes();
+    if (store[id]) { store[id].name = name; this._saveSlotTypes(store); }
+  }
+
+  // ─── Liaisons ─────────────────────────────────────────────────────────────
+
+  _addLiaison() {
+    const store = this._liaisons();
+    const id    = uid('li');
+    store[id]   = { id, name: 'Liaison ' + (Object.keys(store).length + 1), pairs: [], dof: [] };
+    this._saveLiaisons(store);
+    this._renderMecaTab();
+  }
+
+  _deleteLiaison(id) {
+    const store = this._liaisons();
+    delete store[id];
+    this._saveLiaisons(store);
+    this._renderMecaTab();
+  }
+
+  _patchLiaison(id, patch) {
+    const store = this._liaisons();
+    if (!store[id]) return;
+    Object.assign(store[id], patch);
+    this._saveLiaisons(store);
+    this._rebuildHelpers();
+  }
+
+  _addLiaisonPair(liId, typeA, typeB) {
+    const store = this._liaisons();
+    if (!store[liId]) return;
+    store[liId].pairs.push({ typeA, typeB });
+    this._saveLiaisons(store);
+    this._renderMecaTab();
+  }
+
+  _removeLiaisonPair(liId, idx) {
+    const store = this._liaisons();
+    if (!store[liId]) return;
+    store[liId].pairs.splice(idx, 1);
+    this._saveLiaisons(store);
+    this._renderMecaTab();
+  }
+
+  _addLiaisonDof(liId, dof) {
+    const store = this._liaisons();
+    if (!store[liId]) return;
+    store[liId].dof.push(dof);
+    this._saveLiaisons(store);
+    this._renderMecaTab();
+    this._rebuildHelpers();
+  }
+
+  _removeLiaisonDof(liId, idx) {
+    const store = this._liaisons();
+    if (!store[liId]) return;
+    store[liId].dof.splice(idx, 1);
+    this._saveLiaisons(store);
+    this._renderMecaTab();
+    this._rebuildHelpers();
+  }
+
+  // ─── Export / Import ──────────────────────────────────────────────────────
+
+  _exportBricks() {
+    this._download('rbang-bricks.json', this._bricks());
+  }
+
+  _exportMeca() {
+    this._download('rbang-meca.json', { slotTypes: this._slotTypes(), liaisons: this._liaisons() });
+  }
+
+  _download(filename, data) {
+    const a = document.createElement('a');
+    a.href  = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  _importBricks(file) {
+    this._readJSON(file, d => {
+      this._saveBricks({ ...this._bricks(), ...d });
+      this._renderBrickList();
+      this._setStatus(`${Object.keys(d).length} brique(s) importée(s)`);
     });
-    const json = await res.json();
-    if (json.ok) {
-      this._dirtyBrick = false;
-      this._updateSaveBtns();
-      this._updateBankListItem();
-      this._flashBtn(this._saveBrickBtn, '✓ Brique sauvegardée');
-    }
   }
 
-  async _saveDynamics() {
-    const result = await dynamics.save();
-    if (result.ok) {
-      this._dirtyDyn = false;
-      this._updateSaveBtns();
-      this._flashBtn(this._saveDynBtn, '✓ Dynamique sauvegardée');
-    }
+  _importMeca(file) {
+    this._readJSON(file, d => {
+      if (d.slotTypes) this._saveSlotTypes({ ...this._slotTypes(), ...d.slotTypes });
+      if (d.liaisons)  this._saveLiaisons({ ...this._liaisons(), ...d.liaisons });
+      this._renderMecaTab();
+      this._setStatus('Données méca importées');
+    });
   }
 
-  async _saveAll() {
-    if (this._dirtyBrick) await this._saveBrick();
-    if (this._dirtyDyn)   await this._saveDynamics();
-  }
-
-  _flashBtn(btn, msg) {
-    if (!btn) return;
-    const orig = btn.textContent;
-    btn.textContent = msg;
-    btn.classList.add('flash');
-    setTimeout(() => { btn.textContent = orig; btn.classList.remove('flash'); }, 1800);
-  }
-
-  // ─── Événements ───────────────────────────────────────────────────────────
-
-  _setupEvents() {
-    this._onClick = (e) => {
-      if (e.target !== this.engine.renderer.domElement) return;
-      this._pickSlot(e);
-    };
-    this._onKeyDown = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); this._saveAll(); }
-    };
-    window.addEventListener('click',   this._onClick);
-    window.addEventListener('keydown', this._onKeyDown);
+  _readJSON(file, cb) {
+    const r = new FileReader();
+    r.onload = e => { try { cb(JSON.parse(e.target.result)); } catch { this._setStatus('Fichier invalide'); } };
+    r.readAsText(file);
   }
 
   // ─── UI ───────────────────────────────────────────────────────────────────
@@ -412,44 +556,40 @@ export class Forge {
         --fg-text:   #b0b0b0;
         --fg-text2:  #d8d8d8;
       }
-
-      /* ── Panneaux ── */
       .fg-left  { position:fixed; left:0; top:0; bottom:0; width:var(--fg-left-w,172px);
         background:var(--fg-bg2); border-right:1px solid var(--fg-border);
         box-shadow:inset -1px 0 0 var(--fg-bevel);
         display:flex; flex-direction:column; z-index:50; }
-      .fg-right { position:fixed; right:0; top:0; bottom:0; width:var(--fg-right-w,296px);
+      .fg-right { position:fixed; right:0; top:0; bottom:0; width:var(--fg-right-w,300px);
         background:var(--fg-bg); border-left:1px solid var(--fg-border);
         box-shadow:inset 1px 0 0 var(--fg-bevel);
         display:flex; flex-direction:column; z-index:50; }
 
-      /* ── Poignées de redimensionnement ── */
-      .fg-handle { position:fixed; top:0; bottom:0; width:10px; z-index:60;
+      /* ── Poignées ── */
+      .fg-handle { position:fixed; top:0; bottom:0; width:10px; z-index:61;
         cursor:col-resize; touch-action:none; }
-      .fg-handle::after { content:''; position:absolute; inset:0; }
-      .fg-handle.dragging::after { background:#7aafc830; }
-      .fg-handle-left  { left:calc(var(--fg-left-w,172px) - 5px); }
-      .fg-handle-right { right:calc(var(--fg-right-w,296px) - 5px); }
+      .fg-handle-left  { left:var(--fg-left-w,172px); }
+      .fg-handle-right { right:var(--fg-right-w,300px); }
 
       /* ── En-têtes ── */
       .fg-head { padding:9px 12px; font:700 9px/1 sans-serif; color:var(--fg-text);
         text-transform:uppercase; letter-spacing:.12em; flex-shrink:0;
         background:linear-gradient(to bottom,#404040,#323232);
-        border-bottom:1px solid var(--fg-border);
-        box-shadow:0 1px 0 var(--fg-bevel); }
+        border-bottom:1px solid var(--fg-border); box-shadow:0 1px 0 var(--fg-bevel); }
 
       /* ── Liste briques ── */
       .fg-blist { flex:1; overflow-y:auto; padding:2px 0; }
-      .fg-blist::-webkit-scrollbar { width:6px; }
+      .fg-blist::-webkit-scrollbar       { width:6px; }
       .fg-blist::-webkit-scrollbar-track { background:var(--fg-bg2); }
       .fg-blist::-webkit-scrollbar-thumb { background:#555; border-radius:2px; }
-      .fg-bitem { padding:5px 12px; cursor:pointer; font:11px sans-serif;
+      .fg-bitem { padding:5px 10px 5px 12px; cursor:pointer; font:11px sans-serif;
         color:var(--fg-text); border-left:3px solid transparent;
         display:flex; align-items:center; gap:5px; }
       .fg-bitem.sel { background:var(--fg-sel); color:var(--fg-text2); border-left-color:var(--fg-accent); }
-      .fg-dirty-dot { width:5px; height:5px; border-radius:50%;
-        background:var(--fg-accent); flex-shrink:0; opacity:0; }
-      .fg-bitem.dirty .fg-dirty-dot { opacity:1; }
+      .fg-bitem-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .fg-bdel { font:12px sans-serif; color:var(--fg-dim); padding:0 2px; flex-shrink:0; }
+      .fg-bactions { padding:8px; border-top:1px solid var(--fg-border);
+        display:flex; flex-direction:column; gap:4px; flex-shrink:0; }
 
       /* ── Tabs ── */
       .fg-tabs { display:flex; border-bottom:1px solid var(--fg-border); flex-shrink:0;
@@ -459,110 +599,14 @@ export class Forge {
         font:9px sans-serif; color:var(--fg-dim); text-transform:uppercase;
         letter-spacing:.08em; border-bottom:2px solid transparent; }
       .fg-tab.active { color:var(--fg-accent); border-bottom-color:var(--fg-accent); }
-
-      /* ── Contenu tabs ── */
-      .fg-tab-content { flex:1; overflow-y:auto; padding:12px; display:flex;
-        flex-direction:column; gap:10px; }
-      .fg-tab-content::-webkit-scrollbar { width:6px; }
+      .fg-tab-content { flex:1; overflow-y:auto; padding:12px;
+        display:flex; flex-direction:column; gap:10px; }
+      .fg-tab-content::-webkit-scrollbar       { width:6px; }
       .fg-tab-content::-webkit-scrollbar-track { background:var(--fg-bg); }
       .fg-tab-content::-webkit-scrollbar-thumb { background:#555; border-radius:2px; }
 
-      /* ── Champs génériques ── */
-      .fg-label { font:700 9px sans-serif; color:var(--fg-dim); text-transform:uppercase;
-        letter-spacing:.1em; margin-bottom:4px; }
-      .fg-input { width:100%; box-sizing:border-box; background:#272727;
-        color:var(--fg-text2); border:1px solid var(--fg-border); border-radius:2px;
-        box-shadow:inset 0 1px 3px #0006;
-        padding:5px 8px; font:12px sans-serif; }
-      .fg-input:focus { outline:none; border-color:var(--fg-accent); }
-      .fg-textarea { width:100%; box-sizing:border-box; background:#272727;
-        color:var(--fg-text); border:1px solid var(--fg-border); border-radius:2px;
-        box-shadow:inset 0 1px 3px #0006;
-        padding:5px 8px; font:11px sans-serif; resize:vertical; min-height:52px; }
-      .fg-textarea:focus { outline:none; border-color:var(--fg-accent); }
-      .fg-select { width:100%; background:#272727; color:var(--fg-text2);
-        border:1px solid var(--fg-border); border-radius:2px;
-        box-shadow:inset 0 1px 3px #0006;
-        padding:5px 7px; font:11px sans-serif; }
-
-      /* ── Color picker ── */
-      .fg-colorpicker { display:flex; align-items:center; gap:8px; }
-      .fg-colorpreview { width:44px; height:44px; border-radius:2px;
-        border:1px solid var(--fg-border);
-        box-shadow:inset 0 1px 0 var(--fg-bevel), 0 1px 2px #0004;
-        cursor:pointer; flex-shrink:0; }
-      .fg-colorinput { position:absolute; opacity:0; width:1px; height:1px; }
-
-      /* ── Tags auteurs ── */
-      .fg-tags { display:flex; flex-wrap:wrap; gap:5px; align-items:center; }
-      .fg-tag  { background:#3a3a3a; color:var(--fg-text); border:1px solid var(--fg-border);
-        box-shadow:inset 0 1px 0 var(--fg-bevel);
-        border-radius:2px; padding:2px 8px; font:10px sans-serif;
-        display:flex; align-items:center; gap:4px; }
-      .fg-tag-del { cursor:pointer; font-size:11px; color:var(--fg-dim); }
-      .fg-taginput { background:transparent; border:none; border-bottom:1px solid var(--fg-border);
-        color:var(--fg-text2); font:10px sans-serif; width:80px; outline:none; padding:2px 3px; }
-
-      /* ── Métadonnées en disclosure ── */
-      .fg-details { background:var(--fg-bg2); border:1px solid var(--fg-border);
-        border-radius:2px; overflow:hidden; }
-      .fg-details summary { padding:7px 10px; cursor:pointer; font:10px sans-serif;
-        color:var(--fg-dim); letter-spacing:.05em; user-select:none; list-style:none;
-        background:linear-gradient(to bottom,#3a3a3a,#303030); }
-      .fg-details summary::-webkit-details-marker { display:none; }
-      .fg-details summary::before { content:'▶ '; font-size:8px; }
-      .fg-details[open] summary::before { content:'▼ '; }
-      .fg-details-body { padding:8px 10px; display:flex; flex-direction:column; gap:7px;
-        border-top:1px solid var(--fg-border); }
-      .fg-meta-row { font:10px sans-serif; color:var(--fg-dim); display:flex;
-        align-items:baseline; gap:6px; }
-      .fg-meta-key { color:var(--fg-dim); min-width:72px; }
-
-      /* ── Section ── */
-      .fg-section { border-bottom:1px solid var(--fg-border); padding-bottom:10px; }
-
-      /* ── Slots liste ── */
-      .fg-slot-list { display:flex; flex-direction:column; gap:2px; }
-      .fg-sitem { display:flex; align-items:center; gap:6px; padding:5px 7px;
-        border-radius:2px; cursor:pointer;
-        border:1px solid transparent; }
-      .fg-sitem.sel { background:var(--fg-sel); border-color:var(--fg-bevel); }
-      .fg-sdot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
-      .fg-stype { flex:1; font:11px sans-serif; color:var(--fg-text);
-        overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-      .fg-sidx { font:10px sans-serif; color:var(--fg-dim); }
-      .fg-sdel { font:12px sans-serif; color:var(--fg-dim); cursor:pointer; padding:0 2px; }
-
-      /* ── Éditeur slot ── */
-      .fg-sloteditor { background:var(--fg-bg2); border:1px solid var(--fg-border);
-        box-shadow:inset 0 1px 3px #0004;
-        border-radius:2px; padding:10px; display:flex; flex-direction:column; gap:9px; }
-      .fg-coords { display:flex; gap:4px; }
-      .fg-coord { flex:1; width:0; background:#272727; color:var(--fg-text2);
-        border:1px solid var(--fg-border); border-radius:2px;
-        box-shadow:inset 0 1px 3px #0006;
-        padding:4px 5px; font:11px sans-serif; }
-      .fg-coord:focus { outline:none; border-color:var(--fg-accent); }
-      .fg-rotbtns { display:grid; grid-template-columns:repeat(3,1fr); gap:3px; }
-      .fg-rotbtn { padding:5px 2px;
-        background:linear-gradient(to bottom,#484848,#383838);
-        color:var(--fg-text); border:1px solid var(--fg-border); border-radius:2px;
-        box-shadow:inset 0 1px 0 var(--fg-bevel), 0 1px 2px #0004;
-        cursor:pointer; font:10px sans-serif; text-align:center; }
-      .fg-rotbtn:active { background:#2a2a2a; box-shadow:inset 0 1px 3px #0006; }
-      .fg-axisrow { font:10px sans-serif; color:var(--fg-dim); background:var(--fg-bg2);
-        padding:5px 7px; border-radius:2px; border:1px solid var(--fg-border); }
-      .fg-noselbanner { font:11px sans-serif; color:var(--fg-dim); text-align:center;
-        padding:20px 0; }
-      .fg-addslot { width:100%; padding:7px;
-        background:linear-gradient(to bottom,#404040,#333);
-        color:var(--fg-text); border:1px solid var(--fg-border); border-radius:2px;
-        box-shadow:inset 0 1px 0 var(--fg-bevel), 0 1px 2px #0004;
-        cursor:pointer; font:10px sans-serif; margin-top:2px; }
-      .fg-addslot:active { background:#2a2a2a; box-shadow:inset 0 1px 3px #0006; }
-
-      /* ── Sous-onglets Méca ── */
-      .fg-subtabs { display:flex; gap:3px; margin-bottom:8px; }
+      /* ── Sous-onglets ── */
+      .fg-subtabs { display:flex; gap:3px; flex-shrink:0; }
       .fg-subtab  { flex:1; padding:5px 4px; text-align:center; cursor:pointer;
         font:9px sans-serif; color:var(--fg-dim); text-transform:uppercase;
         letter-spacing:.08em; border:1px solid var(--fg-border); border-radius:2px;
@@ -571,138 +615,732 @@ export class Forge {
       .fg-subtab.active { color:var(--fg-accent); border-color:var(--fg-accent);
         background:var(--fg-sel); box-shadow:inset 0 1px 3px #0006; }
 
-      /* ── Cartes de slot (sous-onglet Slots) ── */
-      .fg-meca-card { background:var(--fg-bg2); border:1px solid var(--fg-border);
-        box-shadow:inset 0 1px 3px #0003;
-        border-radius:2px; padding:8px; margin-bottom:6px; }
-      .fg-meca-card-hdr { display:flex; align-items:center; gap:6px;
+      /* ── Éléments génériques ── */
+      .fg-label { font:700 9px sans-serif; color:var(--fg-dim); text-transform:uppercase;
+        letter-spacing:.1em; margin-bottom:4px; }
+      .fg-input { width:100%; box-sizing:border-box; background:#272727;
+        color:var(--fg-text2); border:1px solid var(--fg-border); border-radius:2px;
+        box-shadow:inset 0 1px 3px #0006; padding:5px 8px; font:12px sans-serif; }
+      .fg-input:focus { outline:none; border-color:var(--fg-accent); }
+      .fg-select { width:100%; background:#272727; color:var(--fg-text2);
+        border:1px solid var(--fg-border); border-radius:2px;
+        box-shadow:inset 0 1px 3px #0006; padding:5px 7px; font:11px sans-serif; }
+      .fg-btn { padding:6px 10px; background:linear-gradient(to bottom,#484848,#383838);
+        color:var(--fg-text); border:1px solid var(--fg-border); border-radius:2px;
+        box-shadow:inset 0 1px 0 var(--fg-bevel), 0 1px 2px #0004;
+        cursor:pointer; font:10px sans-serif; }
+      .fg-btn:active { background:#2a2a2a; box-shadow:inset 0 1px 3px #0006; }
+      .fg-btn.w100 { width:100%; }
+      .fg-btn.accent { background:linear-gradient(to bottom,#3a5a3a,#2a4a2a);
+        color:#88cc88; border-color:#2a4a2a; }
+      .fg-btn.active { background:linear-gradient(to bottom,#3a5a3a,#2a4a2a);
+        color:#88cc88; border-color:#2a4a2a; box-shadow:inset 0 1px 0 #4a7a4a; }
+      .fg-section { border-bottom:1px solid var(--fg-border); padding-bottom:10px; }
+      .fg-noselbanner { font:11px sans-serif; color:var(--fg-dim);
+        text-align:center; padding:20px 0; }
+
+      /* ── Color picker ── */
+      .fg-colorpicker { display:flex; align-items:center; gap:8px; }
+      .fg-colorpreview { width:40px; height:40px; border-radius:2px;
+        border:1px solid var(--fg-border);
+        box-shadow:inset 0 1px 0 var(--fg-bevel), 0 1px 2px #0004;
+        cursor:pointer; flex-shrink:0; }
+      .fg-colorinput { position:absolute; opacity:0; width:1px; height:1px; }
+
+      /* ── Slots liste ── */
+      .fg-slist { display:flex; flex-direction:column; gap:2px; }
+      .fg-sitem { display:flex; align-items:center; gap:6px; padding:5px 7px;
+        border-radius:2px; cursor:pointer; border:1px solid transparent; }
+      .fg-sitem.sel { background:var(--fg-sel); border-color:var(--fg-bevel); }
+      .fg-sdot { width:9px; height:9px; border-radius:50%; background:var(--fg-accent); flex-shrink:0; }
+      .fg-sname { flex:1; font:11px sans-serif; color:var(--fg-text);
+        overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .fg-sdel { font:12px sans-serif; color:var(--fg-dim); cursor:pointer; padding:0 2px; }
+
+      /* ── Éditeur slot ── */
+      .fg-sloteditor { background:var(--fg-bg2); border:1px solid var(--fg-border);
+        box-shadow:inset 0 1px 3px #0004; border-radius:2px;
+        padding:10px; display:flex; flex-direction:column; gap:9px; }
+      .fg-coords { display:flex; gap:4px; }
+      .fg-coord  { flex:1; width:0; background:#272727; color:var(--fg-text2);
+        border:1px solid var(--fg-border); border-radius:2px;
+        box-shadow:inset 0 1px 3px #0006; padding:4px 5px; font:11px sans-serif; }
+      .fg-coord:focus { outline:none; border-color:var(--fg-accent); }
+      .fg-rotbtns { display:grid; grid-template-columns:repeat(3,1fr); gap:3px; }
+      .fg-rotbtn { padding:5px 2px; background:linear-gradient(to bottom,#484848,#383838);
+        color:var(--fg-text); border:1px solid var(--fg-border); border-radius:2px;
+        box-shadow:inset 0 1px 0 var(--fg-bevel), 0 1px 2px #0004;
+        cursor:pointer; font:10px sans-serif; text-align:center; }
+      .fg-rotbtn:active { background:#2a2a2a; box-shadow:inset 0 1px 3px #0006; }
+      .fg-quat-info { font:10px monospace; color:var(--fg-dim); background:var(--fg-bg2);
+        padding:4px 7px; border-radius:2px; border:1px solid var(--fg-border);
+        word-break:break-all; line-height:1.5; }
+
+      /* ── Méca ── */
+      .fg-meca-item { background:var(--fg-bg2); border:1px solid var(--fg-border);
+        border-radius:2px; padding:8px; margin-bottom:5px; }
+      .fg-meca-hdr { display:flex; align-items:center; gap:6px;
         margin-bottom:6px; padding-bottom:5px; border-bottom:1px solid var(--fg-border); }
-      .fg-meca-row { display:flex; align-items:center; gap:6px; margin-bottom:4px; }
-      .fg-meca-key { font:9px sans-serif; color:var(--fg-dim); min-width:68px; flex-shrink:0; }
+      .fg-meca-name { flex:1; font:700 10px sans-serif; color:var(--fg-text2); }
+      .fg-meca-row { display:flex; align-items:center; gap:6px; margin-bottom:4px; font:10px sans-serif; }
+      .fg-meca-key { color:var(--fg-dim); min-width:64px; flex-shrink:0; }
+      .fg-pair-tag { background:#3a3a3a; border:1px solid var(--fg-border);
+        box-shadow:inset 0 1px 0 var(--fg-bevel); border-radius:2px;
+        padding:2px 6px; font:9px sans-serif; color:var(--fg-text);
+        display:inline-flex; align-items:center; gap:4px; }
+      .fg-pair-del { cursor:pointer; color:var(--fg-dim); }
+      .fg-dof-tag  { display:inline-flex; align-items:center; gap:4px;
+        padding:2px 6px; border-radius:2px; font:9px sans-serif; border:1px solid var(--fg-border);
+        box-shadow:inset 0 1px 0 var(--fg-bevel); background:#3a3a3a; }
+      .fg-add-form { background:var(--fg-bg2); border:1px dashed var(--fg-bevel);
+        border-radius:2px; padding:8px; display:flex; flex-direction:column; gap:6px; }
+      .fg-row { display:flex; gap:6px; align-items:center; }
 
-      /* ── Compat/Liaisons tab ── */
-      .fg-compat-info { font:10px sans-serif; color:var(--fg-dim); background:var(--fg-bg2);
-        border:1px solid var(--fg-border); border-radius:2px; padding:6px 8px;
-        line-height:1.5; }
-      .fg-compat-grid { overflow-x:auto; }
-      .fg-compat-table { border-collapse:collapse; font:10px sans-serif; }
-      .fg-compat-table th, .fg-compat-table td { padding:4px 6px;
-        border:1px solid var(--fg-border); text-align:center; min-width:28px; }
-      .fg-compat-table th { background:linear-gradient(to bottom,#404040,#333);
+      /* ── Table vue d'ensemble ── */
+      .fg-overview { overflow-x:auto; margin-bottom:8px; }
+      .fg-ov-table { border-collapse:collapse; font:9px sans-serif; }
+      .fg-ov-table th, .fg-ov-table td { padding:3px 6px;
+        border:1px solid var(--fg-border); text-align:center; }
+      .fg-ov-table th { background:linear-gradient(to bottom,#404040,#333);
         color:var(--fg-text); font-weight:700; }
-      .fg-compat-table td { cursor:pointer; }
-      .fg-compat-table td.has-rule { color:var(--fg-text2); }
-      .fg-compat-table td.sel-cell { background:var(--fg-sel) !important;
-        outline:1px solid var(--fg-accent); }
-      .fg-badge { display:inline-block; padding:1px 4px; border-radius:2px;
-        font:9px/1.4 sans-serif; font-weight:700; }
-      .fg-rule-editor { background:var(--fg-bg2); border:1px solid var(--fg-border);
-        border-radius:2px; padding:10px; display:flex; flex-direction:column; gap:8px; }
-      .fg-rule-add { display:flex; flex-direction:column; gap:6px; background:var(--fg-bg2);
-        border:1px dashed var(--fg-bevel); border-radius:2px; padding:8px; }
+      .fg-ov-table td { color:var(--fg-dim); }
+      .fg-ov-table td.hit { color:var(--fg-accent); background:var(--fg-sel); }
 
-      /* ── Boutons de sauvegarde ── */
+      /* ── Zone sauvegarde ── */
       .fg-savezone { display:flex; gap:6px; padding:8px 10px;
         border-top:1px solid var(--fg-border);
         background:linear-gradient(to bottom,#3a3a3a,#2e2e2e);
-        box-shadow:inset 0 1px 0 var(--fg-bevel);
-        flex-shrink:0; }
-      .fg-savebtn { flex:1; padding:9px 6px;
-        border:1px solid var(--fg-border); border-radius:2px;
+        box-shadow:inset 0 1px 0 var(--fg-bevel); flex-shrink:0; }
+      .fg-savebtn { flex:1; padding:9px 6px; border:1px solid var(--fg-border); border-radius:2px;
         box-shadow:inset 0 1px 0 var(--fg-bevel), 0 1px 2px #0004;
         font:11px/1 sans-serif; font-weight:700; cursor:pointer;
         background:linear-gradient(to bottom,#484848,#383838); color:var(--fg-dim); }
       .fg-savebtn.active { background:linear-gradient(to bottom,#3a5a3a,#2a4a2a);
-        color:#88cc88; border-color:#2a4a2a; box-shadow:inset 0 1px 0 #4a7a4a; }
+        color:#88cc88; border-color:#2a4a2a; }
       .fg-savebtn:active { background:#2a2a2a; box-shadow:inset 0 1px 3px #0006; }
-      .fg-savebtn.flash  { background:#3a6a3a; color:#aaffaa; }
 
-      /* ── Barre du haut ── */
-      .fg-bar { position:fixed; top:0; left:var(--fg-left-w,172px); right:var(--fg-right-w,296px);
+      /* ── Barre statut ── */
+      .fg-bar { position:fixed; top:0; left:var(--fg-left-w,172px); right:var(--fg-right-w,300px);
         height:36px; background:linear-gradient(to bottom,#444,#383838);
         border-bottom:1px solid var(--fg-border);
         box-shadow:0 1px 0 var(--fg-bevel), 0 2px 6px #0005;
-        display:flex; align-items:center; justify-content:center; gap:1.5rem;
-        z-index:40; pointer-events:none; font:10px sans-serif; color:var(--fg-text); }
+        display:flex; align-items:center; justify-content:center; gap:1rem;
+        z-index:40; font:10px sans-serif; color:var(--fg-text); }
+      .fg-xraybtn { padding:4px 10px; background:linear-gradient(to bottom,#484848,#383838);
+        border:1px solid var(--fg-border); border-radius:2px;
+        box-shadow:inset 0 1px 0 var(--fg-bevel);
+        cursor:pointer; font:9px sans-serif; color:var(--fg-dim);
+        pointer-events:all; }
+      .fg-xraybtn.active { color:var(--fg-accent); border-color:var(--fg-accent);
+        background:var(--fg-sel); }
     `;
     document.head.appendChild(style);
     this._ui.push(style);
 
-    // ── Panneau gauche ────────────────────────────────────────────────────
+    // ── Panneau gauche : liste des briques ────────────────────────────────
     const left = document.createElement('div');
     left.className = 'fg-left';
-    left.innerHTML = '<div class="fg-head">Banque de briques</div>';
+    const leftHead = document.createElement('div');
+    leftHead.className = 'fg-head';
+    leftHead.textContent = 'Briques';
     this._blistEl = document.createElement('div');
     this._blistEl.className = 'fg-blist';
-    left.appendChild(this._blistEl);
+    const leftActions = document.createElement('div');
+    leftActions.className = 'fg-bactions';
+
+    const importCatBtn = document.createElement('button');
+    importCatBtn.className = 'fg-btn w100';
+    importCatBtn.textContent = '+ Depuis catalogue';
+    importCatBtn.addEventListener('click', () => this._showCataloguePicker());
+
+    const exportBricksBtn = document.createElement('button');
+    exportBricksBtn.className = 'fg-btn w100';
+    exportBricksBtn.textContent = '↓ Exporter';
+    exportBricksBtn.addEventListener('click', () => this._exportBricks());
+
+    const importBricksInput = document.createElement('input');
+    importBricksInput.type = 'file'; importBricksInput.accept = '.json';
+    importBricksInput.style.display = 'none';
+    importBricksInput.addEventListener('change', e => { if (e.target.files[0]) this._importBricks(e.target.files[0]); });
+
+    const importBricksBtn = document.createElement('button');
+    importBricksBtn.className = 'fg-btn w100';
+    importBricksBtn.textContent = '↑ Importer';
+    importBricksBtn.addEventListener('click', () => importBricksInput.click());
+
+    leftActions.append(importCatBtn, exportBricksBtn, importBricksBtn, importBricksInput);
+    left.append(leftHead, this._blistEl, leftActions);
     document.body.appendChild(left);
     this._ui.push(left);
 
-    // ── Panneau droit ─────────────────────────────────────────────────────
+    // ── Panneau droit : tabs ──────────────────────────────────────────────
     const right = document.createElement('div');
     right.className = 'fg-right';
 
-    // Tabs
     const tabBar = document.createElement('div');
     tabBar.className = 'fg-tabs';
     const TABS = [
-      { id: 'brick',  label: '🧱 Brique' },
-      { id: 'slots',  label: '● Slots'   },
-      { id: 'meca',   label: '⚙ Méca'    },
+      { id: 'brick', label: '🧱 Brique' },
+      { id: 'slots', label: '● Slots'   },
+      { id: 'meca',  label: '⚙ Méca'    },
     ];
     this._tabEls = {};
     TABS.forEach(({ id, label }) => {
       const t = document.createElement('div');
       t.className = 'fg-tab' + (id === this._activeTab ? ' active' : '');
       t.textContent = label;
-      t.dataset.tab = id;
       t.addEventListener('click', () => this._switchTab(id));
       tabBar.appendChild(t);
       this._tabEls[id] = t;
     });
     right.appendChild(tabBar);
 
-    // Contenu des tabs
     this._tabContentEl = document.createElement('div');
     this._tabContentEl.className = 'fg-tab-content';
     right.appendChild(this._tabContentEl);
 
-    // Zone de sauvegarde fixe en bas
+    // Zone de sauvegarde
     const saveZone = document.createElement('div');
     saveZone.className = 'fg-savezone';
     this._saveBrickBtn = document.createElement('button');
     this._saveBrickBtn.className = 'fg-savebtn';
-    this._saveBrickBtn.textContent = '💾 Brique';
-    this._saveBrickBtn.title = 'Sauvegarder la brique (Ctrl+S)';
+    this._saveBrickBtn.textContent = '💾 Sauvegarder';
     this._saveBrickBtn.addEventListener('click', () => this._saveBrick());
-
-    this._saveDynBtn = document.createElement('button');
-    this._saveDynBtn.className = 'fg-savebtn';
-    this._saveDynBtn.textContent = '⚙ Méca';
-    this._saveDynBtn.title = 'Sauvegarder la mécanique d\'assemblage';
-    this._saveDynBtn.addEventListener('click', () => this._saveDynamics());
-
-    saveZone.append(this._saveBrickBtn, this._saveDynBtn);
+    saveZone.appendChild(this._saveBrickBtn);
     right.appendChild(saveZone);
 
     document.body.appendChild(right);
     this._ui.push(right);
 
-    // ── Barre de statut ───────────────────────────────────────────────────
+    // ── Barre de statut centrale ──────────────────────────────────────────
     this._barEl = document.createElement('div');
     this._barEl.className = 'fg-bar';
+
+    const barTitle = document.createElement('span');
+    barTitle.textContent = 'Forge';
+    this._barTitle = barTitle;
+
+    this._xrayBtn = document.createElement('button');
+    this._xrayBtn.className = 'fg-xraybtn';
+    this._xrayBtn.textContent = 'X-RAY';
+    this._xrayBtn.title = 'Helpers visibles à travers la géométrie';
+    this._xrayBtn.addEventListener('click', () => this._setXray(!this._xray));
+
+    this._barEl.append(barTitle, this._xrayBtn);
     document.body.appendChild(this._barEl);
     this._ui.push(this._barEl);
 
-    this._updateSaveBtns();
-    this._updateHint();
+    // ── Rendu initial ─────────────────────────────────────────────────────
+    this._renderBrickList();
     this._renderActiveTab();
-    this._setupResizeHandles();
-    this._setupViewWidget();
-    this._applyPanelWidths();
+    this._updateSaveBtn();
   }
 
-  // ─── Redimensionnement ────────────────────────────────────────────────────
+  // ─── Catalogue picker ──────────────────────────────────────────────────────
+
+  _showCataloguePicker() {
+    const shapes = Object.keys(JSON.parse(localStorage.getItem('rbang_shapes') || '{}'));
+    if (!shapes.length) { this._setStatus('Catalogue vide — crée des formes dans le Modeler'); return; }
+
+    // Overlay picker
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:#0009;z-index:200;display:flex;align-items:center;justify-content:center;';
+
+    const box = document.createElement('div');
+    box.style.cssText = 'background:var(--fg-bg);border:1px solid var(--fg-border);border-radius:2px;min-width:220px;max-height:60vh;display:flex;flex-direction:column;overflow:hidden;';
+
+    const head = document.createElement('div');
+    head.style.cssText = 'padding:9px 12px;font:700 9px sans-serif;color:var(--fg-text);text-transform:uppercase;letter-spacing:.1em;background:linear-gradient(to bottom,#404040,#323232);border-bottom:1px solid var(--fg-border);';
+    head.textContent = 'Choisir une forme';
+
+    const list = document.createElement('div');
+    list.style.cssText = 'overflow-y:auto;flex:1;';
+
+    shapes.forEach(name => {
+      const row = document.createElement('div');
+      row.style.cssText = 'padding:8px 14px;font:11px sans-serif;color:var(--fg-text);cursor:pointer;border-bottom:1px solid var(--fg-border);';
+      row.textContent = name;
+      row.addEventListener('click', () => {
+        overlay.remove();
+        this._newBrickFromShape(name);
+      });
+      list.appendChild(row);
+    });
+
+    const cancel = document.createElement('button');
+    cancel.style.cssText = 'margin:8px;padding:6px;background:linear-gradient(to bottom,#484848,#383838);color:var(--fg-dim);border:1px solid var(--fg-border);border-radius:2px;cursor:pointer;font:10px sans-serif;';
+    cancel.textContent = 'Annuler';
+    cancel.addEventListener('click', () => overlay.remove());
+
+    box.append(head, list, cancel);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+  }
+
+  // ─── Liste briques ─────────────────────────────────────────────────────────
+
+  _renderBrickList() {
+    const el    = this._blistEl;
+    const store = this._bricks();
+    el.innerHTML = '';
+
+    const names = Object.values(store);
+    if (!names.length) {
+      el.innerHTML = '<div style="padding:12px;font:10px sans-serif;color:var(--fg-dim);text-align:center;">Aucune brique</div>';
+      return;
+    }
+
+    for (const b of names) {
+      const row = document.createElement('div');
+      row.className = 'fg-bitem' + (b.id === this._currentBrick?.id ? ' sel' : '');
+      const name = document.createElement('span');
+      name.className = 'fg-bitem-name';
+      name.textContent = b.name || b.id;
+      const del = document.createElement('span');
+      del.className = 'fg-bdel';
+      del.textContent = '✕';
+      del.title = 'Supprimer';
+      del.addEventListener('click', (e) => { e.stopPropagation(); this._deleteBrick(b.id); });
+      row.append(name, del);
+      row.addEventListener('click', () => this._loadBrick(b.id));
+      el.appendChild(row);
+    }
+  }
+
+  // ─── Tabs ─────────────────────────────────────────────────────────────────
+
+  _switchTab(id) {
+    this._activeTab = id;
+    Object.entries(this._tabEls).forEach(([k, el]) => el.classList.toggle('active', k === id));
+    this._renderActiveTab();
+  }
+
+  _renderActiveTab() {
+    switch (this._activeTab) {
+      case 'brick': this._renderBrickTab(); break;
+      case 'slots': this._renderSlotsTab(); break;
+      case 'meca':  this._renderMecaTab();  break;
+    }
+  }
+
+  // ─── Tab Brique ───────────────────────────────────────────────────────────
+
+  _renderBrickTab() {
+    const el = this._tabContentEl;
+    el.innerHTML = '';
+
+    if (!this._currentBrick) {
+      el.innerHTML = '<div class="fg-noselbanner">← Sélectionne ou crée une brique</div>';
+      return;
+    }
+    const b = this._currentBrick;
+
+    // Nom
+    const nameSec = document.createElement('div');
+    nameSec.className = 'fg-section';
+    const nameLbl = document.createElement('div');
+    nameLbl.className = 'fg-label'; nameLbl.textContent = 'Nom';
+    const nameInp = document.createElement('input');
+    nameInp.className = 'fg-input'; nameInp.value = b.name || '';
+    nameInp.addEventListener('input', e => this._setBrickName(e.target.value));
+    nameSec.append(nameLbl, nameInp);
+    el.appendChild(nameSec);
+
+    // Géométrie (référence shape)
+    const geoSec = document.createElement('div');
+    geoSec.className = 'fg-section';
+    const geoLbl = document.createElement('div');
+    geoLbl.className = 'fg-label'; geoLbl.textContent = 'Géométrie';
+    const geoRef = document.createElement('div');
+    geoRef.style.cssText = 'font:10px monospace;color:var(--fg-accent);padding:4px 7px;background:var(--fg-bg2);border:1px solid var(--fg-border);border-radius:2px;';
+    geoRef.textContent = b.shapeRef || '—';
+    geoSec.append(geoLbl, geoRef);
+    el.appendChild(geoSec);
+
+    // Couleur
+    const colorSec = document.createElement('div');
+    colorSec.className = 'fg-section';
+    const colorLbl = document.createElement('div');
+    colorLbl.className = 'fg-label'; colorLbl.textContent = 'Couleur';
+    const colorRow = document.createElement('div');
+    colorRow.className = 'fg-colorpicker';
+    const preview = document.createElement('div');
+    preview.className = 'fg-colorpreview'; preview.style.background = b.color || '#888';
+    const hiddenInp = document.createElement('input');
+    hiddenInp.type = 'color'; hiddenInp.className = 'fg-colorinput'; hiddenInp.value = b.color || '#888888';
+    preview.addEventListener('click', () => hiddenInp.click());
+    hiddenInp.addEventListener('input', e => { preview.style.background = e.target.value; this._setBrickColor(e.target.value); });
+    const hexInp = document.createElement('input');
+    hexInp.className = 'fg-input'; hexInp.value = b.color || '#888888';
+    hexInp.addEventListener('change', e => {
+      if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) {
+        preview.style.background = e.target.value; hiddenInp.value = e.target.value;
+        this._setBrickColor(e.target.value);
+      }
+    });
+    colorRow.append(preview, hiddenInp, hexInp);
+    colorSec.append(colorLbl, colorRow);
+    el.appendChild(colorSec);
+
+    // Résumé slots
+    const slotSec = document.createElement('div');
+    const slotLbl = document.createElement('div');
+    slotLbl.className = 'fg-label'; slotLbl.textContent = 'Slots';
+    const slotCount = document.createElement('div');
+    slotCount.style.cssText = 'font:10px sans-serif;color:var(--fg-dim);';
+    slotCount.textContent = (b.slots?.length || 0) + ' slot(s) défini(s)';
+    slotSec.append(slotLbl, slotCount);
+    el.appendChild(slotSec);
+  }
+
+  // ─── Tab Slots ────────────────────────────────────────────────────────────
+
+  _renderSlotsTab() {
+    const el = this._tabContentEl;
+    el.innerHTML = '';
+
+    if (!this._currentBrick) {
+      el.innerHTML = '<div class="fg-noselbanner">← Charge une brique</div>';
+      return;
+    }
+
+    const slots     = this._currentBrick.slots || [];
+    const slotTypes = this._slotTypes();
+
+    // Liste
+    const list = document.createElement('div');
+    list.className = 'fg-slist';
+    slots.forEach((s, i) => {
+      const row = document.createElement('div');
+      row.className = 'fg-sitem' + (s.id === this._selectedSlotId ? ' sel' : '');
+      const dot  = document.createElement('span'); dot.className = 'fg-sdot';
+      const name = document.createElement('span'); name.className = 'fg-sname';
+      name.textContent = slotTypes[s.typeId]?.name ? `${i + 1}. ${slotTypes[s.typeId].name}` : `Slot ${i + 1}`;
+      const del  = document.createElement('span'); del.className = 'fg-sdel'; del.textContent = '✕';
+      del.addEventListener('click', e => { e.stopPropagation(); this._deleteSlot(s.id); });
+      row.append(dot, name, del);
+      row.addEventListener('click', () => this._selectSlot(s.id));
+      list.appendChild(row);
+    });
+    el.appendChild(list);
+
+    // Éditeur du slot sélectionné
+    if (this._selectedSlotId) {
+      const editorContainer = document.createElement('div');
+      editorContainer.id = 'fg-slot-editor';
+      el.appendChild(editorContainer);
+      this._renderSlotEditor(this._selectedSlotId);
+    }
+
+    // Bouton ajouter
+    const addBtn = document.createElement('button');
+    addBtn.className = 'fg-btn w100'; addBtn.textContent = '+ Ajouter un slot';
+    addBtn.addEventListener('click', () => this._addSlot());
+    el.appendChild(addBtn);
+  }
+
+  _renderSlotEditor(slotId) {
+    const container = document.getElementById('fg-slot-editor');
+    if (!container) return;
+    const s = this._currentBrick?.slots.find(s => s.id === slotId);
+    if (!s) return;
+    container.innerHTML = '';
+
+    const slotTypes = this._slotTypes();
+    const editor = document.createElement('div');
+    editor.className = 'fg-sloteditor';
+
+    // Type
+    const typeLbl = document.createElement('div'); typeLbl.className = 'fg-label'; typeLbl.textContent = 'Type';
+    const typeSel = document.createElement('select'); typeSel.className = 'fg-select';
+    const noneOpt = document.createElement('option'); noneOpt.value = ''; noneOpt.textContent = '— aucun —';
+    typeSel.appendChild(noneOpt);
+    Object.values(slotTypes).forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.id; opt.textContent = t.name;
+      if (t.id === s.typeId) opt.selected = true;
+      typeSel.appendChild(opt);
+    });
+    typeSel.addEventListener('change', e => this._setSlotType(slotId, e.target.value));
+    editor.append(typeLbl, typeSel);
+
+    // Position
+    const posLbl = document.createElement('div'); posLbl.className = 'fg-label'; posLbl.textContent = 'Position';
+    const coordRow = document.createElement('div'); coordRow.className = 'fg-coords';
+    ['X', 'Y', 'Z'].forEach((ax, i) => {
+      const inp = document.createElement('input');
+      inp.className = 'fg-coord'; inp.type = 'text'; inp.placeholder = ax;
+      inp.value = s.position[i]?.toFixed(4) ?? '0';
+      inp.addEventListener('change', () => {
+        const xyz = ['X', 'Y', 'Z'].map((_, j) => {
+          const sibling = coordRow.children[j];
+          return parseFloat(sibling.value) || 0;
+        });
+        this._updateSlotPos(slotId, xyz);
+      });
+      coordRow.appendChild(inp);
+    });
+    editor.append(posLbl, coordRow);
+
+    // Boutons de rotation
+    const rotLbl = document.createElement('div'); rotLbl.className = 'fg-label'; rotLbl.textContent = 'Rotation (±90°)';
+    const rotGrid = document.createElement('div'); rotGrid.className = 'fg-rotbtns';
+    [['+ X', 'x', 90], ['+ Y', 'y', 90], ['+ Z', 'z', 90],
+     ['− X', 'x',-90], ['− Y', 'y',-90], ['− Z', 'z',-90]].forEach(([lbl, ax, deg]) => {
+      const b = document.createElement('button');
+      b.className = 'fg-rotbtn'; b.textContent = lbl;
+      b.addEventListener('click', () => this._rotateSlot(slotId, ax, deg));
+      rotGrid.appendChild(b);
+    });
+    editor.append(rotLbl, rotGrid);
+
+    // Quaternion (lecture seule)
+    const quatLbl = document.createElement('div'); quatLbl.className = 'fg-label'; quatLbl.textContent = 'Quaternion';
+    const quatInfo = document.createElement('div'); quatInfo.className = 'fg-quat-info';
+    const [qx, qy, qz, qw] = s.quaternion.map(v => v.toFixed(4));
+    quatInfo.textContent = `x ${qx}  y ${qy}  z ${qz}  w ${qw}`;
+    editor.append(quatLbl, quatInfo);
+
+    container.appendChild(editor);
+  }
+
+  // ─── Tab Méca ─────────────────────────────────────────────────────────────
+
+  _renderMecaTab() {
+    const el = this._tabContentEl;
+    el.innerHTML = '';
+
+    // Sous-onglets
+    const subtabs = document.createElement('div');
+    subtabs.className = 'fg-subtabs';
+    [{ id: 'types', label: 'Types de slots' }, { id: 'liaisons', label: 'Liaisons' }].forEach(({ id, label }) => {
+      const t = document.createElement('div');
+      t.className = 'fg-subtab' + (id === this._mecaSubTab ? ' active' : '');
+      t.textContent = label;
+      t.addEventListener('click', () => { this._mecaSubTab = id; this._renderMecaTab(); });
+      subtabs.appendChild(t);
+    });
+    el.appendChild(subtabs);
+
+    // Table vue d'ensemble (partagée)
+    this._renderOverviewTable(el);
+
+    if (this._mecaSubTab === 'types') this._renderMecaTypesSubTab(el);
+    else                              this._renderMecaLiaisonsSubTab(el);
+  }
+
+  _renderOverviewTable(container) {
+    const slotTypes = Object.values(this._slotTypes());
+    const liaisons  = Object.values(this._liaisons());
+
+    if (!slotTypes.length) {
+      const msg = document.createElement('div');
+      msg.style.cssText = 'font:10px sans-serif;color:var(--fg-dim);padding:4px 0 8px;';
+      msg.textContent = 'Aucun type de slot défini.';
+      container.appendChild(msg);
+      return;
+    }
+
+    // Calculer les cellules actives (couple de types couverts par une liaison)
+    const hitSet = new Set();
+    for (const li of liaisons) {
+      for (const p of (li.pairs || [])) hitSet.add(p.typeA + '|' + p.typeB);
+    }
+
+    const wrap = document.createElement('div'); wrap.className = 'fg-overview';
+    const tbl  = document.createElement('table'); tbl.className = 'fg-ov-table';
+    const thead = tbl.createTHead();
+    const hrow  = thead.insertRow();
+    hrow.insertCell().textContent = '';
+    slotTypes.forEach(t => { const th = document.createElement('th'); th.textContent = t.name; hrow.appendChild(th); });
+
+    const tbody = tbl.createTBody();
+    slotTypes.forEach(ta => {
+      const row = tbody.insertRow();
+      const th  = document.createElement('th'); th.textContent = ta.name; row.appendChild(th);
+      slotTypes.forEach(tb => {
+        const td  = row.insertCell();
+        const hit = hitSet.has(ta.id + '|' + tb.id) || hitSet.has(tb.id + '|' + ta.id);
+        td.textContent = hit ? '●' : '·';
+        if (hit) td.className = 'hit';
+      });
+    });
+
+    wrap.appendChild(tbl);
+    container.appendChild(wrap);
+  }
+
+  _renderMecaTypesSubTab(container) {
+    const slotTypes = this._slotTypes();
+
+    // Liste des types
+    const list = document.createElement('div');
+    Object.values(slotTypes).forEach(t => {
+      const item = document.createElement('div'); item.className = 'fg-meca-item';
+      const hdr  = document.createElement('div'); hdr.className = 'fg-meca-hdr';
+      const name = document.createElement('input'); name.className = 'fg-input';
+      name.value = t.name; name.style.flex = '1';
+      name.addEventListener('change', e => this._renameSlotType(t.id, e.target.value));
+      const del = document.createElement('button'); del.className = 'fg-btn'; del.textContent = '✕';
+      del.addEventListener('click', () => this._deleteSlotType(t.id));
+      hdr.append(name, del);
+      item.appendChild(hdr);
+      list.appendChild(item);
+    });
+    container.appendChild(list);
+
+    // Formulaire ajout type
+    const form = document.createElement('div'); form.className = 'fg-add-form';
+    const formLbl = document.createElement('div'); formLbl.className = 'fg-label'; formLbl.textContent = 'Nouveau type';
+    const nameInp = document.createElement('input'); nameInp.className = 'fg-input'; nameInp.placeholder = 'Nom du type…';
+    const addBtn  = document.createElement('button'); addBtn.className = 'fg-btn w100 accent'; addBtn.textContent = '+ Ajouter';
+    addBtn.addEventListener('click', () => {
+      const n = nameInp.value.trim();
+      if (n) { this._addSlotType(n); nameInp.value = ''; this._renderMecaTab(); }
+    });
+    form.append(formLbl, nameInp, addBtn);
+    container.appendChild(form);
+
+    // Export/Import méca
+    const mecaActions = document.createElement('div'); mecaActions.className = 'fg-row';
+    const exportMecaBtn = document.createElement('button'); exportMecaBtn.className = 'fg-btn'; exportMecaBtn.style.flex='1'; exportMecaBtn.textContent = '↓ Export méca';
+    exportMecaBtn.addEventListener('click', () => this._exportMeca());
+    const importMecaInput = document.createElement('input'); importMecaInput.type='file'; importMecaInput.accept='.json'; importMecaInput.style.display='none';
+    importMecaInput.addEventListener('change', e => { if (e.target.files[0]) this._importMeca(e.target.files[0]); });
+    const importMecaBtn = document.createElement('button'); importMecaBtn.className = 'fg-btn'; importMecaBtn.style.flex='1'; importMecaBtn.textContent = '↑ Import méca';
+    importMecaBtn.addEventListener('click', () => importMecaInput.click());
+    mecaActions.append(exportMecaBtn, importMecaBtn, importMecaInput);
+    container.appendChild(mecaActions);
+  }
+
+  _renderMecaLiaisonsSubTab(container) {
+    const liaisons  = this._liaisons();
+    const slotTypes = this._slotTypes();
+
+    const list = document.createElement('div');
+    Object.values(liaisons).forEach(li => {
+      const item = document.createElement('div'); item.className = 'fg-meca-item';
+
+      // En-tête : nom + supprimer
+      const hdr  = document.createElement('div'); hdr.className = 'fg-meca-hdr';
+      const nameInp = document.createElement('input'); nameInp.className = 'fg-input'; nameInp.style.flex='1';
+      nameInp.value = li.name;
+      nameInp.addEventListener('change', e => this._patchLiaison(li.id, { name: e.target.value }));
+      const del = document.createElement('button'); del.className = 'fg-btn'; del.textContent = '✕';
+      del.addEventListener('click', () => this._deleteLiaison(li.id));
+      hdr.append(nameInp, del);
+      item.appendChild(hdr);
+
+      // Couples compatibles
+      const pairsLbl = document.createElement('div'); pairsLbl.className = 'fg-meca-row';
+      pairsLbl.innerHTML = '<span class="fg-meca-key">Couples</span>';
+      const pairsTags = document.createElement('div');
+      pairsTags.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;';
+      (li.pairs || []).forEach((p, idx) => {
+        const tag = document.createElement('span'); tag.className = 'fg-pair-tag';
+        const tA  = slotTypes[p.typeA]?.name ?? p.typeA;
+        const tB  = slotTypes[p.typeB]?.name ?? p.typeB;
+        tag.innerHTML = `${tA} ↔ ${tB} <span class="fg-pair-del" data-idx="${idx}">✕</span>`;
+        tag.querySelector('.fg-pair-del').addEventListener('click', () => this._removeLiaisonPair(li.id, idx));
+        pairsTags.appendChild(tag);
+      });
+      pairsLbl.appendChild(pairsTags);
+      item.appendChild(pairsLbl);
+
+      // Formulaire ajout couple
+      if (Object.keys(slotTypes).length >= 2) {
+        const pairForm = document.createElement('div'); pairForm.className = 'fg-row'; pairForm.style.marginLeft='72px';
+        const selA = document.createElement('select'); selA.className = 'fg-select'; selA.style.flex='1';
+        const selB = document.createElement('select'); selB.className = 'fg-select'; selB.style.flex='1';
+        Object.values(slotTypes).forEach(t => {
+          [selA, selB].forEach(sel => {
+            const o = document.createElement('option'); o.value = t.id; o.textContent = t.name; sel.appendChild(o);
+          });
+        });
+        const addPairBtn = document.createElement('button'); addPairBtn.className = 'fg-btn'; addPairBtn.textContent = '+';
+        addPairBtn.addEventListener('click', () => this._addLiaisonPair(li.id, selA.value, selB.value));
+        pairForm.append(selA, selB, addPairBtn);
+        item.appendChild(pairForm);
+      }
+
+      // DOF
+      const dofLbl = document.createElement('div'); dofLbl.className = 'fg-meca-row'; dofLbl.style.marginTop='6px';
+      dofLbl.innerHTML = '<span class="fg-meca-key">DOF</span>';
+      const dofTags = document.createElement('div'); dofTags.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;';
+      (li.dof || []).forEach((d, idx) => {
+        const tag = document.createElement('span'); tag.className = 'fg-dof-tag';
+        const col = DOF_COLOR[d.type] ?? 0xffffff;
+        tag.style.borderColor = '#' + col.toString(16).padStart(6, '0');
+        const label = DOF_LABELS[d.type] ?? d.type;
+        const axStr = d.axis ? `[${d.axis.map(v => v.toFixed(2)).join(', ')}]` : '';
+        const bound = (d.min != null && d.max != null) ? ` ${d.min}…${d.max}` : '';
+        const step  = d.step != null ? ` step ${d.step}` : '';
+        tag.innerHTML = `${label} ${axStr}${bound}${step} <span class="fg-pair-del" data-idx="${idx}">✕</span>`;
+        tag.querySelector('.fg-pair-del').addEventListener('click', () => this._removeLiaisonDof(li.id, idx));
+        dofTags.appendChild(tag);
+      });
+      dofLbl.appendChild(dofTags);
+      item.appendChild(dofLbl);
+
+      // Formulaire ajout DOF
+      const dofForm = document.createElement('div'); dofForm.className = 'fg-add-form'; dofForm.style.marginTop='6px';
+      const dofRow1 = document.createElement('div'); dofRow1.className = 'fg-row';
+      const typeSel = document.createElement('select'); typeSel.className = 'fg-select'; typeSel.style.flex='1';
+      Object.entries(DOF_LABELS).forEach(([val, lbl]) => {
+        const o = document.createElement('option'); o.value = val; o.textContent = lbl; typeSel.appendChild(o);
+      });
+      dofRow1.appendChild(typeSel);
+
+      const dofRow2 = document.createElement('div'); dofRow2.className = 'fg-row';
+      const axisRow = document.createElement('div'); axisRow.className = 'fg-row'; axisRow.style.flex='1';
+      const axLabel = document.createElement('span'); axLabel.style.cssText='font:9px sans-serif;color:var(--fg-dim);min-width:28px;'; axLabel.textContent='Axe';
+      const axInputs = ['X','Y','Z'].map((a, i) => {
+        const inp = document.createElement('input'); inp.className='fg-coord'; inp.type='text'; inp.placeholder=a;
+        inp.value = i === 2 ? '1' : '0';
+        return inp;
+      });
+      axisRow.append(axLabel, ...axInputs);
+      dofRow2.appendChild(axisRow);
+
+      const dofRow3 = document.createElement('div'); dofRow3.className = 'fg-row';
+      const minInp  = document.createElement('input'); minInp.className='fg-coord'; minInp.type='text'; minInp.placeholder='min';
+      const maxInp  = document.createElement('input'); maxInp.className='fg-coord'; maxInp.type='text'; maxInp.placeholder='max';
+      const stepInp = document.createElement('input'); stepInp.className='fg-coord'; stepInp.type='text'; stepInp.placeholder='step';
+      dofRow3.append(minInp, maxInp, stepInp);
+
+      const addDofBtn = document.createElement('button'); addDofBtn.className='fg-btn w100 accent'; addDofBtn.textContent='+ Ajouter DOF';
+      addDofBtn.addEventListener('click', () => {
+        const type  = typeSel.value;
+        const axis  = axInputs.map(inp => parseFloat(inp.value) || 0);
+        const min   = minInp.value  !== '' ? parseFloat(minInp.value)  : null;
+        const max   = maxInp.value  !== '' ? parseFloat(maxInp.value)  : null;
+        const step  = stepInp.value !== '' ? parseFloat(stepInp.value) : null;
+        this._addLiaisonDof(li.id, { type, axis, min, max, step });
+      });
+
+      dofForm.append(dofRow1, dofRow2, dofRow3, addDofBtn);
+      item.appendChild(dofForm);
+
+      list.appendChild(item);
+    });
+    container.appendChild(list);
+
+    // Bouton nouvelle liaison
+    const addLiBtn = document.createElement('button'); addLiBtn.className='fg-btn w100 accent'; addLiBtn.textContent='+ Nouvelle liaison';
+    addLiBtn.addEventListener('click', () => this._addLiaison());
+    container.appendChild(addLiBtn);
+  }
+
+  // ─── Statut ───────────────────────────────────────────────────────────────
+
+  _setStatus(msg) {
+    if (!this._barTitle) return;
+    this._barTitle.textContent = msg;
+    clearTimeout(this._statusTimer);
+    this._statusTimer = setTimeout(() => { if (this._barTitle) this._barTitle.textContent = 'Forge'; }, 2500);
+  }
+
+  // ─── Resize panels ────────────────────────────────────────────────────────
 
   _applyPanelWidths() {
     document.documentElement.style.setProperty('--fg-left-w',  this._leftW  + 'px');
@@ -710,15 +1348,43 @@ export class Forge {
     this.engine.resizeViewport(this._leftW, this._rightW);
   }
 
+  _setupResizeHandles() {
+    const MIN = 120, MAX = Math.floor(innerWidth * 0.4);
+    const makeHandle = (side) => {
+      const h = document.createElement('div');
+      h.className = `fg-handle fg-handle-${side}`;
+      document.body.appendChild(h);
+      this._ui.push(h);
+      let startX, startW;
+      h.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        h.setPointerCapture(e.pointerId);
+        startX = e.clientX;
+        startW = side === 'left' ? this._leftW : this._rightW;
+      });
+      h.addEventListener('pointermove', (e) => {
+        if (!h.hasPointerCapture(e.pointerId)) return;
+        const delta = e.clientX - startX;
+        if (side === 'left')  this._leftW  = Math.max(MIN, Math.min(MAX, startW + delta));
+        else                  this._rightW = Math.max(MIN, Math.min(MAX, startW - delta));
+        this._applyPanelWidths();
+      });
+      h.addEventListener('pointerup',     () => {});
+      h.addEventListener('pointercancel', () => {});
+    };
+    makeHandle('left');
+    makeHandle('right');
+  }
+
   // ─── Widget vues + verrous ────────────────────────────────────────────────
 
   _setupViewWidget() {
     const style = document.createElement('style');
     style.textContent = `
-      .fg-viewwidget { position:fixed; top:44px; right:calc(var(--fg-right-w,296px) + 8px);
+      .fg-viewwidget { position:fixed; top:44px; right:calc(var(--fg-right-w,300px) + 8px);
         display:flex; flex-direction:column; gap:4px; z-index:55; }
       .fg-vwrow { display:flex; gap:3px; }
-      .fg-vbtn { width:34px; height:28px;
+      .fg-vbtn  { width:34px; height:28px;
         background:linear-gradient(to bottom,#484848,#383838);
         border:1px solid var(--fg-border); border-radius:2px;
         box-shadow:inset 0 1px 0 var(--fg-bevel), 0 1px 2px #0004;
@@ -727,7 +1393,6 @@ export class Forge {
       .fg-vbtn:active { background:#2a2a2a; box-shadow:inset 0 1px 3px #0006; }
       .fg-vbtn.lock-active { background:var(--fg-sel); color:var(--fg-accent);
         border-color:var(--fg-accent); box-shadow:inset 0 1px 3px #0006; }
-      .fg-vsep { width:1px; background:var(--fg-border); margin:0 2px; }
     `;
     document.head.appendChild(style);
     this._ui.push(style);
@@ -735,49 +1400,35 @@ export class Forge {
     const widget = document.createElement('div');
     widget.className = 'fg-viewwidget';
 
-    // ── Rangée 1 : presets axiaux ─────────────────────────────────────────
     const presetRow = document.createElement('div');
     presetRow.className = 'fg-vwrow';
-
-    const PRESETS = [
-      { label: '+X', tip: 'Vue depuis +X',  axis: 'x', sign:  1 },
-      { label: '−X', tip: 'Vue depuis −X',  axis: 'x', sign: -1 },
-      { label: '+Y', tip: 'Vue depuis +Y (dessus)',  axis: 'y', sign:  1 },
-      { label: '−Y', tip: 'Vue depuis −Y (dessous)', axis: 'y', sign: -1 },
-      { label: '+Z', tip: 'Vue depuis +Z',  axis: 'z', sign:  1 },
-      { label: '−Z', tip: 'Vue depuis −Z',  axis: 'z', sign: -1 },
-      { label: '⟳',  tip: 'Réinitialiser la vue',   axis: null },
-    ];
-
-    PRESETS.forEach(p => {
+    [
+      { label: '+X', axis: 'x', sign:  1 },
+      { label: '−X', axis: 'x', sign: -1 },
+      { label: '+Y', axis: 'y', sign:  1 },
+      { label: '−Y', axis: 'y', sign: -1 },
+      { label: '+Z', axis: 'z', sign:  1 },
+      { label: '−Z', axis: 'z', sign: -1 },
+      { label: '⟳',  axis: null },
+    ].forEach(p => {
       const btn = document.createElement('button');
-      btn.className = 'fg-vbtn';
-      btn.textContent = p.label;
-      btn.title = p.tip;
+      btn.className = 'fg-vbtn'; btn.textContent = p.label;
       btn.addEventListener('click', () => this._snapView(p.axis, p.sign));
       presetRow.appendChild(btn);
     });
 
-    // ── Rangée 2 : verrous d'axe ──────────────────────────────────────────
     const lockRow = document.createElement('div');
     lockRow.className = 'fg-vwrow';
-
-    const lockLabel = document.createElement('div');
-    lockLabel.className = 'fg-vbtn';
-    lockLabel.style.cssText = 'cursor:default;width:auto;padding:0 5px;font-size:9px;color:#223;';
-    lockLabel.textContent = '🔒';
-    lockRow.appendChild(lockLabel);
-
-    const sep = document.createElement('div');
-    sep.className = 'fg-vsep';
-    lockRow.appendChild(sep);
+    const lockLbl = document.createElement('div');
+    lockLbl.className = 'fg-vbtn';
+    lockLbl.style.cssText = 'cursor:default;width:auto;padding:0 6px;font-size:9px;';
+    lockLbl.textContent = '🔒';
+    lockRow.appendChild(lockLbl);
 
     this._lockBtns = {};
     ['X', 'Y', 'Z'].forEach(ax => {
       const btn = document.createElement('button');
-      btn.className = 'fg-vbtn';
-      btn.textContent = ax;
-      btn.title = `Verrouiller rotation — axe ${ax}`;
+      btn.className = 'fg-vbtn'; btn.textContent = ax;
       btn.addEventListener('click', () => this._toggleAxisLock(ax.toLowerCase()));
       lockRow.appendChild(btn);
       this._lockBtns[ax.toLowerCase()] = btn;
@@ -792,35 +1443,26 @@ export class Forge {
     const cam    = this.engine.camera;
     const target = this.engine.controls.target.clone();
     const dist   = cam.position.distanceTo(target) || 2;
-
     let pos;
     if (!axis) {
-      // Reset
       pos = new THREE.Vector3(1, 0.8, 1).normalize().multiplyScalar(dist).add(target);
     } else {
       pos = target.clone();
       pos[axis] += dist * sign;
     }
-
     cam.position.copy(pos);
     cam.lookAt(target);
-    // TrackballControls recalcule _eye depuis camera.position au prochain update
   }
 
   _toggleAxisLock(axis) {
     if (this._lockedAxis === axis) {
-      // Déverrouiller
       this._lockedAxis = null;
       Object.values(this._lockBtns).forEach(b => b.classList.remove('lock-active'));
     } else {
-      // Verrouiller
       this._lockedAxis = axis;
-      // Capturer la composante courante le long de l'axe (en offset depuis target)
       const offset = this.engine.camera.position.clone().sub(this.engine.controls.target);
       this._lockOffset = offset[axis];
-      Object.entries(this._lockBtns).forEach(([k, b]) =>
-        b.classList.toggle('lock-active', k === axis)
-      );
+      Object.entries(this._lockBtns).forEach(([k, b]) => b.classList.toggle('lock-active', k === axis));
     }
   }
 
@@ -831,795 +1473,19 @@ export class Forge {
     const offset = cam.position.clone().sub(target);
     const dist   = offset.length();
     const ax     = this._lockedAxis;
-
-    // Composante le long de l'axe verrouillé → on la force à la valeur capturée
     const locked = this._lockOffset;
-    // Rayon dans le plan perpendiculaire
     const perpR  = Math.sqrt(Math.max(0, dist * dist - locked * locked));
-
-    // Composantes dans le plan perpendiculaire
-    const perp = offset.clone();
-    perp[ax] = 0;
+    const perp   = offset.clone();
+    perp[ax]     = 0;
     const perpLen = perp.length();
     if (perpLen > 1e-6) {
       perp.multiplyScalar(perpR / perpLen);
     } else {
-      // Cas dégénéré : caméra dans l'axe — choisir une perpendiculaire arbitraire
-      const fallback = ax === 'y' ? 'z' : 'y';
       perp.set(0, 0, 0);
-      perp[fallback] = perpR;
+      perp[ax === 'y' ? 'z' : 'y'] = perpR;
     }
     perp[ax] = locked;
-
     cam.position.copy(target.clone().add(perp));
     cam.lookAt(target);
-  }
-
-  _setupResizeHandles() {
-    const MIN_PANEL = 120, MAX_PANEL = Math.floor(innerWidth * 0.4);
-
-    const makeHandle = (side) => {
-      const h = document.createElement('div');
-      h.className = `fg-handle fg-handle-${side}`;
-      document.body.appendChild(h);
-      this._ui.push(h);
-
-      let startX, startW;
-
-      const onMove = (x) => {
-        const delta = x - startX;
-        if (side === 'left') {
-          this._leftW = Math.max(MIN_PANEL, Math.min(MAX_PANEL, startW + delta));
-        } else {
-          this._rightW = Math.max(MIN_PANEL, Math.min(MAX_PANEL, startW - delta));
-        }
-        this._applyPanelWidths();
-      };
-
-      const onEnd = () => {
-        h.classList.remove('dragging');
-        window.removeEventListener('pointermove', onPointerMove);
-        window.removeEventListener('pointerup',   onPointerUp);
-      };
-
-      const onPointerMove = (e) => onMove(e.clientX);
-      const onPointerUp   = ()  => onEnd();
-
-      h.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        h.setPointerCapture(e.pointerId);
-        h.classList.add('dragging');
-        startX = e.clientX;
-        startW = side === 'left' ? this._leftW : this._rightW;
-        window.addEventListener('pointermove', onPointerMove);
-        window.addEventListener('pointerup',   onPointerUp);
-      });
-    };
-
-    makeHandle('left');
-    makeHandle('right');
-  }
-
-  // ─── Tabs ─────────────────────────────────────────────────────────────────
-
-  _switchTab(id) {
-    this._activeTab = id;
-    Object.entries(this._tabEls).forEach(([k, el]) => el.classList.toggle('active', k === id));
-    this._renderActiveTab();
-    this._updateHint();
-  }
-
-  _renderActiveTab() {
-    switch (this._activeTab) {
-      case 'brick':  this._renderBrickTab(); break;
-      case 'slots':  this._renderSlotsTab(); break;
-      case 'meca':   this._renderMecaTab();  break;
-    }
-  }
-
-  // ─── Tab Brique ───────────────────────────────────────────────────────────
-
-  _renderBrickTab() {
-    const el = this._tabContentEl;
-    el.innerHTML = '';
-
-    if (!this._brickData) {
-      el.innerHTML = '<div class="fg-noselbanner">← Sélectionne une brique</div>';
-      return;
-    }
-
-    const d = this._brickData;
-
-    // ── Couleur ────────────────────────────────────────────────────────────
-    const colorSec = document.createElement('div');
-    colorSec.className = 'fg-section';
-    const colorLbl = document.createElement('div');
-    colorLbl.className = 'fg-label';
-    colorLbl.textContent = 'Couleur';
-
-    const colorRow = document.createElement('div');
-    colorRow.className = 'fg-colorpicker';
-
-    const preview = document.createElement('div');
-    preview.className = 'fg-colorpreview';
-    preview.style.background = d.color || '#888888';
-
-    const hiddenInput = document.createElement('input');
-    hiddenInput.type = 'color';
-    hiddenInput.className = 'fg-colorinput';
-    hiddenInput.value = d.color || '#888888';
-
-    preview.addEventListener('click', () => hiddenInput.click());
-    hiddenInput.addEventListener('input', (e) => {
-      preview.style.background = e.target.value;
-      this._setBrickColor(e.target.value);
-    });
-
-    const hexField = document.createElement('input');
-    hexField.className = 'fg-input';
-    hexField.value = d.color || '#888888';
-    hexField.placeholder = '#rrggbb';
-    hexField.addEventListener('change', (e) => {
-      const val = e.target.value;
-      if (/^#[0-9a-fA-F]{6}$/.test(val)) {
-        preview.style.background = val;
-        hiddenInput.value = val;
-        this._setBrickColor(val);
-      }
-    });
-
-    colorRow.append(preview, hiddenInput, hexField);
-    colorSec.append(colorLbl, colorRow);
-    el.appendChild(colorSec);
-
-    // ── Nom ────────────────────────────────────────────────────────────────
-    const nameSec = document.createElement('div');
-    nameSec.className = 'fg-section';
-    const nameLbl = document.createElement('div');
-    nameLbl.className = 'fg-label';
-    nameLbl.textContent = 'Nom';
-    const nameInput = document.createElement('input');
-    nameInput.className = 'fg-input';
-    nameInput.value = d.name || '';
-    nameInput.placeholder = 'Nom de la brique…';
-    nameInput.addEventListener('input',  (e) => this._setBrickName(e.target.value));
-    nameSec.append(nameLbl, nameInput);
-    el.appendChild(nameSec);
-
-    // ── Auteurs ────────────────────────────────────────────────────────────
-    const authorSec = document.createElement('div');
-    const authorLbl = document.createElement('div');
-    authorLbl.className = 'fg-label';
-    authorLbl.textContent = 'Auteurs';
-    const tagsRow = document.createElement('div');
-    tagsRow.className = 'fg-tags';
-    const authors = Array.isArray(d.authors) ? d.authors : [];
-
-    const renderTags = () => {
-      tagsRow.innerHTML = '';
-      authors.forEach((a, i) => {
-        const tag = document.createElement('span');
-        tag.className = 'fg-tag';
-        tag.innerHTML = `${a} <span class="fg-tag-del" data-i="${i}">✕</span>`;
-        tag.querySelector('.fg-tag-del').addEventListener('click', () => {
-          authors.splice(i, 1);
-          this._setAuthors([...authors]);
-          renderTags();
-        });
-        tagsRow.appendChild(tag);
-      });
-      const addInput = document.createElement('input');
-      addInput.className = 'fg-taginput';
-      addInput.placeholder = '+ auteur';
-      addInput.addEventListener('keydown', (e) => {
-        if ((e.key === 'Enter' || e.key === ',') && addInput.value.trim()) {
-          e.preventDefault();
-          authors.push(addInput.value.trim());
-          this._setAuthors([...authors]);
-          renderTags();
-        }
-      });
-      tagsRow.appendChild(addInput);
-    };
-    renderTags();
-    authorSec.append(authorLbl, tagsRow);
-    el.appendChild(authorSec);
-
-    // ── Description ────────────────────────────────────────────────────────
-    const descSec = document.createElement('div');
-    const descLbl = document.createElement('div');
-    descLbl.className = 'fg-label';
-    descLbl.textContent = 'Description';
-    const descArea = document.createElement('textarea');
-    descArea.className = 'fg-textarea';
-    descArea.value = d.description || '';
-    descArea.placeholder = 'Description optionnelle…';
-    descArea.addEventListener('input', (e) => this._setDescription(e.target.value));
-    descSec.append(descLbl, descArea);
-    el.appendChild(descSec);
-
-    // ── Métadonnées temporelles ────────────────────────────────────────────
-    const details = document.createElement('details');
-    details.className = 'fg-details';
-    const summary = document.createElement('summary');
-    summary.textContent = 'Métadonnées';
-    const body = document.createElement('div');
-    body.className = 'fg-details-body';
-    [
-      ['Créé',      d.createdAt  ? new Date(d.createdAt).toLocaleString()  : '—'],
-      ['Modifié',   d.updatedAt  ? new Date(d.updatedAt).toLocaleString()  : '—'],
-      ['Slots',     (d.slots || []).length],
-      ['Triangles', d.object?.triangles?.length || 0],
-    ].forEach(([k, v]) => {
-      const row = document.createElement('div');
-      row.className = 'fg-meta-row';
-      row.innerHTML = `<span class="fg-meta-key">${k}</span><span>${v}</span>`;
-      body.appendChild(row);
-    });
-    details.append(summary, body);
-    el.appendChild(details);
-  }
-
-  // ─── Tab Slots ────────────────────────────────────────────────────────────
-
-  _renderSlotsTab() {
-    const el = this._tabContentEl;
-    el.innerHTML = '';
-
-    if (!this._brickData) {
-      el.innerHTML = '<div class="fg-noselbanner">← Sélectionne une brique</div>';
-      return;
-    }
-
-    const slots = this._brickData.slots || [];
-
-    // ── Liste des slots ────────────────────────────────────────────────────
-    const listSec = document.createElement('div');
-    listSec.className = 'fg-section';
-    const listLbl = document.createElement('div');
-    listLbl.className = 'fg-label';
-    listLbl.textContent = `${slots.length} slot${slots.length !== 1 ? 's' : ''}`;
-    const list = document.createElement('div');
-    list.className = 'fg-slot-list';
-
-    slots.forEach((slot, i) => {
-      const col    = dynamics.getSlotColor(slot.type);
-      const hexCol = '#' + col.toString(16).padStart(6, '0');
-      const item   = document.createElement('div');
-      item.className = 'fg-sitem' + (i === this._selectedIdx ? ' sel' : '');
-      item.innerHTML = `
-        <span class="fg-sdot" style="background:${hexCol}"></span>
-        <span class="fg-stype" title="${slot.type}">${dynamics.getSlotMeta(slot.type).label || slot.type}</span>
-        <span class="fg-sidx">${i}</span>
-        <span class="fg-sdel" title="Supprimer ce slot">✕</span>
-      `;
-      item.querySelector('.fg-stype').addEventListener('click', () => this._selectSlot(i));
-      item.querySelector('.fg-sdot').addEventListener('click', () => this._selectSlot(i));
-      item.querySelector('.fg-sidx').addEventListener('click', () => this._selectSlot(i));
-      item.querySelector('.fg-sdel').addEventListener('click', (e) => {
-        e.stopPropagation();
-        this._brickData.slots.splice(i, 1);
-        if (this._selectedIdx === i) this._selectedIdx = null;
-        else if (this._selectedIdx > i) this._selectedIdx--;
-        this._markDirtyBrick();
-        this._rebuildMesh(this._selectedIdx != null ? this._brickData.slots[this._selectedIdx]?.surfaces : null);
-        this._rebuildSlotMarkers();
-        if (this._selectedIdx != null) this._highlightMarker(this._selectedIdx);
-        this._renderSlotsTab();
-      });
-      list.appendChild(item);
-    });
-
-    // Bouton ajouter
-    const addBtn = document.createElement('button');
-    addBtn.className = 'fg-addslot';
-    addBtn.textContent = '＋ Nouveau slot';
-    addBtn.addEventListener('click', () => {
-      this._brickData.slots.push({
-        type: 'system plate pin',
-        mat: { elements: [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1] },
-        surfaces: [],
-        uid: '#slot-' + Math.random().toString(36).slice(2, 18),
-        xrepeat: 0, yrepeat: 0, xrepeatinc: 100, yrepeatinc: 100,
-        index: this._brickData.slots.length,
-      });
-      this._markDirtyBrick();
-      this._rebuildSlotMarkers();
-      this._selectSlot(this._brickData.slots.length - 1);
-    });
-
-    listSec.append(listLbl, list, addBtn);
-    el.appendChild(listSec);
-
-    // ── Éditeur du slot sélectionné ────────────────────────────────────────
-    if (this._selectedIdx == null || !slots[this._selectedIdx]) {
-      const msg = document.createElement('div');
-      msg.className = 'fg-noselbanner';
-      msg.textContent = 'Clique sur un slot pour l\'éditer';
-      el.appendChild(msg);
-      return;
-    }
-
-    const slot = slots[this._selectedIdx];
-    const idx  = this._selectedIdx;
-    const e    = slot.mat.elements;
-
-    const editor = document.createElement('div');
-    editor.className = 'fg-sloteditor';
-
-    // Type
-    const typeLbl = document.createElement('div');
-    typeLbl.className = 'fg-label';
-    typeLbl.textContent = 'Type';
-    const typeSelect = document.createElement('select');
-    typeSelect.className = 'fg-select';
-    dynamics.getAllSlotTypes().forEach(t => {
-      const opt = document.createElement('option');
-      opt.value = opt.textContent = t;
-      if (t === slot.type) opt.selected = true;
-      typeSelect.appendChild(opt);
-    });
-    typeSelect.addEventListener('change', () => {
-      this._setSlotType(idx, typeSelect.value);
-      this._renderSlotsTab();
-    });
-    editor.append(typeLbl, typeSelect);
-
-    // Compatibilités rapides (info)
-    const compats = dynamics.getCompatibles(slot.type);
-    if (compats.length) {
-      const compatInfo = document.createElement('div');
-      compatInfo.style.cssText = 'font:9px monospace;color:#2a3a4a;line-height:1.6;';
-      compatInfo.textContent = 'Compatible : ' + compats.map(t => dynamics.getSlotMeta(t).label).join(', ');
-      editor.appendChild(compatInfo);
-    }
-
-    // Position
-    const posLbl = document.createElement('div');
-    posLbl.className = 'fg-label';
-    posLbl.textContent = 'Position (unités brutes)';
-    const posRow = document.createElement('div');
-    posRow.className = 'fg-coords';
-    ['X','Y','Z'].forEach((axis, ai) => {
-      const inp = document.createElement('input');
-      inp.className = 'fg-coord';
-      inp.type = 'number'; inp.step = '1';
-      inp.placeholder = axis;
-      inp.value = Math.round(e[12 + ai] * 100) / 100;
-      inp.style.borderLeft = `2px solid ${['#f55','#5c5','#55f'][ai]}`;
-      inp.addEventListener('change', () => {
-        const vals = Array.from(posRow.querySelectorAll('input')).map(i => parseFloat(i.value));
-        this._setSlotPosition(idx, vals[0], vals[1], vals[2]);
-      });
-      posRow.appendChild(inp);
-    });
-    editor.append(posLbl, posRow);
-
-    // Axe + rotation
-    const axisLbl = document.createElement('div');
-    axisLbl.className = 'fg-label';
-    axisLbl.textContent = 'Axe normal · Rotation ±90°';
-    const ax = new THREE.Vector3(e[4], e[5], e[6]).normalize();
-    const axisRow = document.createElement('div');
-    axisRow.className = 'fg-axisrow';
-    axisRow.textContent = `${ax.x.toFixed(3)}  ${ax.y.toFixed(3)}  ${ax.z.toFixed(3)}`;
-    const rotBtns = document.createElement('div');
-    rotBtns.className = 'fg-rotbtns';
-    const HP = Math.PI / 2;
-    [['+X',HP,0,0],['-X',-HP,0,0],['+Y',0,HP,0],['-Y',0,-HP,0],['+Z',0,0,HP],['-Z',0,0,-HP]].forEach(([l,rx,ry,rz]) => {
-      const btn = document.createElement('button');
-      btn.className = 'fg-rotbtn'; btn.textContent = l;
-      btn.addEventListener('click', () => this._rotateSlotAxis(idx, rx, ry, rz));
-      rotBtns.appendChild(btn);
-    });
-    editor.append(axisLbl, axisRow, rotBtns);
-
-    // Surfaces
-    const surfLbl = document.createElement('div');
-    surfLbl.className = 'fg-label';
-    surfLbl.textContent = `Surfaces surlignées (${slot.surfaces.length})`;
-    const surfInfo = document.createElement('div');
-    surfInfo.style.cssText = 'font:9px monospace;color:#2a3a4a;';
-    const totalTris = slot.surfaces.reduce((acc, si) => acc + (this._brickData.object.surfaces[si]?.triangleset?.length || 0), 0);
-    surfInfo.textContent = slot.surfaces.length
-      ? `Indices : ${slot.surfaces.join(', ')} — ${totalTris} triangles`
-      : 'Aucune surface associée';
-    editor.append(surfLbl, surfInfo);
-
-    // Répétition si non nulle
-    if (slot.xrepeat || slot.yrepeat) {
-      const repLbl = document.createElement('div');
-      repLbl.className = 'fg-label';
-      repLbl.textContent = 'Répétition';
-      const repInfo = document.createElement('div');
-      repInfo.className = 'fg-axisrow';
-      repInfo.textContent = `X ×${slot.xrepeat} Δ${slot.xrepeatinc}u   Y ×${slot.yrepeat} Δ${slot.yrepeatinc}u`;
-      editor.append(repLbl, repInfo);
-    }
-
-    el.appendChild(editor);
-  }
-
-  // ─── Tab Méca ─────────────────────────────────────────────────────────────
-
-  _renderMecaTab() {
-    const el = this._tabContentEl;
-    el.innerHTML = '';
-
-    // Bandeau contextuel
-    const info = document.createElement('div');
-    info.className = 'fg-compat-info';
-    info.textContent = '⚠ Ces définitions s\'appliquent à tous les assemblages.';
-    el.appendChild(info);
-
-    // Sous-onglets
-    const subBar = document.createElement('div');
-    subBar.className = 'fg-subtabs';
-    const SUBS = [{ id: 'slots', label: 'Types de slots' }, { id: 'liaisons', label: 'Liaisons' }];
-    const subEls = {};
-    SUBS.forEach(({ id, label }) => {
-      const t = document.createElement('div');
-      t.className = 'fg-subtab' + (id === this._mecaSubTab ? ' active' : '');
-      t.textContent = label;
-      t.addEventListener('click', () => {
-        this._mecaSubTab = id;
-        this._renderMecaTab();
-      });
-      subBar.appendChild(t);
-      subEls[id] = t;
-    });
-    el.appendChild(subBar);
-
-    if (this._mecaSubTab === 'slots') {
-      this._renderMecaSlotsPanel(el);
-    } else {
-      this._renderMecaLiaisonsPanel(el);
-    }
-  }
-
-  // ── Sous-onglet : Types de slots ──────────────────────────────────────────
-
-  _renderMecaSlotsPanel(el) {
-    const slots = dynamics.getAllSlots();
-    const ROLES  = ['pin', 'hole'];
-    const FIELDS = ['label', 'role', 'family', 'color', 'description'];
-
-    ROLES.forEach(role => {
-      const group = slots.filter(s => s.role === role);
-      if (!group.length) return;
-
-      const hdr = document.createElement('div');
-      hdr.className = 'fg-label';
-      hdr.style.marginTop = '8px';
-      hdr.textContent = role === 'pin' ? '▲ Pins (mâles)' : '▽ Holes (femelles)';
-      el.appendChild(hdr);
-
-      group.forEach(slot => {
-        const card = document.createElement('div');
-        card.className = 'fg-meca-card';
-
-        // En-tête de la carte (dot couleur + id)
-        const cardHdr = document.createElement('div');
-        cardHdr.className = 'fg-meca-card-hdr';
-        const dot = document.createElement('span');
-        dot.className = 'fg-sdot';
-        dot.style.background = slot.color || '#888';
-        const idSpan = document.createElement('span');
-        idSpan.style.cssText = 'flex:1;font:10px monospace;color:#556;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-        idSpan.textContent = slot.id;
-        idSpan.title = slot.id;
-
-        const delBtn = document.createElement('span');
-        delBtn.style.cssText = 'cursor:pointer;color:#aa3333;font:11px monospace;opacity:.5;';
-        delBtn.textContent = '✕';
-        delBtn.title = 'Supprimer ce type de slot';
-        delBtn.addEventListener('click', () => {
-          dynamics.removeSlot(slot.id);
-          this._dirtyDyn = true;
-          this._updateSaveBtns();
-          this._renderMecaTab();
-        });
-        cardHdr.append(dot, idSpan, delBtn);
-        card.appendChild(cardHdr);
-
-        // Champs éditables
-        FIELDS.forEach(field => {
-          const row = document.createElement('div');
-          row.className = 'fg-meca-row';
-          const lbl = document.createElement('span');
-          lbl.className = 'fg-meca-key';
-          lbl.textContent = field;
-
-          if (field === 'color') {
-            // Color picker inline
-            const wrap = document.createElement('label');
-            wrap.style.cssText = 'display:flex;align-items:center;gap:5px;flex:1;cursor:pointer;';
-            const preview = document.createElement('span');
-            preview.style.cssText = `width:16px;height:16px;border-radius:3px;background:${slot.color};border:1px solid #2a2a3a;flex-shrink:0;`;
-            const inp = document.createElement('input');
-            inp.type = 'color'; inp.value = slot.color || '#888888';
-            inp.style.cssText = 'position:absolute;opacity:0;width:1px;height:1px;';
-            const hexSpan = document.createElement('span');
-            hexSpan.style.cssText = 'font:10px monospace;color:#556;';
-            hexSpan.textContent = slot.color || '#888888';
-            inp.addEventListener('input', e => {
-              slot.color = e.target.value;
-              preview.style.background = e.target.value;
-              hexSpan.textContent = e.target.value;
-              dynamics.updateSlot(slot.id, { color: e.target.value });
-              this._dirtyDyn = true;
-              this._updateSaveBtns();
-              this._rebuildSlotMarkers(); // refresh 3D si brique chargée
-            });
-            wrap.append(preview, inp, hexSpan);
-            row.append(lbl, wrap);
-          } else if (field === 'role') {
-            const sel = document.createElement('select');
-            sel.className = 'fg-select';
-            sel.style.flex = '1';
-            ['pin', 'hole'].forEach(r => {
-              const opt = document.createElement('option');
-              opt.value = opt.textContent = r;
-              if (r === slot.role) opt.selected = true;
-              sel.appendChild(opt);
-            });
-            sel.addEventListener('change', () => {
-              dynamics.updateSlot(slot.id, { role: sel.value });
-              this._dirtyDyn = true; this._updateSaveBtns();
-            });
-            row.append(lbl, sel);
-          } else {
-            const inp = document.createElement('input');
-            inp.className = 'fg-input';
-            inp.style.flex = '1';
-            inp.value = slot[field] || '';
-            inp.addEventListener('input', () => {
-              dynamics.updateSlot(slot.id, { [field]: inp.value });
-              this._dirtyDyn = true; this._updateSaveBtns();
-            });
-            row.append(lbl, inp);
-          }
-
-          card.appendChild(row);
-        });
-
-        el.appendChild(card);
-      });
-    });
-
-    // Bouton ajouter
-    const addBtn = document.createElement('button');
-    addBtn.className = 'fg-addslot';
-    addBtn.textContent = '＋ Nouveau type de slot';
-    addBtn.style.marginTop = '6px';
-    addBtn.addEventListener('click', () => {
-      const id = 'slot-' + Math.random().toString(36).slice(2, 8);
-      dynamics.addSlot({ id, label: id, role: 'pin', family: 'custom', color: '#888888', description: '' });
-      this._dirtyDyn = true; this._updateSaveBtns();
-      this._renderMecaTab();
-    });
-    el.appendChild(addBtn);
-  }
-
-  // ── Sous-onglet : Liaisons ────────────────────────────────────────────────
-
-  _renderMecaLiaisonsPanel(el) {
-    const allTypes  = dynamics.getAllSlotTypes();
-    const pins      = allTypes.filter(t => dynamics.getSlotMeta(t).role === 'pin');
-    const holes     = allTypes.filter(t => dynamics.getSlotMeta(t).role === 'hole');
-    const jointDefs = dynamics.getAllJointDefs();
-
-    // Grille pin × hole
-    const gridWrap = document.createElement('div');
-    gridWrap.className = 'fg-compat-grid';
-    const table = document.createElement('table');
-    table.className = 'fg-compat-table';
-
-    const thead = document.createElement('thead');
-    const headRow = document.createElement('tr');
-    headRow.appendChild(document.createElement('th'));
-    holes.forEach(h => {
-      const th = document.createElement('th');
-      const meta = dynamics.getSlotMeta(h);
-      th.textContent = meta.label.split('·')[1]?.trim() || h;
-      th.title = h; th.style.color = meta.color;
-      headRow.appendChild(th);
-    });
-    thead.appendChild(headRow);
-    table.appendChild(thead);
-
-    const tbody = document.createElement('tbody');
-    let selCell = null;
-
-    pins.forEach(pin => {
-      const row = document.createElement('tr');
-      const th = document.createElement('th');
-      const pm = dynamics.getSlotMeta(pin);
-      th.textContent = pm.label.split('·')[1]?.trim() || pin;
-      th.title = pin; th.style.color = pm.color;
-      row.appendChild(th);
-
-      holes.forEach(hole => {
-        const td = document.createElement('td');
-        const liaison = dynamics.getRule(pin, hole);
-        if (liaison) {
-          const jd = jointDefs[liaison.joint] || {};
-          td.classList.add('has-rule');
-          const badge = document.createElement('span');
-          badge.className = 'fg-badge';
-          badge.title = liaison.description || '';
-          badge.textContent = jd.icon || liaison.joint[0].toUpperCase();
-          const colors = { fixed: ['#1a2a1a','#44aa66'], revolute: ['#1a1a3a','#4488ff'] };
-          const [bg, fg] = colors[liaison.joint] || ['#2a2a1a','#aaaa44'];
-          badge.style.background = bg; badge.style.color = fg;
-          td.appendChild(badge);
-        } else {
-          td.innerHTML = '<span style="color:#1a1a2a">·</span>';
-        }
-        td.addEventListener('click', () => {
-          if (selCell) selCell.classList.remove('sel-cell');
-          td.classList.add('sel-cell'); selCell = td;
-          this._renderLiaisonEditor(el, pin, hole, liaison);
-        });
-        row.appendChild(td);
-      });
-      tbody.appendChild(row);
-    });
-
-    table.appendChild(tbody);
-    gridWrap.appendChild(table);
-    el.appendChild(gridWrap);
-
-    this._liaisonEditorSlot = document.createElement('div');
-    this._liaisonEditorSlot.innerHTML = '<div class="fg-noselbanner" style="margin-top:6px">Clique sur une cellule</div>';
-    el.appendChild(this._liaisonEditorSlot);
-  }
-
-  _renderLiaisonEditor(parentEl, pin, hole, liaison) {
-    const slot = this._liaisonEditorSlot;
-    slot.innerHTML = '';
-    const pm = dynamics.getSlotMeta(pin);
-    const hm = dynamics.getSlotMeta(hole);
-    const jointDefs = dynamics.getAllJointDefs();
-
-    const editor = document.createElement('div');
-    editor.className = 'fg-rule-editor';
-
-    const hdr = document.createElement('div');
-    hdr.style.cssText = 'font:9px monospace;line-height:1.8;padding-bottom:5px;border-bottom:1px solid #111;';
-    hdr.innerHTML = `<span style="color:${pm.color}">${pm.label}</span> <span style="color:#334">↔</span> <span style="color:${hm.color}">${hm.label}</span>`;
-    editor.appendChild(hdr);
-
-    if (liaison) {
-      const jtLbl = document.createElement('div');
-      jtLbl.className = 'fg-label'; jtLbl.textContent = 'Liaison résultante';
-      const jtSel = document.createElement('select');
-      jtSel.className = 'fg-select';
-      Object.entries(jointDefs).forEach(([id, def]) => {
-        const opt = document.createElement('option');
-        opt.value = id;
-        opt.textContent = `${def.icon}  ${def.label} — ${def.description}`;
-        if (id === liaison.joint) opt.selected = true;
-        jtSel.appendChild(opt);
-      });
-      jtSel.addEventListener('change', () => {
-        dynamics.updateLiaison(liaison.id, { joint: jtSel.value });
-        this._dirtyDyn = true; this._updateSaveBtns();
-        this._renderMecaTab();
-      });
-      editor.append(jtLbl, jtSel);
-
-      const descLbl = document.createElement('div');
-      descLbl.className = 'fg-label'; descLbl.textContent = 'Description';
-      const descInp = document.createElement('input');
-      descInp.className = 'fg-input'; descInp.value = liaison.description || '';
-      descInp.addEventListener('input', () => {
-        dynamics.updateLiaison(liaison.id, { description: descInp.value });
-        this._dirtyDyn = true; this._updateSaveBtns();
-      });
-      editor.append(descLbl, descInp);
-
-      const delBtn = document.createElement('button');
-      delBtn.style.cssText = 'background:transparent;border:1px solid #3a1a1a;color:#aa4444;border-radius:5px;padding:5px 8px;font:10px monospace;cursor:pointer;margin-top:4px;';
-      delBtn.textContent = '✕ Supprimer cette liaison';
-      delBtn.addEventListener('click', () => {
-        dynamics.removeLiaison(liaison.id);
-        this._dirtyDyn = true; this._updateSaveBtns();
-        this._renderMecaTab();
-      });
-      editor.appendChild(delBtn);
-    } else {
-      const addLbl = document.createElement('div');
-      addLbl.className = 'fg-label'; addLbl.textContent = 'Aucune liaison — Créer ?';
-      const jtSel = document.createElement('select');
-      jtSel.className = 'fg-select';
-      Object.entries(jointDefs).forEach(([id, def]) => {
-        const opt = document.createElement('option');
-        opt.value = id; opt.textContent = `${def.icon}  ${def.label}`;
-        jtSel.appendChild(opt);
-      });
-      const addBtn = document.createElement('button');
-      addBtn.style.cssText = 'width:100%;padding:7px;background:#001a0a;color:#44aa66;border:1px solid #1a3a1a;border-radius:5px;font:10px monospace;cursor:pointer;';
-      addBtn.textContent = '＋ Créer cette liaison';
-      addBtn.addEventListener('click', () => {
-        const ok = dynamics.addLiaison({ slotA: pin, slotB: hole, joint: jtSel.value, description: `${pm.label} ↔ ${hm.label}` });
-        if (ok) { this._dirtyDyn = true; this._updateSaveBtns(); this._renderMecaTab(); }
-      });
-      editor.append(addLbl, jtSel, addBtn);
-    }
-
-    slot.appendChild(editor);
-  }
-
-  // ─── Helpers UI ───────────────────────────────────────────────────────────
-
-  _updateSaveBtns() {
-    if (!this._saveBrickBtn) return;
-    this._saveBrickBtn.classList.toggle('active', this._dirtyBrick);
-    this._saveDynBtn.classList.toggle('active', this._dirtyDyn);
-  }
-
-  _updateHint() {
-    if (!this._barEl) return;
-    const hints = {
-      brick:  'Édite le nom, la couleur et les métadonnées',
-      slots:  'Clique sur une sphère ou un slot pour l\'éditer',
-      meca:   'Édite les types de slots et les liaisons d\'assemblage',
-    };
-    const brickLabel = this._brickName
-      ? `<strong style="color:#6677aa">${this._brickName}</strong>`
-      : '<span style="color:#223">Aucune brique</span>';
-    this._barEl.innerHTML = `<span>Forge</span>${brickLabel}<span>${hints[this._activeTab]}</span>`;
-  }
-
-  _updateBankListItem() {
-    const item = this._blistEl.querySelector(`[data-name="${CSS.escape(this._brickName)}"]`);
-    if (!item) return;
-    item.classList.toggle('dirty', this._dirtyBrick);
-  }
-
-  _renderBankList() {
-    this._blistEl.innerHTML = '';
-    for (const name of this._bankList) {
-      const item = document.createElement('div');
-      item.className = 'fg-bitem';
-      item.dataset.name = name;
-      item.innerHTML = `<span class="fg-dirty-dot"></span><span>${name}</span>`;
-      item.addEventListener('click', () => {
-        if (this._dirtyBrick) {
-          this._promptUnsaved(() => this._doLoadBrick(name, item));
-        } else {
-          this._doLoadBrick(name, item);
-        }
-      });
-      this._blistEl.appendChild(item);
-    }
-  }
-
-  _doLoadBrick(name, item) {
-    document.querySelectorAll('.fg-bitem').forEach(el => el.classList.remove('sel'));
-    item.classList.add('sel');
-    this._loadBrick(name);
-  }
-
-  _promptUnsaved(onConfirm) {
-    // Bannière inline, pas de confirm() natif
-    const banner = document.createElement('div');
-    banner.style.cssText = `position:fixed;top:32px;left:var(--fg-left-w,172px);right:var(--fg-right-w,296px);z-index:60;
-      background:#1a1000;border-bottom:1px solid #3a2a00;
-      padding:8px 16px;display:flex;align-items:center;gap:12px;
-      font:11px monospace;color:#aa8833;`;
-    banner.innerHTML = `<span style="flex:1">Modifications non sauvegardées</span>`;
-    const saveBtn = document.createElement('button');
-    saveBtn.textContent = 'Sauvegarder';
-    saveBtn.style.cssText = 'background:#224;color:#44aa66;border:1px solid #336;border-radius:4px;padding:4px 10px;font:10px monospace;cursor:pointer;';
-    const discardBtn = document.createElement('button');
-    discardBtn.textContent = 'Ignorer';
-    discardBtn.style.cssText = 'background:transparent;color:#778;border:1px solid #222;border-radius:4px;padding:4px 10px;font:10px monospace;cursor:pointer;';
-    banner.append(saveBtn, discardBtn);
-    document.body.appendChild(banner);
-    const close = () => banner.remove();
-    saveBtn.addEventListener('click', async () => { close(); await this._saveBrick(); onConfirm(); });
-    discardBtn.addEventListener('click', () => { close(); this._dirtyBrick = false; onConfirm(); });
   }
 }
