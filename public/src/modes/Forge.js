@@ -1349,7 +1349,7 @@ export class Forge {
   }
 
   _setupResizeHandles() {
-    const MIN = 120, MAX = Math.floor(innerWidth * 0.4);
+    const MIN = 40, MAX = innerWidth - 40;
     const makeHandle = (side) => {
       const h = document.createElement('div');
       h.className = `fg-handle fg-handle-${side}`;
