@@ -141,7 +141,7 @@ export class Forge {
 
       const { geo } = manifoldToGeometry(mf);
       const color   = parseInt((this._currentBrick.color || '#888888').replace('#', ''), 16);
-      this._brickMat = new THREE.MeshStandardMaterial({ color, roughness: 0.55, side: THREE.DoubleSide });
+      this._brickMat = new THREE.MeshStandardMaterial({ color, roughness: 0.55 });
 
       const mesh = new THREE.Mesh(geo, this._brickMat);
       mesh.castShadow = mesh.receiveShadow = true;
