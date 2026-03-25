@@ -328,13 +328,14 @@ class ScreenSlotManager {
 
       // Si on touche dans la zone brique (heuristique : on a un mesh)
       if (slot.mesh && this._hitsBrick(slot, e.clientX, e.clientY)) {
-        // Calculer les slots les plus proches du point de contact
+        slot.controls.enabled = false; // bloquer rotation pendant le geste d'assemblage
         const nearSlots = this._nearSlotsForBrick(slot.brickId, e.clientX, e.clientY, slot);
         this._activeGesture = { slotId: slot.id, brickId: slot.brickId, nearSlots,
                                 startX: e.clientX, startY: e.clientY, moved: false };
         if (this._onPickStart) this._onPickStart(this._activeGesture);
+      } else {
+        slot.controls.enabled = true; // zone vide → TrackballControls actif
       }
-      // Sinon : TrackballControls gère (zone vide → rotation preview)
     });
 
     el.addEventListener('pointermove', (e) => {
@@ -349,6 +350,7 @@ class ScreenSlotManager {
 
     el.addEventListener('pointerup', (e) => {
       ptrs.delete(e.pointerId);
+      slot.controls.enabled = true; // toujours réactiver à la fin du geste
       if (this._activeGesture && this._onPickEnd) {
         this._onPickEnd({ ...this._activeGesture, endX: e.clientX, endY: e.clientY });
         this._activeGesture = null;
