@@ -508,7 +508,7 @@ export class Assembler {
 
   _setupScene() {
     const e = this.engine;
-    e.addStaticBox(24, 0.5, 24, 0, -0.25, 0, 0x2a3a2a);
+    e.addStaticBox(24, 0.5, 24, 0, 0, 0, 0x2a3a2a); // dessus à Y = 0.25
     e.camera.position.set(0, 8, 14);
     e.controls.target.set(0, 0, 0);
     e.controls.update();
@@ -612,11 +612,10 @@ export class Assembler {
       const color   = parseInt((brick.color || '#888888').replace('#', ''), 16);
       const mesh    = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.55 }));
       mesh.castShadow = mesh.receiveShadow = true;
-      // Centrer la géométrie
-      const box    = new THREE.Box3().setFromObject(mesh);
-      const center = box.getCenter(new THREE.Vector3());
-      mesh.position.copy(pos).sub(new THREE.Vector3(0, box.min.y - pos.y, 0));
-      mesh.position.set(pos.x, Math.max(pos.y, (box.getSize(new THREE.Vector3()).y / 2)), pos.z);
+      // Poser la brique sur le sol : aligner box.min.y sur le dessus du sol (Y = 0.25)
+      const GROUND_TOP = 0.25;
+      const box = new THREE.Box3().setFromObject(mesh);
+      mesh.position.set(pos.x, GROUND_TOP - box.min.y, pos.z);
       this.engine.scene.add(mesh);
       const id   = `bi-${++this._idSeq}`;
       const inst = new BrickInstance(id, brick, mesh, null, pts);
