@@ -629,6 +629,7 @@ export class Assembler {
       const box    = new THREE.Box3().setFromObject(mesh);
       const center = box.getCenter(new THREE.Vector3());
       geo.translate(-center.x, -center.y, -center.z);
+      geo.boundingBox = null; // invalider le cache après translate
       // Décaler pts en cohérence
       const pts = new Float32Array(ptsRaw.length);
       for (let i = 0; i < ptsRaw.length; i += 3) {
@@ -641,10 +642,9 @@ export class Assembler {
         mesh.position.copy(snapTransform.position);
         mesh.quaternion.copy(snapTransform.quaternion);
       } else {
-        // Poser la brique sur le sol — après centrage, box.min.y = -halfH
+        // Poser la brique sur le sol — calculé depuis la box originale (évite le cache périmé)
         const GROUND_TOP = 0.25;
-        const boxC = new THREE.Box3().setFromObject(mesh);
-        mesh.position.set(pos.x, GROUND_TOP - boxC.min.y, pos.z);
+        mesh.position.set(pos.x, GROUND_TOP - (box.min.y - center.y), pos.z);
       }
       this.engine.scene.add(mesh);
       const id   = `bi-${++this._idSeq}`;
@@ -803,25 +803,7 @@ export class Assembler {
       this.engine._bodies.push({ mesh: inst.mesh, body, isStatic: false });
     }
 
-    // 2. Joints depuis world slots (rotule universelle)
-    for (const wsc of this._wsConnections) {
-      const { wslot, inst, slotA } = wsc;
-      const wp = wslot.position;
-      const fixedBody = world.createRigidBody(R.RigidBodyDesc.fixed().setTranslation(wp.x, wp.y, wp.z));
-      this._simWsBodies.push(fixedBody);
-      const ancA = slotA
-        ? { x: slotA.position[0], y: slotA.position[1], z: slotA.position[2] }
-        : { x: 0, y: 0, z: 0 };
-      const ancB = { x: 0, y: 0, z: 0 };
-      try {
-        const jd    = R.JointData.spherical(ancA, ancB);
-        const joint = world.createImpulseJoint(jd, inst.body, fixedBody, true);
-        if (typeof joint.setContactsEnabled === 'function') joint.setContactsEnabled(false);
-        this._simJoints.push(joint);
-      } catch (e) { console.warn('World slot joint error', e); }
-    }
-
-    // 3. Joints depuis connexions slot↔slot
+    // 2. Joints depuis connexions slot↔slot (world slots libérés — pas de joint)
     for (const conn of this._connections) {
       const { instA, instB, slotA, slotB, liaison } = conn;
       if (!instA.body || !instB.body) continue;
