@@ -353,6 +353,12 @@ export class Forge {
     this._markDirty();
   }
 
+  _setBrickFamily(family) {
+    if (!this._currentBrick) return;
+    this._currentBrick.family = family.trim().toLowerCase();
+    this._markDirty();
+  }
+
   _setBrickName(name) {
     if (!this._currentBrick) return;
     this._currentBrick.name = name;
@@ -945,6 +951,18 @@ export class Forge {
     nameInp.addEventListener('input', e => this._setBrickName(e.target.value));
     nameSec.append(nameLbl, nameInp);
     el.appendChild(nameSec);
+
+    // Famille (pour le dock de l'Assembler)
+    const famSec = document.createElement('div');
+    famSec.className = 'fg-section';
+    const famLbl = document.createElement('div');
+    famLbl.className = 'fg-label'; famLbl.textContent = 'Famille';
+    const famInp = document.createElement('input');
+    famInp.className = 'fg-input'; famInp.value = b.family || '';
+    famInp.placeholder = 'ex: technic, system…';
+    famInp.addEventListener('input', e => this._setBrickFamily(e.target.value));
+    famSec.append(famLbl, famInp);
+    el.appendChild(famSec);
 
     // Géométrie (référence shape)
     const geoSec = document.createElement('div');

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 import { getManifold, buildCache, manifoldToGeometry, manifoldToPoints } from '../csg-utils.js';
+import { BrickDock } from './BrickDock.js';
 
 // ─── Couleurs thème Industrial ────────────────────────────────────────────────
 const C = {
@@ -183,272 +184,6 @@ class WorldSlotManager {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// ScreenSlotManager
-// ═══════════════════════════════════════════════════════════════════════════════
-
-const SS_W = 240, SS_H = 180; // taille d'un screen slot en px
-const SS_PAD = 6;
-const SS_ROWS = 2;
-
-class ScreenSlotManager {
-  constructor(mainRenderer, engineCamera) {
-    this._mainRenderer  = mainRenderer;
-    this._engineCamera  = engineCamera;
-    this._slots         = []; // { id, brickId, canvas, renderer, scene, camera, controls, rect, mesh }
-    this._container     = null;
-    this._onPickStart   = null; // callback(slotId, nearSlots, clientX, clientY)
-    this._onPickEnd     = null;
-    this._activeGesture = null; // { slotId, nearSlots, startX, startY }
-    this._init();
-  }
-
-  // ── Initialisation du conteneur ──────────────────────────────────────────────
-  _init() {
-    const el = document.createElement('div');
-    el.id = 'asm-screenslots';
-    el.style.cssText = [
-      'position:fixed', 'left:0', 'bottom:0',
-      'display:flex', 'flex-wrap:wrap-reverse', 'flex-direction:row',
-      `gap:${SS_PAD}px`, `padding:${SS_PAD}px`,
-      `max-width:${(SS_W + SS_PAD) * 4 + SS_PAD}px`,
-      'z-index:60', 'pointer-events:none',
-      'align-content:flex-end',
-    ].join(';');
-    document.body.appendChild(el);
-    this._container = el;
-  }
-
-  // ── Ajouter un screen slot pour une brique ───────────────────────────────────
-  async add(brickId) {
-    if (this._slots.find(s => s.brickId === brickId)) return; // déjà présent
-
-    const bricks = this._loadStore('rbang_bricks');
-    const brick  = bricks[brickId];
-    if (!brick) return;
-
-    // Canvas dédié
-    const canvas = document.createElement('canvas');
-    canvas.width  = SS_W * devicePixelRatio;
-    canvas.height = SS_H * devicePixelRatio;
-    canvas.style.cssText = [
-      `width:${SS_W}px`, `height:${SS_H}px`,
-      'display:block',
-      `border:1px solid ${C.border}`,
-      'border-radius:2px',
-      'touch-action:none',
-      'pointer-events:auto',
-      `background:${C.bgDark}`,
-    ].join(';');
-
-    // Étiquette
-    const wrap = document.createElement('div');
-    wrap.style.cssText = [
-      'position:relative', `width:${SS_W}px`,
-      'pointer-events:auto', 'touch-action:none',
-    ].join(';');
-    const label = document.createElement('div');
-    label.textContent = brick.name || brickId;
-    label.style.cssText = [
-      'position:absolute', 'bottom:0', 'left:0', 'right:0',
-      'padding:1px 4px',
-      `background:${C.bgDark}cc`,
-      `color:${C.dim}`,
-      'font:9px/1.4 sans-serif',
-      'white-space:nowrap', 'overflow:hidden', 'text-overflow:ellipsis',
-      'pointer-events:none',
-    ].join(';');
-    wrap.appendChild(canvas);
-    wrap.appendChild(label);
-    this._container.appendChild(wrap);
-
-    // Renderer Three.js dédié
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-    renderer.setPixelRatio(devicePixelRatio);
-    renderer.setSize(SS_W, SS_H);
-    renderer.shadowMap.enabled = false;
-
-    // Scène mini
-    const scene  = new THREE.Scene();
-    scene.background = new THREE.Color(C.bgDark);
-    const camera = new THREE.PerspectiveCamera(45, SS_W / SS_H, 0.01, 100);
-    camera.position.set(0, 0, 3);
-
-    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
-    const sun     = new THREE.DirectionalLight(0xffffff, 1.0);
-    sun.position.set(2, 4, 3);
-    scene.add(ambient, sun);
-
-    // TrackballControls sur le canvas
-    const controls = new TrackballControls(camera, canvas);
-    controls.rotateSpeed = 3;
-    controls.noPan = controls.noZoom = false;
-    controls.noRotate = false;
-
-    const slot = { id: `ss-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-                   brickId, canvas, renderer, scene, camera, controls,
-                   mesh: null, wrap, label };
-    this._slots.push(slot);
-
-    // Charger la géométrie
-    await this._loadGeometry(slot, brick);
-
-    // Boucle de rendu propre à ce slot
-    const loop = () => {
-      if (!this._slots.includes(slot)) return;
-      requestAnimationFrame(loop);
-      controls.update();
-      renderer.render(scene, camera);
-    };
-    loop();
-
-    // Événements tactiles
-    this._bindGestures(slot);
-
-    return slot;
-  }
-
-  // ── Supprimer un screen slot ──────────────────────────────────────────────────
-  remove(brickId) {
-    const idx = this._slots.findIndex(s => s.brickId === brickId);
-    if (idx === -1) return;
-    const slot = this._slots[idx];
-    slot.renderer.dispose();
-    if (slot.mesh) { slot.mesh.geometry.dispose(); slot.mesh.material.dispose(); }
-    slot.wrap.remove();
-    this._slots.splice(idx, 1);
-  }
-
-  dispose() {
-    const ids = this._slots.map(s => s.brickId);
-    ids.forEach(id => this.remove(id));
-    this._container.remove();
-  }
-
-  // ── Rect écran d'un slot (pour hit-test depuis la zone principale) ───────────
-  getRect(slotId) {
-    const slot = this._slots.find(s => s.id === slotId);
-    return slot ? slot.canvas.getBoundingClientRect() : null;
-  }
-
-  // ── Callbacks ─────────────────────────────────────────────────────────────────
-  onPickStart(fn) { this._onPickStart = fn; }
-  onPickEnd(fn)   { this._onPickEnd   = fn; }
-
-  get slots() { return this._slots; }
-
-  // ── Privé : géométrie ─────────────────────────────────────────────────────────
-  async _loadGeometry(slot, brick) {
-    try {
-      const shapes = this._loadStore('rbang_shapes');
-      const data   = shapes[brick.shapeRef];
-      if (!data?.steps || !data.rootId) return;
-      const M     = await getManifold();
-      const cache = buildCache(data.steps, M);
-      const mf    = cache.get(data.rootId);
-      if (!mf) return;
-      const { geo } = manifoldToGeometry(mf);
-      const color   = parseInt((brick.color || '#888888').replace('#', ''), 16);
-      const mat     = new THREE.MeshStandardMaterial({ color, roughness: 0.55 });
-      const mesh    = new THREE.Mesh(geo, mat);
-      // Centrer
-      const box    = new THREE.Box3().setFromObject(mesh);
-      const center = box.getCenter(new THREE.Vector3());
-      mesh.position.sub(center);
-      // Adapter la caméra à la taille
-      const size = box.getSize(new THREE.Vector3()).length();
-      slot.camera.position.set(0, 0, size * 1.4);
-      slot.controls.update();
-      slot.scene.add(mesh);
-      slot.mesh = mesh;
-    } catch (e) {
-      console.warn('ScreenSlot geometry error', e);
-    }
-  }
-
-  // ── Privé : gestures ──────────────────────────────────────────────────────────
-  _bindGestures(slot) {
-    const el = slot.canvas;
-    let ptrs = new Map(); // pointerId → {x,y}
-
-    el.addEventListener('pointerdown', (e) => {
-      e.stopPropagation();
-      el.setPointerCapture(e.pointerId);
-      ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
-      // Si on touche dans la zone brique (heuristique : on a un mesh)
-      if (slot.mesh && this._hitsBrick(slot, e.clientX, e.clientY)) {
-        slot.controls.enabled = false; // bloquer rotation pendant le geste d'assemblage
-        const nearSlots = this._nearSlotsForBrick(slot.brickId, e.clientX, e.clientY, slot);
-        this._activeGesture = { slotId: slot.id, brickId: slot.brickId, nearSlots,
-                                startX: e.clientX, startY: e.clientY, moved: false };
-        if (this._onPickStart) this._onPickStart(this._activeGesture);
-      } else {
-        slot.controls.enabled = true; // zone vide → TrackballControls actif
-      }
-    });
-
-    el.addEventListener('pointermove', (e) => {
-      if (!ptrs.has(e.pointerId)) return;
-      ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (this._activeGesture) {
-        const dx = e.clientX - this._activeGesture.startX;
-        const dy = e.clientY - this._activeGesture.startY;
-        if (Math.sqrt(dx*dx + dy*dy) > 8) this._activeGesture.moved = true;
-      }
-    });
-
-    el.addEventListener('pointerup', (e) => {
-      ptrs.delete(e.pointerId);
-      slot.controls.enabled = true; // toujours réactiver à la fin du geste
-      if (this._activeGesture && this._onPickEnd) {
-        this._onPickEnd({ ...this._activeGesture, endX: e.clientX, endY: e.clientY });
-        this._activeGesture = null;
-      }
-    });
-  }
-
-  // Heuristique : le touch est-il sur la brique (zone centrale du canvas) ?
-  _hitsBrick(slot, cx, cy) {
-    const rect = slot.canvas.getBoundingClientRect();
-    const lx = cx - rect.left, ly = cy - rect.top;
-    const mx = rect.width / 2, my = rect.height / 2;
-    const r  = Math.min(rect.width, rect.height) * 0.38;
-    return Math.sqrt((lx-mx)**2 + (ly-my)**2) < r;
-  }
-
-  // Slots de la brique triés par distance au point de contact sur le canvas
-  _nearSlotsForBrick(brickId, cx, cy, slot) {
-    const bricks = this._loadStore('rbang_bricks');
-    const brick  = bricks[brickId];
-    if (!brick?.slots?.length) return [];
-    const rect   = slot.canvas.getBoundingClientRect();
-    // NDC dans le canvas
-    const ndcX =  ((cx - rect.left)  / rect.width)  * 2 - 1;
-    const ndcY = -((cy - rect.top)   / rect.height) * 2 + 1;
-    const touchNDC = new THREE.Vector2(ndcX, ndcY);
-    // slot.mesh.position = -geoCenter (appliqué dans _loadBrick par mesh.position.sub(center))
-    // Position corrigée d'un slot = s.position + mesh.position = s.position - geoCenter
-    const meshPos = slot.mesh ? slot.mesh.position : new THREE.Vector3();
-    return brick.slots
-      .map(s => {
-        // Position monde dans la scène du screen slot pour projection NDC
-        const p = new THREE.Vector3(...s.position).add(meshPos);
-        p.project(slot.camera);
-        const d = touchNDC.distanceTo(new THREE.Vector2(p.x, p.y));
-        // Slot avec position corrigée (repère centré = repère de l'instance spawned)
-        const corrected = { ...s, position: [s.position[0] + meshPos.x, s.position[1] + meshPos.y, s.position[2] + meshPos.z] };
-        return { slot: corrected, dist: d };
-      })
-      .sort((a, b) => a.dist - b.dist)
-      .map(x => x.slot);
-  }
-
-  _loadStore(key) {
-    try { return JSON.parse(localStorage.getItem(key) || '{}'); } catch { return {}; }
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
 // Solveur d'assemblage
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -552,7 +287,7 @@ export class Assembler {
     this._ui          = [];
     this._instances   = new Map(); // id → BrickInstance
     this._wsm         = null; // WorldSlotManager
-    this._ssm         = null; // ScreenSlotManager
+    this._dock        = null; // BrickDock
     this._solver      = new AssemblySolver();
     this._simulating  = false;
     this._raycaster   = new THREE.Raycaster();
@@ -597,7 +332,7 @@ export class Assembler {
   stop() {
     this._simulating = false;
     this._wsm.dispose();
-    this._ssm.dispose();
+    this._dock?.destroy();
     this._clearSnapHelpers();
     this._instances.forEach(inst => {
       this.engine.scene.remove(inst.mesh);
@@ -626,17 +361,18 @@ export class Assembler {
   // ─── Managers ──────────────────────────────────────────────────────────────
 
   _setupManagers() {
-    this._wsm = new WorldSlotManager(this.engine.scene);
-    this._ssm = new ScreenSlotManager(this.engine.renderer, this.engine.camera);
+    this._wsm  = new WorldSlotManager(this.engine.scene);
+    this._dock = new BrickDock(this.engine, { edge: 'bottom', align: 'center' });
 
-    this._ssm.onPickStart((gesture) => {
-      this._activeGesture = gesture;
-    });
-
-    this._ssm.onPickEnd((gesture) => {
+    this._dock.onPickBrick((brickId, gesture) => {
+      // Swipe vers la scène depuis le dock → placer la brique
       this._activeGesture = null;
       this._handleScreenSlotDrop(gesture);
     });
+
+    // Charger toutes les briques disponibles dans le dock
+    const bricks = this._loadStore('rbang_bricks');
+    this._dock.load(bricks);
   }
 
   // ─── Gestion du drop depuis un screen slot ──────────────────────────────────
@@ -1220,7 +956,7 @@ export class Assembler {
       .asm-brick-item:active { background:#ffffff10; }
       .asm-brick-item.loaded { color:${C.fg}; border-left-color:${C.accent}; }
       .asm-footer {
-        position:fixed; bottom:${SS_H * 2 + SS_PAD * 3 + 10}px; right:12px;
+        position:fixed; bottom:12px; right:12px;
         display:flex; gap:8px; z-index:56;
       }
       .asm-btn {
@@ -1241,20 +977,6 @@ export class Assembler {
     `;
     document.head.appendChild(style);
     this._ui.push(style);
-
-    // ── Panneau gauche ────────────────────────────────────────────────────────
-    const panel = document.createElement('div');
-    panel.className = 'asm-panel';
-    const head = document.createElement('div');
-    head.className = 'asm-panel-head';
-    head.textContent = 'Briques';
-    this._listEl = document.createElement('div');
-    this._listEl.className = 'asm-brick-list';
-    panel.append(head, this._listEl);
-    document.body.appendChild(panel);
-    this._ui.push(panel);
-
-    this._populateBrickList();
 
     // ── Barre du haut ─────────────────────────────────────────────────────────
     const bar = document.createElement('div');
@@ -1291,7 +1013,7 @@ export class Assembler {
     this._shootBtn.title = 'Tirer une balle';
     this._shootBtn.style.cssText = [
       'position:fixed', 'right:12px',
-      `bottom:${SS_H * 2 + SS_PAD * 3 + 56}px`,
+      'bottom:80px',
       'width:44px', 'height:44px', 'padding:0',
       'border-radius:50%', 'font-size:20px',
       'display:none', 'z-index:56',
@@ -1534,33 +1256,6 @@ export class Assembler {
     this._ui.push(panel);
   }
 
-  _populateBrickList() {
-    this._listEl.innerHTML = '';
-    const bricks = this._loadStore('rbang_bricks');
-    for (const [id, brick] of Object.entries(bricks)) {
-      const item = document.createElement('div');
-      item.className = 'asm-brick-item';
-      item.textContent = brick.name || id;
-      item.dataset.brickId = id;
-      item.addEventListener('click', async () => {
-        if (item.classList.contains('loaded')) {
-          this._ssm.remove(id);
-          item.classList.remove('loaded');
-        } else {
-          await this._ssm.add(id);
-          item.classList.add('loaded');
-        }
-      });
-      this._listEl.appendChild(item);
-    }
-    if (!Object.keys(bricks).length) {
-      const empty = document.createElement('div');
-      empty.style.cssText = `padding:10px 8px;color:${C.dim};font-size:10px;`;
-      empty.textContent = 'Aucune brique dans la forge.';
-      this._listEl.appendChild(empty);
-    }
-  }
-
   _toggleSim() {
     if (!this._simulating) {
       if (!this._instances.size) return;
@@ -1750,15 +1445,13 @@ export class Assembler {
   // ─── Utilitaires ─────────────────────────────────────────────────────────────
 
   _isOverScreenSlot(cx, cy) {
-    for (const slot of this._ssm.slots) {
-      const rect = slot.canvas.getBoundingClientRect();
-      if (cx >= rect.left && cx <= rect.right && cy >= rect.top && cy <= rect.bottom) return true;
-    }
-    return false;
+    if (!this._dock?.el) return false;
+    const rect = this._dock.el.getBoundingClientRect();
+    return cx >= rect.left && cx <= rect.right && cy >= rect.top && cy <= rect.bottom;
   }
 
   _isOverUI(target) {
-    return target.closest?.('.asm-panel, .asm-footer, .asm-bar, .asm-config, #asm-screenslots');
+    return target.closest?.('.brick-dock, .asm-footer, .asm-bar, .asm-config');
   }
 
   _updateCount() {
