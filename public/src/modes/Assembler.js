@@ -473,6 +473,10 @@ export class Assembler {
     this._mouse       = new THREE.Vector2(-9999, -9999);
     this._snapHelpers = [];
     this._idSeq       = 0;
+    this._connections = []; // { instA, instB, slotA, slotB, liaison }
+    this._wsConnections = []; // { wslot, inst, slotA } pour world slots
+    this._simJoints   = []; // handles Rapier joints actifs
+    this._simWsBodies = []; // fixed bodies pour world slots
   }
 
   // ─── Cycle de vie ──────────────────────────────────────────────────────────
@@ -560,9 +564,14 @@ export class Assembler {
     // Drop dans le vide → créer world slot + placer la brique
     const pt = this._wsm.raycastPlane(this._raycaster);
     if (pt) {
-      const wslot = this._wsm.add(pt);
-      const inst  = await this._spawnBrick(brickId, wslot.position);
-      if (inst) this._wsm.bind(wslot, inst.id);
+      const wslot   = this._wsm.add(pt);
+      const inst    = await this._spawnBrick(brickId, wslot.position);
+      if (inst) {
+        this._wsm.bind(wslot, inst.id);
+        // Le slot source le plus proche = premier de nearSlots
+        const nearSlots = gesture.nearSlots || [];
+        this._wsConnections.push({ wslot, inst, slotA: nearSlots[0] ?? null });
+      }
     }
   }
 
@@ -581,7 +590,12 @@ export class Assembler {
     if (result) {
       const snapTransform = this._computeSnapTransform(result.slotA, result.slotB, targetInst);
       const inst = await this._spawnBrick(brickId, null, snapTransform);
-      if (inst) this._showSnapHelper(inst.mesh.position.clone());
+      if (inst) {
+        this._connections.push({ instA: inst, instB: targetInst,
+                                 slotA: result.slotA, slotB: result.slotB,
+                                 liaison: result.liaison });
+        this._showSnapHelper(inst.mesh.position.clone());
+      }
     } else {
       // Pas de liaison compatible → placer à côté sur le sol
       const pos = targetInst.mesh.position.clone().add(new THREE.Vector3(2, 0, 0));
@@ -756,25 +770,111 @@ export class Assembler {
 
   _startSimulation() {
     this._simulating = true;
+    const R = this.engine.R;
+    const world = this.engine.world;
+
+    // 1. Créer tous les corps dynamiques
     for (const inst of this._instances.values()) {
       const { x, y, z } = inst.mesh.position;
-      const body = this.engine.world.createRigidBody(
-        this.engine.R.RigidBodyDesc.dynamic().setTranslation(x, y, z)
+      const q    = inst.mesh.quaternion;
+      const body = world.createRigidBody(
+        R.RigidBodyDesc.dynamic().setTranslation(x, y, z)
       );
-      const q = inst.mesh.quaternion;
       body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
-      const cd = (this.engine.R.ColliderDesc.convexHull(inst.pts)
-               ?? this.engine.R.ColliderDesc.ball(0.5))
+      const cd = (R.ColliderDesc.convexHull(inst.pts) ?? R.ColliderDesc.ball(0.5))
         .setRestitution(0.2).setFriction(0.6);
-      this.engine.world.createCollider(cd, body);
-      inst.body = body;
+      world.createCollider(cd, body);
+      inst.body    = body;
       inst.origPos  = inst.mesh.position.clone();
       inst.origQuat = inst.mesh.quaternion.clone();
       this.engine._bodies.push({ mesh: inst.mesh, body, isStatic: false });
     }
+
+    // 2. Joints depuis world slots (rotule universelle)
+    for (const wsc of this._wsConnections) {
+      const { wslot, inst, slotA } = wsc;
+      const wp = wslot.position;
+      const fixedBody = world.createRigidBody(R.RigidBodyDesc.fixed().setTranslation(wp.x, wp.y, wp.z));
+      this._simWsBodies.push(fixedBody);
+      const ancA = slotA
+        ? { x: slotA.position[0], y: slotA.position[1], z: slotA.position[2] }
+        : { x: 0, y: 0, z: 0 };
+      const ancB = { x: 0, y: 0, z: 0 };
+      try {
+        const jd = R.JointData.spherical(ancA, ancB);
+        this._simJoints.push(world.createImpulseJoint(jd, inst.body, fixedBody, true));
+      } catch (e) { console.warn('World slot joint error', e); }
+    }
+
+    // 3. Joints depuis connexions slot↔slot
+    for (const conn of this._connections) {
+      const { instA, instB, slotA, slotB, liaison } = conn;
+      if (!instA.body || !instB.body) continue;
+      try {
+        const joint = this._createJoint(R, world, instA.body, instB.body, slotA, slotB, liaison);
+        if (joint) this._simJoints.push(joint);
+      } catch (e) { console.warn('Joint creation error', e); }
+    }
+  }
+
+  // ─── Création d'un joint Rapier selon la liaison ──────────────────────────────
+
+  _createJoint(R, world, bodyA, bodyB, slotA, slotB, liaison) {
+    const ancA = { x: slotA.position[0], y: slotA.position[1], z: slotA.position[2] };
+    const ancB = { x: slotB.position[0], y: slotB.position[1], z: slotB.position[2] };
+    const dofs = liaison?.dof ?? [];
+
+    // Aucun DOF → joint fixe
+    if (dofs.length === 0) {
+      const qa = new THREE.Quaternion(...slotA.quaternion);
+      const qb = new THREE.Quaternion(...slotB.quaternion);
+      const fa = { x: qa.x, y: qa.y, z: qa.z, w: qa.w };
+      const fb = { x: qb.x, y: qb.y, z: qb.z, w: qb.w };
+      return world.createImpulseJoint(R.JointData.fixed(ancA, fa, ancB, fb), bodyA, bodyB, true);
+    }
+
+    // Un seul DOF → joint correspondant
+    if (dofs.length === 1) {
+      const dof  = dofs[0];
+      const axA  = new THREE.Vector3(...(dof.axis ?? [0, 1, 0]))
+                     .applyQuaternion(new THREE.Quaternion(...slotA.quaternion)).normalize();
+      const axB  = new THREE.Vector3(...(dof.axis ?? [0, 1, 0]))
+                     .applyQuaternion(new THREE.Quaternion(...slotB.quaternion)).normalize();
+      const vA   = { x: axA.x, y: axA.y, z: axA.z };
+      const vB   = { x: axB.x, y: axB.y, z: axB.z };
+
+      switch (dof.type) {
+        case 'rotation':
+          return world.createImpulseJoint(R.JointData.revolute(ancA, vA, ancB, vB), bodyA, bodyB, true);
+        case 'translation':
+          return world.createImpulseJoint(R.JointData.prismatic(ancA, vA, ancB, vB), bodyA, bodyB, true);
+        case 'ball':
+          return world.createImpulseJoint(R.JointData.spherical(ancA, ancB), bodyA, bodyB, true);
+        case 'cylindrical': {
+          // Pivot glissant : revolute + prismatic sur même axe → revolute comme approximation
+          // (Rapier compat ne dispose pas de GenericJoint direct)
+          return world.createImpulseJoint(R.JointData.revolute(ancA, vA, ancB, vB), bodyA, bodyB, true);
+        }
+      }
+    }
+
+    // Plusieurs DOF → rotule par défaut
+    return world.createImpulseJoint(R.JointData.spherical(ancA, ancB), bodyA, bodyB, true);
   }
 
   _stopSimulation() {
+    // Supprimer les joints (Rapier les supprime avec les corps, mais on nettoie explicitement)
+    for (const j of this._simJoints) {
+      try { this.engine.world.removeImpulseJoint(j, true); } catch {}
+    }
+    this._simJoints = [];
+
+    // Supprimer les fixed bodies des world slots
+    for (const b of this._simWsBodies) {
+      try { this.engine.world.removeRigidBody(b); } catch {}
+    }
+    this._simWsBodies = [];
+
     for (const inst of this._instances.values()) {
       if (inst.body) {
         const idx = this.engine._bodies.findIndex(b => b.body === inst.body);
@@ -962,6 +1062,8 @@ export class Assembler {
       if (inst.body) this.engine.world.removeRigidBody(inst.body);
     }
     this._instances.clear();
+    this._connections = [];
+    this._wsConnections = [];
     // Libérer les world slots
     for (const ws of [...this._wsm.slots]) this._wsm.unbind(ws);
     this._updateCount();
