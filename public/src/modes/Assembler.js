@@ -619,19 +619,32 @@ export class Assembler {
       const mf    = cache.get(data.rootId);
       if (!mf) return null;
       const { geo } = manifoldToGeometry(mf);
-      const pts     = manifoldToPoints(mf);
+      const ptsRaw  = manifoldToPoints(mf);
       const color   = parseInt((brick.color || '#888888').replace('#', ''), 16);
       const mesh    = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.55 }));
       mesh.castShadow = mesh.receiveShadow = true;
+
+      // ── Centrer la géométrie sur l'origine du mesh ──────────────────────────
+      // Les slots sont définis dans le repère centré de la Forge → on aligne ici
+      const box    = new THREE.Box3().setFromObject(mesh);
+      const center = box.getCenter(new THREE.Vector3());
+      geo.translate(-center.x, -center.y, -center.z);
+      // Décaler pts en cohérence
+      const pts = new Float32Array(ptsRaw.length);
+      for (let i = 0; i < ptsRaw.length; i += 3) {
+        pts[i]   = ptsRaw[i]   - center.x;
+        pts[i+1] = ptsRaw[i+1] - center.y;
+        pts[i+2] = ptsRaw[i+2] - center.z;
+      }
+
       if (snapTransform) {
-        // Placement exact par matrice de snap
         mesh.position.copy(snapTransform.position);
         mesh.quaternion.copy(snapTransform.quaternion);
       } else {
-        // Poser la brique sur le sol : aligner box.min.y sur le dessus du sol (Y = 0.25)
+        // Poser la brique sur le sol — après centrage, box.min.y = -halfH
         const GROUND_TOP = 0.25;
-        const box = new THREE.Box3().setFromObject(mesh);
-        mesh.position.set(pos.x, GROUND_TOP - box.min.y, pos.z);
+        const boxC = new THREE.Box3().setFromObject(mesh);
+        mesh.position.set(pos.x, GROUND_TOP - boxC.min.y, pos.z);
       }
       this.engine.scene.add(mesh);
       const id   = `bi-${++this._idSeq}`;
@@ -801,8 +814,10 @@ export class Assembler {
         : { x: 0, y: 0, z: 0 };
       const ancB = { x: 0, y: 0, z: 0 };
       try {
-        const jd = R.JointData.spherical(ancA, ancB);
-        this._simJoints.push(world.createImpulseJoint(jd, inst.body, fixedBody, true));
+        const jd    = R.JointData.spherical(ancA, ancB);
+        const joint = world.createImpulseJoint(jd, inst.body, fixedBody, true);
+        if (typeof joint.setContactsEnabled === 'function') joint.setContactsEnabled(false);
+        this._simJoints.push(joint);
       } catch (e) { console.warn('World slot joint error', e); }
     }
 
@@ -824,42 +839,37 @@ export class Assembler {
     const ancB = { x: slotB.position[0], y: slotB.position[1], z: slotB.position[2] };
     const dofs = liaison?.dof ?? [];
 
-    // Aucun DOF → joint fixe
+    let jd;
+
     if (dofs.length === 0) {
       const qa = new THREE.Quaternion(...slotA.quaternion);
       const qb = new THREE.Quaternion(...slotB.quaternion);
-      const fa = { x: qa.x, y: qa.y, z: qa.z, w: qa.w };
-      const fb = { x: qb.x, y: qb.y, z: qb.z, w: qb.w };
-      return world.createImpulseJoint(R.JointData.fixed(ancA, fa, ancB, fb), bodyA, bodyB, true);
-    }
-
-    // Un seul DOF → joint correspondant
-    if (dofs.length === 1) {
-      const dof  = dofs[0];
-      const axA  = new THREE.Vector3(...(dof.axis ?? [0, 1, 0]))
-                     .applyQuaternion(new THREE.Quaternion(...slotA.quaternion)).normalize();
-      const axB  = new THREE.Vector3(...(dof.axis ?? [0, 1, 0]))
-                     .applyQuaternion(new THREE.Quaternion(...slotB.quaternion)).normalize();
-      const vA   = { x: axA.x, y: axA.y, z: axA.z };
-      const vB   = { x: axB.x, y: axB.y, z: axB.z };
-
+      jd = R.JointData.fixed(ancA, { x: qa.x, y: qa.y, z: qa.z, w: qa.w },
+                              ancB, { x: qb.x, y: qb.y, z: qb.z, w: qb.w });
+    } else if (dofs.length === 1) {
+      const dof = dofs[0];
+      const axA = new THREE.Vector3(...(dof.axis ?? [0, 1, 0]))
+                    .applyQuaternion(new THREE.Quaternion(...slotA.quaternion)).normalize();
+      const axB = new THREE.Vector3(...(dof.axis ?? [0, 1, 0]))
+                    .applyQuaternion(new THREE.Quaternion(...slotB.quaternion)).normalize();
+      const vA  = { x: axA.x, y: axA.y, z: axA.z };
+      const vB  = { x: axB.x, y: axB.y, z: axB.z };
       switch (dof.type) {
-        case 'rotation':
-          return world.createImpulseJoint(R.JointData.revolute(ancA, vA, ancB, vB), bodyA, bodyB, true);
-        case 'translation':
-          return world.createImpulseJoint(R.JointData.prismatic(ancA, vA, ancB, vB), bodyA, bodyB, true);
-        case 'ball':
-          return world.createImpulseJoint(R.JointData.spherical(ancA, ancB), bodyA, bodyB, true);
-        case 'cylindrical': {
-          // Pivot glissant : revolute + prismatic sur même axe → revolute comme approximation
-          // (Rapier compat ne dispose pas de GenericJoint direct)
-          return world.createImpulseJoint(R.JointData.revolute(ancA, vA, ancB, vB), bodyA, bodyB, true);
-        }
+        case 'rotation':    jd = R.JointData.revolute(ancA, vA, ancB, vB);   break;
+        case 'translation': jd = R.JointData.prismatic(ancA, vA, ancB, vB);  break;
+        case 'ball':        jd = R.JointData.spherical(ancA, ancB);           break;
+        case 'cylindrical': jd = R.JointData.revolute(ancA, vA, ancB, vB);   break;
+        default:            jd = R.JointData.spherical(ancA, ancB);
       }
+    } else {
+      jd = R.JointData.spherical(ancA, ancB);
     }
 
-    // Plusieurs DOF → rotule par défaut
-    return world.createImpulseJoint(R.JointData.spherical(ancA, ancB), bodyA, bodyB, true);
+    const joint = world.createImpulseJoint(jd, bodyA, bodyB, true);
+    // Désactiver la collision entre les deux corps reliés pour éviter
+    // les forces de pénétration qui combattent le joint
+    if (typeof joint.setContactsEnabled === 'function') joint.setContactsEnabled(false);
+    return joint;
   }
 
   _stopSimulation() {
