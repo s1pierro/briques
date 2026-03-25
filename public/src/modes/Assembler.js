@@ -578,24 +578,21 @@ export class Assembler {
     const brick  = bricks[brickId];
     if (!brick) return;
 
-    // Calculer la position de snap
-    let spawnPos;
     if (result) {
-      spawnPos = this._computeSnapPos(result, targetInst);
+      const snapTransform = this._computeSnapTransform(result.slotA, result.slotB, targetInst);
+      const inst = await this._spawnBrick(brickId, null, snapTransform);
+      if (inst) this._showSnapHelper(inst.mesh.position.clone());
     } else {
-      // Pas de liaison compatible → placer à côté
-      spawnPos = targetInst.mesh.position.clone().add(new THREE.Vector3(2, 0, 0));
-    }
-
-    const inst = await this._spawnBrick(brickId, spawnPos);
-    if (inst && result) {
-      this._showSnapHelper(spawnPos);
+      // Pas de liaison compatible → placer à côté sur le sol
+      const pos = targetInst.mesh.position.clone().add(new THREE.Vector3(2, 0, 0));
+      await this._spawnBrick(brickId, pos);
     }
   }
 
   // ─── Spawn d'une brique dans la scène ───────────────────────────────────────
 
-  async _spawnBrick(brickId, pos) {
+  // pos : Vector3 pour world slot (sol), snapTransform : { position, quaternion } pour snap slot
+  async _spawnBrick(brickId, pos, snapTransform = null) {
     const bricks = this._loadStore('rbang_bricks');
     const brick  = bricks[brickId];
     if (!brick) return null;
@@ -612,10 +609,16 @@ export class Assembler {
       const color   = parseInt((brick.color || '#888888').replace('#', ''), 16);
       const mesh    = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.55 }));
       mesh.castShadow = mesh.receiveShadow = true;
-      // Poser la brique sur le sol : aligner box.min.y sur le dessus du sol (Y = 0.25)
-      const GROUND_TOP = 0.25;
-      const box = new THREE.Box3().setFromObject(mesh);
-      mesh.position.set(pos.x, GROUND_TOP - box.min.y, pos.z);
+      if (snapTransform) {
+        // Placement exact par matrice de snap
+        mesh.position.copy(snapTransform.position);
+        mesh.quaternion.copy(snapTransform.quaternion);
+      } else {
+        // Poser la brique sur le sol : aligner box.min.y sur le dessus du sol (Y = 0.25)
+        const GROUND_TOP = 0.25;
+        const box = new THREE.Box3().setFromObject(mesh);
+        mesh.position.set(pos.x, GROUND_TOP - box.min.y, pos.z);
+      }
       this.engine.scene.add(mesh);
       const id   = `bi-${++this._idSeq}`;
       const inst = new BrickInstance(id, brick, mesh, null, pts);
@@ -651,15 +654,39 @@ export class Assembler {
 
   // ─── Position de snap ────────────────────────────────────────────────────────
 
-  _computeSnapPos(result, targetInst) {
-    const { slotA, slotB } = result;
-    // Position monde du slotB
-    const wB = new THREE.Vector3(...slotB.position)
-      .applyQuaternion(targetInst.mesh.quaternion)
-      .add(targetInst.mesh.position);
-    // Déplacer légèrement selon la normale du slot
-    const offset = new THREE.Vector3(0, 0.5, 0);
-    return wB.add(offset);
+  // Formule : newBrick.worldMatrix = targetSlot.worldMatrix × inverse(sourceSlot.localMatrix)
+  // (même mécanique que l'ancien assembleur briques.js)
+  _computeSnapTransform(slotA, slotB, targetInst) {
+    const one = new THREE.Vector3(1, 1, 1);
+
+    // Matrice monde de la brique cible
+    const tbrickMat = new THREE.Matrix4().compose(
+      targetInst.mesh.position, targetInst.mesh.quaternion, one
+    );
+    // Matrice locale du slot cible (B)
+    const tslotMat = new THREE.Matrix4().compose(
+      new THREE.Vector3(...slotB.position),
+      new THREE.Quaternion(...slotB.quaternion),
+      one
+    );
+    // Matrice monde du slot cible
+    const tgtWorldMat = new THREE.Matrix4().multiplyMatrices(tbrickMat, tslotMat);
+
+    // Matrice locale du slot source (A) — inversée
+    const sslotMatInv = new THREE.Matrix4().compose(
+      new THREE.Vector3(...slotA.position),
+      new THREE.Quaternion(...slotA.quaternion),
+      one
+    ).invert();
+
+    // Matrice monde de la nouvelle brique
+    const newMat = new THREE.Matrix4().multiplyMatrices(tgtWorldMat, sslotMatInv);
+
+    const position = new THREE.Vector3();
+    const quaternion = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    newMat.decompose(position, quaternion, scale);
+    return { position, quaternion };
   }
 
   // ─── Trackball sur un world slot ─────────────────────────────────────────────
