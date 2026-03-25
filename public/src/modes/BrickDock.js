@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { getManifold, buildCache, manifoldToGeometry } from '../csg-utils.js';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
-const CELL   = 130;   // px — taille d'une cellule (carré)
-const GAP    = 6;     // px — espacement entre cellules
+const CELL        = 110;  // px — cellule inactive
+const CELL_ACTIVE = 190;  // px — cellule active
+const GAP         = 6;    // px — espacement entre cellules
 
 // Couleurs (même thème Industrial que l'Assembler)
 const C = {
@@ -29,6 +30,7 @@ export class BrickDock {
     this._engine    = engine;
     this._edge      = edge;
     this._align     = align;
+    this._insets    = { top: 0, bottom: 0, left: 0, right: 0 };
     this._families  = [];   // [{ name, bricks:[{id,data}] }]
     this._famIdx    = 0;
     this._cells     = [];   // cellules actives
@@ -38,6 +40,9 @@ export class BrickDock {
     this._cellsEl   = null;
     this._animId    = null;
     this._onPickBrick = null;
+    this._activeCell  = null;
+    this._activateOnOutsideTap = true;
+    this._stackFamily = { name: '(tmp)Stack', bricks: [] };
 
     this._buildDOM();
     this._startLoop();
@@ -50,6 +55,25 @@ export class BrickDock {
   async load(bricksData) {
     this._buildFamilies(bricksData);
     if (this._families.length) await this._showFamily(0);
+  }
+
+  setInsets(insets) {
+    Object.assign(this._insets, insets);
+    this._applyContainerPosition();
+  }
+
+  setActivateOnOutsideTap(val) { this._activateOnOutsideTap = val; }
+
+  showStack() {
+    const idx = this._families.indexOf(this._stackFamily);
+    if (idx >= 0) this._showFamily(idx);
+  }
+
+  pushToStack(brickId, brickData) {
+    const alreadyIn = this._stackFamily.bricks.some(b => b.id === brickId);
+    if (alreadyIn) { this.showStack(); return; }
+    this._stackFamily.bricks.unshift({ id: brickId, data: brickData });
+    this.showStack();
   }
 
   setPosition(edge, align = 'center') {
@@ -116,32 +140,39 @@ export class BrickDock {
 
   _applyContainerPosition() {
     const el = this._el;
+    const { top: it = 0, bottom: ib = 0, left: il = 0, right: ir = 0 } = this._insets;
     ['left','right','top','bottom','transform'].forEach(p => el.style.removeProperty(p));
 
     switch (this._edge) {
       case 'bottom':
-        el.style.bottom = '0';
+        el.style.bottom = ib + 'px';
         if (this._align === 'center') { el.style.left = '50%'; el.style.transform = 'translateX(-50%)'; }
-        else if (this._align === 'start') el.style.left = '0';
-        else el.style.right = '0';
+        else if (this._align === 'start') el.style.left = il + 'px';
+        else el.style.right = ir + 'px';
         break;
       case 'top':
-        el.style.top = '0';
+        el.style.top = it + 'px';
         if (this._align === 'center') { el.style.left = '50%'; el.style.transform = 'translateX(-50%)'; }
-        else if (this._align === 'start') el.style.left = '0';
-        else el.style.right = '0';
+        else if (this._align === 'start') el.style.left = il + 'px';
+        else el.style.right = ir + 'px';
         break;
       case 'left':
-        el.style.left = '0';
-        if (this._align === 'center') { el.style.top = '50%'; el.style.transform = 'translateY(-50%)'; }
-        else if (this._align === 'start') el.style.top = '0';
-        else el.style.bottom = '0';
+        el.style.left = il + 'px';
+        if (this._align === 'center') {
+          el.style.top = `calc(50% + ${(it - ib) / 2}px)`;
+          el.style.transform = 'translateY(-50%)';
+        }
+        else if (this._align === 'start') el.style.top = it + 'px';
+        else el.style.bottom = ib + 'px';
         break;
       case 'right':
-        el.style.right = '0';
-        if (this._align === 'center') { el.style.top = '50%'; el.style.transform = 'translateY(-50%)'; }
-        else if (this._align === 'start') el.style.top = '0';
-        else el.style.bottom = '0';
+        el.style.right = ir + 'px';
+        if (this._align === 'center') {
+          el.style.top = `calc(50% + ${(it - ib) / 2}px)`;
+          el.style.transform = 'translateY(-50%)';
+        }
+        else if (this._align === 'start') el.style.top = it + 'px';
+        else el.style.bottom = ib + 'px';
         break;
     }
   }
@@ -149,11 +180,25 @@ export class BrickDock {
   _applyFlexDirections() {
     const isVert = this._edge === 'left' || this._edge === 'right';
 
+    // Ordre DOM : talon côté bord d'écran
+    // bottom/right → cells avant talon ; top/left → talon avant cells
+    if (this._edge === 'bottom' || this._edge === 'right') {
+      this._el.append(this._cellsEl, this._talonEl);
+    } else {
+      this._el.append(this._talonEl, this._cellsEl);
+    }
+
     // Conteneur principal : column pour top/bottom, row pour left/right
     this._el.style.flexDirection = isVert ? 'row' : 'column';
 
     // Cellules : row ou column selon l'orientation du dock
     this._cellsEl.style.flexDirection = isVert ? 'column' : 'row';
+
+    // Alignement : cellules inactives toujours flush côté talon
+    // bottom/right → talon en bas/droite → flex-end
+    // top/left     → talon en haut/gauche → flex-start
+    this._cellsEl.style.alignItems =
+      (this._edge === 'bottom' || this._edge === 'right') ? 'flex-end' : 'flex-start';
 
     // Talon : dimensions + texte vertical si gauche/droite
     if (isVert) {
@@ -183,6 +228,8 @@ export class BrickDock {
       map.get(fam).push({ id, data });
     }
     this._families = [...map.entries()].map(([name, bricks]) => ({ name, bricks }));
+    if (!this._families.includes(this._stackFamily))
+      this._families.push(this._stackFamily); // famille virtuelle toujours en dernier
   }
 
   async _showFamily(idx) {
@@ -271,13 +318,41 @@ export class BrickDock {
     } catch (e) { console.warn('[BrickDock] geometry', e); }
   }
 
+  // ── Activation de cellule ──────────────────────────────────────────────────
+
+  _activateCell(cell) {
+    if (this._activeCell === cell) return;
+    this._deactivateCell();
+    this._activeCell = cell;
+    const s = CELL_ACTIVE;
+    cell.el.style.width  = s + 'px';
+    cell.el.style.height = s + 'px';
+    cell.el.style.borderColor = '#7aafc8';
+    cell.canvas.style.width  = s + 'px';
+    cell.canvas.style.height = s + 'px';
+    cell.renderer.setSize(s, s, false);
+  }
+
+  _deactivateCell() {
+    if (!this._activeCell) return;
+    const cell = this._activeCell;
+    this._activeCell = null;
+    const s = CELL;
+    cell.el.style.width  = s + 'px';
+    cell.el.style.height = s + 'px';
+    cell.el.style.borderColor = C.border;
+    cell.canvas.style.width  = s + 'px';
+    cell.canvas.style.height = s + 'px';
+    cell.renderer.setSize(s, s, false);
+  }
+
   // ── Gestes sur cellule ─────────────────────────────────────────────────────
 
   _bindCellGestures(cell) {
-    const el = cell.canvas;
-    let startX = 0, startY = 0, resolved = false, intent = null;
+    const el = cell.el;
+    let startX = 0, startY = 0, lastX = 0, lastY = 0;
+    let mode = null; // 'trackball' | 'assemble' | null
 
-    // Détermine si le delta pointe vers le bord d'écran du dock
     const isTowardEdge = (dx, dy) => {
       switch (this._edge) {
         case 'bottom': return dy > 0;
@@ -289,31 +364,50 @@ export class BrickDock {
 
     el.addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      startX = e.clientX; startY = e.clientY;
-      resolved = false; intent = null;
+      startX = lastX = e.clientX;
+      startY = lastY = e.clientY;
+      mode = null;
 
-      if (!cell.mesh || !this._hitsBrick(cell, e.clientX, e.clientY)) {
-        // Hors brique → transmettre à la caméra
-        this._forwardToEngine(e);
+      const onBrick = cell.mesh && this._hitsBrick(cell, e.clientX, e.clientY);
+      const isActive = this._activeCell === cell;
+
+      if (!isActive) {
+        if (onBrick || this._activateOnOutsideTap) {
+          this._activateCell(cell);
+          el.setPointerCapture(e.pointerId);
+          mode = 'trackball';
+        } else {
+          this._forwardToEngine(e);
+        }
         return;
       }
+
+      // Cellule active
       el.setPointerCapture(e.pointerId);
+      mode = onBrick ? 'assemble' : 'trackball';
     }, { passive: false });
 
     el.addEventListener('pointermove', (e) => {
       if (!el.hasPointerCapture(e.pointerId)) return;
-      if (resolved) return;
-      const dx = e.clientX - startX, dy = e.clientY - startY;
-      if (Math.sqrt(dx * dx + dy * dy) < 15) return;
-      resolved = true;
 
-      if (isTowardEdge(dx, dy)) {
-        // Swipe vers le bord → famille suivante (cyclique), libérer
-        el.releasePointerCapture(e.pointerId);
-        this._showFamily(this._famIdx + 1);
-      } else {
-        // Swipe vers la scène → intention d'assemblage (résolu au pointerup)
-        intent = 'assemble';
+      if (mode === 'trackball' && cell.mesh) {
+        const dx = e.clientX - lastX, dy = e.clientY - lastY;
+        lastX = e.clientX; lastY = e.clientY;
+        cell.mesh.rotation.y += dx * 0.012;
+        cell.mesh.rotation.x = Math.max(
+          -Math.PI / 2,
+          Math.min(Math.PI / 2, cell.mesh.rotation.x + dy * 0.012)
+        );
+        return;
+      }
+
+      if (mode === 'assemble') {
+        const dx = e.clientX - startX, dy = e.clientY - startY;
+        if (Math.sqrt(dx * dx + dy * dy) >= 15 && isTowardEdge(dx, dy)) {
+          el.releasePointerCapture(e.pointerId);
+          mode = null;
+          this._showFamily(this._famIdx + 1);
+        }
       }
     }, { passive: false });
 
@@ -321,21 +415,22 @@ export class BrickDock {
       if (!el.hasPointerCapture(e.pointerId)) return;
       el.releasePointerCapture(e.pointerId);
 
-      if ((intent === 'assemble' || !resolved) && this._onPickBrick) {
+      if (mode === 'assemble' && this._onPickBrick) {
+        const dx = e.clientX - startX, dy = e.clientY - startY;
         const nearSlots = this._nearSlotsForBrick(cell, startX, startY);
         this._onPickBrick(cell.brickId, {
-          brickId : cell.brickId,
-          nearSlots,
+          brickId: cell.brickId, nearSlots,
           startX, startY,
-          endX    : e.clientX,
-          endY    : e.clientY,
-          moved   : resolved,
+          endX: e.clientX, endY: e.clientY,
+          moved: Math.sqrt(dx * dx + dy * dy) >= 15,
         });
       }
+      mode = null;
     });
 
     el.addEventListener('pointercancel', (e) => {
       if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+      mode = null;
     });
   }
 
@@ -417,14 +512,12 @@ export class BrickDock {
     this._cellsEl.style.transform = `${axis}(-${this._scrollPx}px)`;
   }
 
-  // ── Boucle de rendu — rotation auto lente ──────────────────────────────────
+  // ── Boucle de rendu ────────────────────────────────────────────────────────
 
   _startLoop() {
     const step = () => {
       this._animId = requestAnimationFrame(step);
       for (const cell of this._cells) {
-        if (!cell.mesh) continue;
-        cell.mesh.rotation.y += 0.007;
         cell.renderer.render(cell.scene, cell.camera);
       }
     };
@@ -434,6 +527,7 @@ export class BrickDock {
   // ── Nettoyage ──────────────────────────────────────────────────────────────
 
   _disposeCells() {
+    this._activeCell = null;
     for (const cell of this._cells) {
       cell.renderer.dispose();
       if (cell.mesh) { cell.mesh.geometry.dispose(); cell.mesh.material.dispose(); }

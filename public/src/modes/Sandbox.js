@@ -14,6 +14,7 @@ export class Sandbox {
   start() {
     this._setupScene();
     this._setupUI();
+    this._setupPhysicsPanel();
     this._setupStatusBar();
     this._spawnInterval = setInterval(() => this._spawnRandom(), 1000);
     this.engine.start();
@@ -106,6 +107,114 @@ export class Sandbox {
       (Math.random() - 0.5) * 5,
       COLORS[Math.floor(Math.random() * COLORS.length)]
     );
+  }
+
+  _setupPhysicsPanel() {
+    const C = { bg: '#2e2e2e', border: '#555', fg: '#d0d0d0', dim: '#888', accent: '#7aafc8' };
+
+    const panel = document.createElement('div');
+    panel.style.cssText = [
+      'position:fixed', 'right:12px', 'top:44px',
+      `background:${C.bg}`, `border:1px solid ${C.border}`,
+      'border-radius:2px', 'padding:8px 10px',
+      'z-index:60', 'font:11px sans-serif', `color:${C.fg}`,
+      'min-width:180px',
+      'box-shadow:0 2px 8px rgba(0,0,0,.5)',
+    ].join(';');
+
+    const makeSection = txt => {
+      const s = document.createElement('div');
+      s.style.cssText = [
+        'font-size:9px', `color:${C.dim}`,
+        'text-transform:uppercase', 'letter-spacing:.08em',
+        'margin:8px 0 4px',
+      ].join(';');
+      s.textContent = txt;
+      return s;
+    };
+
+    const makeSlider = (label, min, max, step, init, onChange) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:5px;margin-bottom:3px;';
+      const lbl = document.createElement('span');
+      lbl.textContent = label;
+      lbl.style.cssText = `color:${C.dim};flex-shrink:0;min-width:90px;font-size:10px;`;
+      const sl = document.createElement('input');
+      sl.type = 'range';
+      sl.min = String(min); sl.max = String(max); sl.step = String(step);
+      sl.value = String(init);
+      sl.style.cssText = 'flex:1;cursor:pointer;accent-color:' + C.accent + ';';
+      const fmt = v => Number.isInteger(step) ? String(Math.round(v)) : v.toFixed(2);
+      const val = document.createElement('span');
+      val.textContent = fmt(init);
+      val.style.cssText = [
+        `color:${C.accent}`, 'min-width:34px', 'text-align:right',
+        'font-variant-numeric:tabular-nums', 'font-size:10px',
+      ].join(';');
+      sl.addEventListener('input', () => { const v = parseFloat(sl.value); val.textContent = fmt(v); onChange(v); });
+      row.append(lbl, sl, val);
+      return row;
+    };
+
+    panel.append(makeSection('Moteur physique'));
+    panel.append(makeSlider('Gravité', -30, 0, 0.1, -9.81, v => {
+      this.engine.world.gravity = { x: 0, y: v, z: 0 };
+    }));
+    panel.append(makeSlider('Solver iter.', 1, 50, 1, 4, v => {
+      this.engine.world.numSolverIterations = v;
+    }));
+    panel.append(makeSlider('Amort. lin.', 0, 5, 0.05, 0, v => {
+      this._linearDamping = v;
+    }));
+    panel.append(makeSlider('Amort. ang.', 0, 20, 0.1, 0, v => {
+      this._angularDamping = v;
+    }));
+
+    // Pause / pas-à-pas
+    panel.append(makeSection('Simulation'));
+    const ctrlRow = document.createElement('div');
+    ctrlRow.style.cssText = 'display:flex;gap:5px;';
+
+    const pauseBtn = document.createElement('button');
+    pauseBtn.textContent = '⏸';
+    pauseBtn.title = 'Pause physique';
+    pauseBtn.style.cssText = [
+      'flex:1', 'padding:3px 0', 'font-size:14px', 'cursor:pointer',
+      `background:${C.bg}`, `border:1px solid ${C.border}`, `color:${C.fg}`,
+      'border-radius:2px',
+    ].join(';');
+
+    const stepBtn = document.createElement('button');
+    stepBtn.textContent = '⏭ Pas';
+    stepBtn.title = "Avancer d'un pas (1/60 s)";
+    stepBtn.disabled = true;
+    stepBtn.style.cssText = [
+      'flex:1', 'padding:3px 0', 'font-size:11px', 'cursor:pointer',
+      `background:${C.bg}`, `border:1px solid ${C.border}`, `color:${C.fg}`,
+      'border-radius:2px',
+    ].join(';');
+
+    const doPause = () => {
+      this.engine.physPaused = !this.engine.physPaused;
+      pauseBtn.textContent = this.engine.physPaused ? '▶' : '⏸';
+      pauseBtn.title = this.engine.physPaused ? 'Reprendre' : 'Pause physique';
+      stepBtn.disabled = !this.engine.physPaused;
+    };
+    const doStep = () => { if (this.engine.physPaused) this.engine.stepOnce(); };
+
+    pauseBtn.addEventListener('click', doPause);
+    pauseBtn.addEventListener('touchstart', e => { e.preventDefault(); doPause(); }, { passive: false });
+    stepBtn.addEventListener('click', doStep);
+    stepBtn.addEventListener('touchstart', e => { e.preventDefault(); doStep(); }, { passive: false });
+
+    ctrlRow.append(pauseBtn, stepBtn);
+    panel.append(ctrlRow);
+
+    document.body.appendChild(panel);
+    this._ui.push(panel);
+
+    this._linearDamping  = 0;
+    this._angularDamping = 0;
   }
 
   _setupStatusBar() {

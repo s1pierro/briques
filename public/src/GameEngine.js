@@ -58,8 +58,9 @@ export class GameEngine {
 
     this._vpLeft  = 0;
     this._vpRight = 0;
+    this._vpTop   = 0;
 
-    window.addEventListener('resize', () => this.resizeViewport(this._vpLeft, this._vpRight));
+    window.addEventListener('resize', () => this.resizeViewport(this._vpLeft, this._vpRight, this._vpTop));
   }
 
   _initLights() {
@@ -77,15 +78,16 @@ export class GameEngine {
     this.scene.add(sun);
   }
 
-  resizeViewport(leftOffset = 0, rightOffset = 0) {
+  resizeViewport(leftOffset = 0, rightOffset = 0, topOffset = 0) {
     this._vpLeft  = leftOffset;
     this._vpRight = rightOffset;
+    this._vpTop   = topOffset;
     const w = Math.max(100, innerWidth  - leftOffset - rightOffset);
-    const h = Math.max(100, innerHeight);
+    const h = Math.max(100, innerHeight - topOffset);
     const el = this.renderer.domElement;
     el.style.position = 'fixed';
     el.style.left     = leftOffset + 'px';
-    el.style.top      = '0';
+    el.style.top      = topOffset  + 'px';
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();

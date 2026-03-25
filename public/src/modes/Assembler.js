@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
-import { getManifold, buildCache, manifoldToGeometry, manifoldToPoints } from '../csg-utils.js';
+import { getManifold, buildCache, manifoldToGeometry } from '../csg-utils.js';
 import { BrickDock } from './BrickDock.js';
 
 // ─── Couleurs thème Industrial ────────────────────────────────────────────────
@@ -17,9 +17,20 @@ const C = {
   jointImplicit: 0xffaa00,
 };
 
-// Collision groups pour éviter auto-collision entre briques assemblées (Rapier 0.12)
-// Membership bit 15 (0x8000) ; filter = tout sauf bit 15
-const BRICK_SIM_GROUPS = (0x8000 << 16) | 0x7FFF;
+// Hauteur de la barre de titre — rogne le viewport rendu et le dock
+const BAR_H = 32;
+
+// Persistance de la configuration de l'Assembler
+const CFG_KEY = 'rbang_asm_cfg';
+const CFG_DEFAULTS = {
+  dockEdge             : 'bottom',
+  dockAlign            : 'center',
+  activateOnOutsideTap : true,
+  planY                : 0.25,
+  snapR                : 1.2,
+  planVisible          : true,
+  accent               : '#7aafc8',
+};
 
 // ─── Spirale phyllotaxique ────────────────────────────────────────────────────
 function spiralPos(n, spacing = 2.0) {
@@ -262,17 +273,15 @@ class AssemblySolver {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 class BrickInstance {
-  constructor(id, brickData, mesh, body, pts) {
-    this.id        = id;
-    this.brickData = brickData;
-    this.mesh      = mesh;
-    this.body      = body;      // Rapier body (null avant simulation)
-    this.pts       = pts;       // Float32Array pour convexHull
-    this.slots     = [];        // slots corrigés pour le centrage géo (position - geoCenter)
-    this.geoCenter = new THREE.Vector3(); // décalage bounding-box appliqué à la géo
-    this.joints    = [];        // { instanceId, rapierJoint }
-    this.origPos   = mesh.position.clone();
-    this.origQuat  = mesh.quaternion.clone();
+  constructor(id, brickData, mesh) {
+    this.id          = id;
+    this.brickData   = brickData;
+    this.mesh        = mesh;
+    this.brickTypeId = null;    // clé dans rbang_bricks (type de brique)
+    this.slots       = [];      // slots corrigés pour le centrage géo (position - geoCenter)
+    this.geoCenter   = new THREE.Vector3();
+    this.origPos     = mesh.position.clone();
+    this.origQuat    = mesh.quaternion.clone();
   }
 }
 
@@ -288,35 +297,16 @@ export class Assembler {
     this._instances   = new Map(); // id → BrickInstance
     this._wsm         = null; // WorldSlotManager
     this._dock        = null; // BrickDock
+    this._configOverlay = null; // modale configuration
     this._solver      = new AssemblySolver();
-    this._simulating  = false;
     this._raycaster   = new THREE.Raycaster();
     this._mouse       = new THREE.Vector2(-9999, -9999);
     this._snapHelpers = [];
     this._idSeq       = 0;
-    this._connections = []; // { instA, instB, slotA, slotB, liaison }
+    this._connections   = []; // { instA, instB, slotA, slotB, liaison }
     this._wsConnections = []; // { wslot, inst, slotA } pour world slots
-    this._assemblyJoints = []; // joints Rapier créés pendant l'assemblage (bodies fixed)
-    this._simJoints      = []; // joints Rapier créés au démarrage simulation (bodies dynamic)
-    this._simWsBodies    = []; // fixed bodies pour world slots
-    this._jointMarkers   = []; // { mesh, conn } marqueurs visuels des liaisons
-    this._debugStatusEl  = null;
-    this._shootBalls     = []; // { mesh, body } balles de tir
-    this._shootBtn       = null;
-    // Paramètres physique (lus par _startSimulation, modifiables via le panneau)
-    this._physParams = {
-      solverIterations : 20,
-      gravity          : -9.81,
-      linearDamping    : 0.8,
-      angularDamping   : 2.0,
-      density          : 200,
-      motorDamping     : 10,
-    };
-    // Refs vers les contrôles dans le panneau (créés par _setupConfigPanel)
-    this._simPanelBtn    = null; // bouton démarrer/arrêter du panneau
-    this._simPauseBtn    = null; // bouton pause
-    this._simStepOneBtn  = null; // bouton pas-à-pas
-    this._clearBtn       = null; // bouton Effacer (pour _toggleSim)
+    this._jointMarkers  = []; // { mesh, conn } marqueurs visuels des liaisons
+    this._stackCandidate = null; // { inst, startX, startY } — brique saisie en cours de drag
   }
 
   // ─── Cycle de vie ──────────────────────────────────────────────────────────
@@ -324,13 +314,33 @@ export class Assembler {
   async start() {
     this._setupScene();
     this._setupManagers();
+    this._applyConfig();
     this._setupUI();
     this._setupEvents();
     this.engine.start();
   }
 
+  _loadConfig() {
+    try { return { ...CFG_DEFAULTS, ...JSON.parse(localStorage.getItem(CFG_KEY) || '{}') }; }
+    catch { return { ...CFG_DEFAULTS }; }
+  }
+
+  _saveConfig(patch) {
+    const cfg = this._loadConfig();
+    localStorage.setItem(CFG_KEY, JSON.stringify(Object.assign(cfg, patch)));
+  }
+
+  _applyConfig() {
+    const cfg = this._loadConfig();
+    this._dock.setPosition(cfg.dockEdge, cfg.dockAlign);
+    this._dock.setActivateOnOutsideTap(cfg.activateOnOutsideTap);
+    this._wsm.setY(cfg.planY);
+    this._wsm.SNAP_R = cfg.snapR;
+    if (this._wsm._planeMesh) this._wsm._planeMesh.visible = cfg.planVisible;
+  }
+
   stop() {
-    this._simulating = false;
+    this.engine.resizeViewport(0, 0, 0);
     this._wsm.dispose();
     this._dock?.destroy();
     this._clearSnapHelpers();
@@ -338,7 +348,6 @@ export class Assembler {
       this.engine.scene.remove(inst.mesh);
       inst.mesh.geometry.dispose();
       inst.mesh.material.dispose();
-      if (inst.body) this.engine.world.removeRigidBody(inst.body);
     });
     this._instances.clear();
     this._ui.forEach(el => el.remove());
@@ -346,6 +355,10 @@ export class Assembler {
     window.removeEventListener('pointerdown', this._onPointerDown);
     window.removeEventListener('pointermove', this._onPointerMove);
     window.removeEventListener('pointerup',   this._onPointerUp);
+    window.removeEventListener('pointermove', this._onPointerMoveStack, { capture: true });
+    window.removeEventListener('pointerup',   this._onPointerUpStack,   { capture: true });
+    this.engine.controls.enabled = true; // au cas où un grab était en cours
+    this._stackCandidate = null;
   }
 
   // ─── Scène ─────────────────────────────────────────────────────────────────
@@ -435,7 +448,6 @@ export class Assembler {
                        slotA: result.slotA, slotB: result.slotB,
                        liaison: result.liaison };
         this._connections.push(conn);
-        this._makeJoint(conn, this._assemblyJoints);
         this._addJointMarker(conn);
         // Détection implicites induites par le nouveau placement
         this._registerImplicitConnectionsFor(inst);
@@ -466,7 +478,6 @@ export class Assembler {
       const mf    = cache.get(data.rootId);
       if (!mf) return null;
       const { geo } = manifoldToGeometry(mf);
-      const ptsRaw  = manifoldToPoints(mf);
       const color   = parseInt((brick.color || '#888888').replace('#', ''), 16);
       const mesh    = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.55 }));
       mesh.castShadow = mesh.receiveShadow = true;
@@ -477,41 +488,22 @@ export class Assembler {
       const center = box.getCenter(new THREE.Vector3());
       geo.translate(-center.x, -center.y, -center.z);
       geo.boundingBox = null; // invalider le cache après translate
-      // Décaler pts en cohérence
-      const pts = new Float32Array(ptsRaw.length);
-      for (let i = 0; i < ptsRaw.length; i += 3) {
-        pts[i]   = ptsRaw[i]   - center.x;
-        pts[i+1] = ptsRaw[i+1] - center.y;
-        pts[i+2] = ptsRaw[i+2] - center.z;
-      }
 
       if (snapTransform) {
         mesh.position.copy(snapTransform.position);
         mesh.quaternion.copy(snapTransform.quaternion);
       } else {
-        // Poser la brique sur le plan world slot — calculé depuis la box originale (évite le cache périmé)
         mesh.position.set(pos.x, this._wsm._y - (box.min.y - center.y), pos.z);
       }
       this.engine.scene.add(mesh);
       const id   = `bi-${++this._idSeq}`;
-      const inst = new BrickInstance(id, brick, mesh, null, pts);
+      const inst = new BrickInstance(id, brick, mesh);
+      inst.brickTypeId = brickId;
       inst.geoCenter = center.clone();
       inst.slots = (brick.slots || []).map(s => ({
         ...s,
         position: [s.position[0] - center.x, s.position[1] - center.y, s.position[2] - center.z],
       }));
-
-      // Corps Rapier fixed immédiatement (sera converti en dynamic à la simulation)
-      const R = this.engine.R;
-      const world = this.engine.world;
-      const { x, y, z } = mesh.position;
-      const q = mesh.quaternion;
-      const body = world.createRigidBody(R.RigidBodyDesc.fixed().setTranslation(x, y, z));
-      body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
-      const cd = (R.ColliderDesc.convexHull(pts) ?? R.ColliderDesc.ball(0.5))
-        .setRestitution(0.2).setFriction(0.6);
-      world.createCollider(cd, body);
-      inst.body = body;
 
       this._instances.set(id, inst);
       this._updateCount();
@@ -625,7 +617,16 @@ export class Assembler {
       // Priorité 1 : brique existante
       const meshes = [...this._instances.values()].map(i => i.mesh);
       const hits   = this._raycaster.intersectObjects(meshes, false);
-      if (hits.length > 0) return; // OrbitControls gère
+      if (hits.length > 0) {
+        // Brique saisie : enregistrer le candidat et bloquer la caméra
+        const hitMesh = hits[0].object;
+        const hitInst = [...this._instances.values()].find(i => i.mesh === hitMesh);
+        if (hitInst) {
+          this._stackCandidate = { inst: hitInst, startX: e.clientX, startY: e.clientY };
+          this.engine.controls.enabled = false;
+        }
+        return;
+      }
 
       // Priorité 2 : world slot proche
       const pt = this._wsm.raycastPlane(this._raycaster);
@@ -640,103 +641,64 @@ export class Assembler {
       // Sinon : OrbitControls gère la caméra
     };
 
-    window.addEventListener('pointerdown', this._onPointerDown, { capture: true });
-  }
-
-  // ─── Simulation ──────────────────────────────────────────────────────────────
-
-  _startSimulation() {
-    this._simulating = true;
-    const R = this.engine.R;
-    const world = this.engine.world;
-
-    // 1. Supprimer tous les joints d'assemblage existants
-    for (const j of this._assemblyJoints) {
-      try { world.removeImpulseJoint(j, true); } catch {}
-    }
-    this._assemblyJoints = [];
-
-    // 2. Connexions implicites restantes → enregistrement + marqueurs seulement,
-    //    les joints seront créés à l'étape 4 sur les corps dynamic
-    this._registerImplicitConnections();
-    // Supprimer les joints créés par _registerImplicitConnections (sur corps encore fixed)
-    for (const j of this._assemblyJoints) {
-      try { world.removeImpulseJoint(j, true); } catch {}
-    }
-    this._assemblyJoints = [];
-
-    // 3. Appliquer les paramètres physique du panneau
-    const pp = this._physParams;
-    world.numSolverIterations = pp.solverIterations;
-    world.gravity = { x: 0, y: pp.gravity, z: 0 };
-    for (const inst of this._instances.values()) {
-      inst.origPos  = inst.mesh.position.clone();
-      inst.origQuat = inst.mesh.quaternion.clone();
-      try { world.removeRigidBody(inst.body); } catch {}
-      const { x, y, z } = inst.origPos;
-      const q = inst.origQuat;
-      const newBody = world.createRigidBody(
-        R.RigidBodyDesc.dynamic()
-          .setTranslation(x, y, z)
-          .setLinearDamping(pp.linearDamping)
-          .setAngularDamping(pp.angularDamping)
-      );
-      newBody.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
-      const cd = (R.ColliderDesc.convexHull(inst.pts) ?? R.ColliderDesc.ball(0.5))
-        .setRestitution(0).setFriction(0.8).setDensity(pp.density);
-      world.createCollider(cd, newBody);
-      // Appliquer les groupes de collision directement sur le collider (plus fiable que via desc)
-      const simCol = newBody.collider(0);
-      if (simCol) {
-        simCol.setCollisionGroups(BRICK_SIM_GROUPS);
-        console.debug('[sim col groups]', simCol.collisionGroups()?.toString(16));
-      } else {
-        console.warn('[sim] collider(0) null');
+    this._onPointerMoveStack = (e) => {
+      if (!this._stackCandidate) return;
+      // Feedback visuel dès que le drag démarre (seuil 12px)
+      const { inst, startX, startY } = this._stackCandidate;
+      const dx = e.clientX - startX, dy = e.clientY - startY;
+      if (Math.sqrt(dx * dx + dy * dy) >= 12) {
+        inst.mesh.material.transparent = true;
+        inst.mesh.material.opacity      = 0.4;
       }
-      inst.body = newBody;
-      this.engine._bodies.push({ mesh: inst.mesh, body: inst.body, isStatic: false });
-    }
+    };
 
-    // 4. Créer les joints sim sur les corps dynamic
-    for (const conn of this._connections) {
-      this._makeJoint(conn, this._simJoints);
-    }
+    this._onPointerUpStack = (e) => {
+      if (!this._stackCandidate) return;
+      const { inst, startX, startY } = this._stackCandidate;
+
+      const under  = document.elementFromPoint(e.clientX, e.clientY);
+      const onDock = under?.closest?.('.brick-dock');
+
+      if (onDock) {
+        // ── Drop sur le dock → empiler
+        this._removeFromScene(inst);
+        this._dock.pushToStack(inst.brickTypeId, inst.brickData);
+        e.stopPropagation();
+      } else {
+        // ── Drop sur une autre brique → assembler
+        this._mouse.x =  (e.clientX / innerWidth)  * 2 - 1;
+        this._mouse.y = -(e.clientY / innerHeight) * 2 + 1;
+        this._raycaster.setFromCamera(this._mouse, this.engine.camera);
+        const others = [...this._instances.values()].filter(i => i !== inst);
+        const hits   = this._raycaster.intersectObjects(others.map(i => i.mesh), false);
+        if (hits.length > 0) {
+          const target = others.find(i => i.mesh === hits[0].object);
+          if (target) this._connectDrag(inst, startX, startY, target, e.clientX, e.clientY);
+        }
+        // Restaurer opacité dans tous les cas (assemblage ou abandon)
+        inst.mesh.material.transparent = false;
+        inst.mesh.material.opacity      = 1;
+      }
+
+      this.engine.controls.enabled = true;
+      this._stackCandidate = null;
+    };
+
+    window.addEventListener('pointercancel', () => {
+      if (this._stackCandidate) {
+        const m = this._stackCandidate.inst?.mesh;
+        if (m) { m.material.transparent = false; m.material.opacity = 1; }
+        this._stackCandidate = null;
+      }
+      this.engine.controls.enabled = true;
+    }, { capture: true });
+
+    window.addEventListener('pointerdown', this._onPointerDown, { capture: true });
+    window.addEventListener('pointermove', this._onPointerMoveStack, { capture: true });
+    window.addEventListener('pointerup',   this._onPointerUpStack,   { capture: true });
   }
 
-  // ─── Joint + marqueur immédiat (assemblage ou simulation) ────────────────────
-
-  // Crée un joint Rapier pour une connexion et l'ajoute au tableau cible
-  _makeJoint(conn, targetArray) {
-    const R = this.engine.R;
-    const world = this.engine.world;
-    const { instA, instB, slotA, slotB, liaison } = conn;
-    if (!instA.body || !instB.body) return;
-    try {
-      // Diagnostic : vérifier cohérence mesh ↔ body
-      const bta = instA.body.translation(), bra = instA.body.rotation();
-      const btb = instB.body.translation(), brb = instB.body.rotation();
-      const qaM = instA.mesh.quaternion, qbM = instB.mesh.quaternion;
-      const paM = instA.mesh.position,   pbM = instB.mesh.position;
-      // Ancres en espace monde (doivent coïncider pour un joint valide)
-      const wA = new THREE.Vector3(...slotA.position).applyQuaternion(qaM).add(paM);
-      const wB = new THREE.Vector3(...slotB.position).applyQuaternion(qbM).add(pbM);
-      const delta = wA.distanceTo(wB);
-      console.debug('[joint]', liaison?.name, {
-        slotA_local: slotA.position.map(v=>v.toFixed(3)),
-        slotB_local: slotB.position.map(v=>v.toFixed(3)),
-        ancA_world: `${wA.x.toFixed(3)},${wA.y.toFixed(3)},${wA.z.toFixed(3)}`,
-        ancB_world: `${wB.x.toFixed(3)},${wB.y.toFixed(3)},${wB.z.toFixed(3)}`,
-        delta: delta.toFixed(4),
-      });
-      const j = this._createJoint(
-        R, world,
-        instA.body, instB.body,
-        slotA, slotB, liaison,
-        instA.mesh.quaternion, instB.mesh.quaternion
-      );
-      if (j) targetArray.push(j);
-    } catch (e) { console.warn('_makeJoint error', e); }
-  }
+  // ─── Marqueur visuel d'une connexion ─────────────────────────────────────────
 
   // Ajoute un marqueur disque à la position monde du slot de la connexion
   _addJointMarker(conn) {
@@ -776,132 +738,6 @@ export class Assembler {
     this._jointMarkers.push({ mesh: marker, conn });
   }
 
-  // Supprime les marqueurs des connexions implicites
-  _clearImplicitMarkers() {
-    this._jointMarkers = this._jointMarkers.filter(({ mesh, conn }) => {
-      if (!conn.implicit) return true;
-      this.engine.scene.remove(mesh);
-      mesh.geometry.dispose(); mesh.material.dispose();
-      return false;
-    });
-  }
-
-  // ─── Création d'un joint Rapier selon la liaison ──────────────────────────────
-
-  _createJoint(R, world, bodyA, bodyB, slotA, slotB, liaison, quatAMesh, quatBMesh) {
-    const ancA = { x: slotA.position[0], y: slotA.position[1], z: slotA.position[2] };
-    const ancB = { x: slotB.position[0], y: slotB.position[1], z: slotB.position[2] };
-    const dofs = liaison?.dof ?? [];
-
-    let jd;
-    const isWeld = liaison?.type === 'weld';
-
-    if (isWeld || dofs.length === 0) {
-      const qa = new THREE.Quaternion(...slotA.quaternion);
-      const qb = new THREE.Quaternion(...slotB.quaternion);
-      jd = R.JointData.fixed(ancA, { x: qa.x, y: qa.y, z: qa.z, w: qa.w },
-                              ancB, { x: qb.x, y: qb.y, z: qb.z, w: qb.w });
-    } else if (dofs.length === 1) {
-      const dof = dofs[0];
-      // dof.axis est défini dans le repère du SLOT (pas du brick directement).
-      // Axe monde = (quatB_mesh × quatSlot_B) × dof.axis
-      const quatA = quatAMesh ?? (() => { const q = bodyA.rotation(); return new THREE.Quaternion(q.x, q.y, q.z, q.w); })();
-      const quatB = quatBMesh ?? (() => { const q = bodyB.rotation(); return new THREE.Quaternion(q.x, q.y, q.z, q.w); })();
-      const rawAxis   = new THREE.Vector3(...(dof.axis ?? [0, 0, 1]));
-      const slotBQ    = new THREE.Quaternion(...slotB.quaternion);
-      const worldSlotBQ = slotBQ.clone().premultiply(quatB.clone());
-      const axisWorld = rawAxis.clone().applyQuaternion(worldSlotBQ).normalize();
-      // axB : axe dans le repère local du brick B = slotBQ × dof.axis
-      const axB = rawAxis.clone().applyQuaternion(slotBQ).normalize();
-      // axA : même axe physique exprimé dans le repère local du brick A
-      const axA = axisWorld.clone().applyQuaternion(quatA.clone().invert());
-      const vA  = { x: axA.x, y: axA.y, z: axA.z };
-      const vB  = { x: axB.x, y: axB.y, z: axB.z };
-      switch (dof.type) {
-        case 'rotation':    jd = R.JointData.revolute(ancA, ancB, vA);   break;
-        case 'translation': jd = R.JointData.prismatic(ancA, ancB, vA);  break;
-        case 'ball':        jd = R.JointData.spherical(ancA, ancB);       break;
-        case 'cylindrical': jd = R.JointData.revolute(ancA, ancB, vA);   break;
-        default:            jd = R.JointData.spherical(ancA, ancB);
-      }
-    } else {
-      jd = R.JointData.spherical(ancA, ancB);
-    }
-
-    const joint = world.createImpulseJoint(jd, bodyA, bodyB, true);
-
-    // Amortissement DDL libre : absorbe l'énergie d'impact (plancher motorDamping)
-    if (dofs.length === 1) {
-      let axis = null;
-      switch (dofs[0].type) {
-        case 'rotation':    axis = R.JointAxis.AngX; break;
-        case 'cylindrical': axis = R.JointAxis.AngX; break;
-        case 'translation': axis = R.JointAxis.LinX; break;
-      }
-      if (axis !== null) {
-        const damping = Math.max(dofs[0].damping ?? 0, this._physParams.motorDamping);
-        joint.configureMotorVelocity(axis, 0, damping);
-      }
-    }
-
-    return joint;
-  }
-
-  _stopSimulation() {
-    const R = this.engine.R;
-    const world = this.engine.world;
-    world.numSolverIterations = 4; // restaurer la valeur par défaut
-
-    // 1. Supprimer les joints sim
-    for (const j of this._simJoints) {
-      try { world.removeImpulseJoint(j, true); } catch {}
-    }
-    this._simJoints = [];
-
-    // 2. (world slots : pas de corps séparés créés, rien à supprimer)
-    this._simWsBodies = [];
-
-    // 3. Supprimer les balles de tir
-    for (const { mesh, body } of this._shootBalls) {
-      this.engine.scene.remove(mesh);
-      mesh.geometry.dispose(); mesh.material.dispose();
-      try { world.removeRigidBody(body); } catch {}
-      const idx = this.engine._bodies.findIndex(b => b.body === body);
-      if (idx !== -1) this.engine._bodies.splice(idx, 1);
-    }
-    this._shootBalls = [];
-
-    // 4. Retirer les connexions implicites + leurs marqueurs
-    this._clearImplicitMarkers();
-    this._connections = this._connections.filter(c => !c.implicit);
-
-    // 5. Restaurer positions mesh + recréer corps fixed
-    for (const inst of this._instances.values()) {
-      const idx = this.engine._bodies.findIndex(b => b.body === inst.body);
-      if (idx !== -1) this.engine._bodies.splice(idx, 1);
-      inst.mesh.position.copy(inst.origPos);
-      inst.mesh.quaternion.copy(inst.origQuat);
-      try { world.removeRigidBody(inst.body); } catch {}
-      const { x, y, z } = inst.origPos;
-      const q = inst.origQuat;
-      const newBody = world.createRigidBody(
-        R.RigidBodyDesc.fixed().setTranslation(x, y, z)
-      );
-      newBody.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
-      const cd = (R.ColliderDesc.convexHull(inst.pts) ?? R.ColliderDesc.ball(0.5))
-        .setRestitution(0.2).setFriction(0.6);
-      world.createCollider(cd, newBody);
-      inst.body = newBody;
-    }
-
-    // 6. Recréer les joints assembly pour les connexions explicites restantes
-    for (const conn of this._connections) {
-      this._makeJoint(conn, this._assemblyJoints);
-    }
-
-    this._simulating = false;
-  }
-
   // ─── Helpers visuels ─────────────────────────────────────────────────────────
 
   _showSnapHelper(pos) {
@@ -934,46 +770,20 @@ export class Assembler {
   _setupUI() {
     const style = document.createElement('style');
     style.textContent = `
-      .asm-panel {
-        position:fixed; left:0; top:0; bottom:0; width:160px;
-        background:${C.bg}; border-right:1px solid ${C.border};
-        display:flex; flex-direction:column; z-index:55;
-        font-family:sans-serif; font-size:12px;
-      }
-      .asm-panel-head {
-        padding:6px 8px; border-bottom:1px solid ${C.border};
-        color:${C.dim}; font-size:10px; text-transform:uppercase;
-        letter-spacing:.08em; flex-shrink:0;
-      }
-      .asm-brick-list { flex:1; overflow-y:auto; padding:4px 0; }
-      .asm-brick-list::-webkit-scrollbar { width:4px; }
-      .asm-brick-list::-webkit-scrollbar-thumb { background:${C.border}; }
-      .asm-brick-item {
-        padding:5px 10px; cursor:pointer; color:${C.dim};
-        border-left:2px solid transparent;
-        white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-      }
-      .asm-brick-item:active { background:#ffffff10; }
-      .asm-brick-item.loaded { color:${C.fg}; border-left-color:${C.accent}; }
-      .asm-footer {
-        position:fixed; bottom:12px; right:12px;
-        display:flex; gap:8px; z-index:56;
-      }
-      .asm-btn {
-        padding:8px 16px; border:1px solid ${C.border}; border-radius:2px;
-        background:${C.bg}; color:${C.fg}; font:12px sans-serif; cursor:pointer;
-        box-shadow:inset 0 1px 0 #ffffff18, 0 2px 4px rgba(0,0,0,.4);
-      }
-      .asm-btn:active { box-shadow:inset 0 2px 4px rgba(0,0,0,.4); }
-      .asm-btn.primary { background:#3a5a6a; border-color:#5a8aaa; color:#d0eaf8; }
-      .asm-btn.danger  { background:#5a2a2a; border-color:#8a4a4a; color:#f8d0d0; }
+      :root { --asm-accent: ${C.accent}; }
       .asm-bar {
-        position:fixed; top:0; left:160px; right:0; height:28px;
-        background:${C.bgDark}cc; border-bottom:1px solid ${C.border};
-        display:flex; align-items:center; padding:0 12px;
-        gap:1.5rem; z-index:54; pointer-events:none;
+        position:fixed; top:0; left:0; right:0; height:${BAR_H}px;
+        background:${C.bgDark}ee; border-bottom:1px solid ${C.border};
+        display:flex; align-items:center; padding:0 6px;
+        z-index:54; pointer-events:auto;
         font:10px sans-serif; color:${C.dim};
       }
+      .asm-bar-btn {
+        background:transparent; border:none; color:${C.dim};
+        font-size:16px; cursor:pointer; padding:0 8px; height:100%;
+        line-height:1; flex-shrink:0;
+      }
+      .asm-bar-btn:active { color:${C.fg}; }
     `;
     document.head.appendChild(style);
     this._ui.push(style);
@@ -981,329 +791,272 @@ export class Assembler {
     // ── Barre du haut ─────────────────────────────────────────────────────────
     const bar = document.createElement('div');
     bar.className = 'asm-bar';
+
+    const fsBtn = document.createElement('button');
+    fsBtn.className = 'asm-bar-btn';
+    fsBtn.title = 'Plein écran';
+    fsBtn.textContent = '⛶';
+    fsBtn.addEventListener('click', () => this._toggleFullscreen());
+    document.addEventListener('fullscreenchange', () => {
+      fsBtn.textContent = document.fullscreenElement ? '⊡' : '⛶';
+    });
+
     this._countEl = document.createElement('span');
-    bar.appendChild(this._countEl);
+    this._countEl.style.cssText = 'flex:1;text-align:center;pointer-events:none;';
+
+    const cfgBtn = document.createElement('button');
+    cfgBtn.className = 'asm-bar-btn';
+    cfgBtn.title = 'Configuration';
+    cfgBtn.textContent = '⚙';
+    cfgBtn.addEventListener('click', () => this._openConfigModal());
+
+    bar.append(fsBtn, this._countEl, cfgBtn);
     document.body.appendChild(bar);
     this._ui.push(bar);
 
-    // ── Boutons bas ───────────────────────────────────────────────────────────
-    const footer = document.createElement('div');
-    footer.className = 'asm-footer';
+    // ── Modale de configuration ───────────────────────────────────────────────
+    this._setupConfigModal();
 
-    const clearBtn = document.createElement('button');
-    clearBtn.className = 'asm-btn danger';
-    clearBtn.textContent = 'Effacer';
-    clearBtn.addEventListener('click', () => { if (!this._simulating) this._clearAll(); });
-
-    this._clearBtn = clearBtn; // référence pour _toggleSim et _setupConfigPanel
-
-    this._simBtn = document.createElement('button');
-    this._simBtn.className = 'asm-btn primary';
-    this._simBtn.textContent = '▶ Simuler';
-    this._simBtn.addEventListener('click', () => this._toggleSim());
-
-    footer.append(clearBtn, this._simBtn);
-    document.body.appendChild(footer);
-    this._ui.push(footer);
-
-    // ── Bouton tir (visible seulement en simulation) ───────────────────────────
-    this._shootBtn = document.createElement('button');
-    this._shootBtn.className = 'asm-btn';
-    this._shootBtn.textContent = '●';
-    this._shootBtn.title = 'Tirer une balle';
-    this._shootBtn.style.cssText = [
-      'position:fixed', 'right:12px',
-      'bottom:80px',
-      'width:44px', 'height:44px', 'padding:0',
-      'border-radius:50%', 'font-size:20px',
-      'display:none', 'z-index:56',
-      'background:#4a3a2a', 'border-color:#8a6a4a', 'color:#f8e4c0',
-    ].join(';');
-    const shoot = () => {
-      if (!this._simulating) return;
-      const dir = new THREE.Vector3();
-      this.engine.camera.getWorldDirection(dir);
-      const p = this.engine.camera.position;
-      const { mesh, body } = this.engine.addDynamicSphere(0.18, p.x, p.y, p.z, 0xddaa55, 1.5);
-      body.setLinvel({ x: dir.x * 28, y: dir.y * 28, z: dir.z * 28 }, true);
-      this._shootBalls.push({ mesh, body });
-    };
-    this._shootBtn.addEventListener('click', shoot);
-    this._shootBtn.addEventListener('touchstart', e => { e.preventDefault(); shoot(); }, { passive: false });
-    document.body.appendChild(this._shootBtn);
-    this._ui.push(this._shootBtn);
-
-    // (pause/step gérés dans _setupConfigPanel)
-
-    // ── Panneau de configuration ──────────────────────────────────────────────
-    this._setupConfigPanel();
+    // ── Rogner le viewport rendu + dock sous la barre ─────────────────────────
+    this.engine.resizeViewport(0, 0, BAR_H);
+    this._dock.setInsets({ top: BAR_H });
 
     // ── onUpdate ──────────────────────────────────────────────────────────────
     this.engine.onUpdate = () => {
       const n = this._instances.size;
       const c = n ? this._componentCount() : 0;
-      this._countEl.textContent = `Briques : ${n}` + (n ? `  |  Composants : ${c}` : '');
-      if (this._debugStatusEl) {
-        const conn = this._connections.length;
-        this._debugStatusEl.textContent =
-          `Briques : ${n}\nLiaisons : ${conn}\nComposants : ${c}`;
-      }
-      // Mise à jour des marqueurs de liaison pendant la simulation
-      if (this._simulating) {
-        for (const { mesh: marker, conn } of this._jointMarkers) {
-          const { instA, slotA } = conn;
-          // Position monde du slot A (mesh déjà sync depuis le body Rapier)
-          marker.position.set(...slotA.position)
-            .applyQuaternion(instA.mesh.quaternion)
-            .add(instA.mesh.position);
-          // Orientation
-          const dofs = conn.liaison?.dof ?? [];
-          if (dofs.length === 1 && dofs[0].axis) {
-            const slotBQ = new THREE.Quaternion(...conn.slotB.quaternion);
-            const worldSlotBQ = slotBQ.clone().premultiply(conn.instB.mesh.quaternion.clone());
-            const axisWorld = new THREE.Vector3(...dofs[0].axis).normalize()
-              .applyQuaternion(worldSlotBQ).normalize();
-            marker.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axisWorld);
-          } else {
-            const slotQ = new THREE.Quaternion(...slotA.quaternion);
-            marker.quaternion.copy(slotQ.premultiply(instA.mesh.quaternion.clone()))
-              .multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0)));
-          }
-        }
-      }
-
-      // Nettoyage des balles hors scène (Y < -20)
-      this._shootBalls = this._shootBalls.filter(({ mesh, body }) => {
-        if (body.translation().y < -20) {
-          this.engine.scene.remove(mesh);
-          mesh.geometry.dispose(); mesh.material.dispose();
-          this.engine.world.removeRigidBody(body);
-          const idx = this.engine._bodies.findIndex(b => b.body === body);
-          if (idx !== -1) this.engine._bodies.splice(idx, 1);
-          return false;
-        }
-        return true;
-      });
+      const nConn = this._connections.length;
+      this._countEl.textContent = `Briques : ${n}` + (n ? `  |  Liaisons : ${nConn}  |  Composants : ${c}` : '');
     };
   }
 
-  _setupConfigPanel() {
-    const panel = document.createElement('div');
-    panel.className = 'asm-config';
-    panel.style.cssText = [
-      'position:fixed', 'right:12px', 'top:36px',
-      `background:${C.bg}`, `border:1px solid ${C.border}`,
-      'border-radius:2px', 'padding:8px 10px',
-      'z-index:60', 'font:11px sans-serif', `color:${C.fg}`,
-      'min-width:180px', 'pointer-events:auto',
-      'box-shadow:0 2px 8px rgba(0,0,0,.5)',
+  _setupConfigModal() {
+    // ── Overlay ──────────────────────────────────────────────────────────────
+    const overlay = document.createElement('div');
+    overlay.className = 'asm-modal-overlay';
+    overlay.style.cssText = [
+      'position:fixed', 'inset:0',
+      'background:rgba(0,0,0,.65)',
+      'backdrop-filter:blur(4px)',
+      'display:none', 'align-items:center', 'justify-content:center',
+      'z-index:200',
+    ].join(';');
+    overlay.addEventListener('pointerdown', e => {
+      if (e.target === overlay) this._closeConfigModal();
+    });
+
+    // ── Modal ────────────────────────────────────────────────────────────────
+    const modal = document.createElement('div');
+    modal.style.cssText = [
+      'width:80vw', 'max-height:80vh',
+      `background:${C.bgDark}`, `border:1px solid ${C.border}`,
+      'border-radius:4px',
+      'display:flex', 'flex-direction:column',
+      'overflow:hidden',
+      'box-shadow:0 8px 32px rgba(0,0,0,.7)',
     ].join(';');
 
-    // ── Helpers ────────────────────────────────────────────────────────────────
-    const makeSection = txt => {
-      const s = document.createElement('div');
-      s.style.cssText = [
-        'font-size:9px', `color:${C.dim}`,
-        'text-transform:uppercase', 'letter-spacing:.08em',
-        'margin:8px 0 4px',
+    // ── En-tête ──────────────────────────────────────────────────────────────
+    const header = document.createElement('div');
+    header.style.cssText = [
+      'display:flex', 'align-items:center', 'justify-content:space-between',
+      'padding:10px 16px',
+      `border-bottom:1px solid ${C.border}`,
+      'flex-shrink:0',
+    ].join(';');
+    const htitle = document.createElement('span');
+    htitle.textContent = 'Configuration';
+    htitle.style.cssText = `color:${C.fg};font:bold 13px sans-serif;letter-spacing:.05em;`;
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '✕';
+    closeBtn.style.cssText = `background:transparent;border:none;color:${C.dim};font-size:18px;cursor:pointer;padding:0 4px;line-height:1;`;
+    closeBtn.addEventListener('click', () => this._closeConfigModal());
+    header.append(htitle, closeBtn);
+
+    // ── Corps (flex-wrap, cartes) ────────────────────────────────────────────
+    const body = document.createElement('div');
+    body.style.cssText = [
+      'display:flex', 'flex-wrap:wrap',
+      'gap:14px', 'padding:16px',
+      'overflow-y:auto', 'flex:1',
+      'align-items:flex-start',
+    ].join(';');
+
+    // Helpers locaux
+    const makeCard = label => {
+      const card = document.createElement('div');
+      card.style.cssText = [
+        `background:${C.bg}`, `border:1px solid ${C.border}`,
+        'border-radius:3px', 'padding:14px 16px',
+        'min-width:220px', 'flex:1 1 220px',
       ].join(';');
-      s.textContent = txt;
-      return s;
+      const h = document.createElement('div');
+      h.textContent = label;
+      h.style.cssText = `font-size:9px;color:${C.dim};text-transform:uppercase;letter-spacing:.1em;margin-bottom:12px;`;
+      card.appendChild(h);
+      return card;
     };
 
-    // Crée une ligne label + slider + valeur
-    // isInt : si true, affiche entier ; fmt : fn optionnelle (v => string)
-    const makeSlider = (label, min, max, step, init, onChange, fmt) => {
+    const makeSelect = (label, options, value, onChange) => {
       const row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:center;gap:5px;margin-bottom:3px;';
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:10px;';
       const lbl = document.createElement('span');
       lbl.textContent = label;
-      lbl.style.cssText = `color:${C.dim};flex-shrink:0;min-width:90px;font-size:10px;`;
+      lbl.style.cssText = `color:${C.dim};font-size:10px;flex-shrink:0;min-width:70px;`;
+      const sel = document.createElement('select');
+      sel.style.cssText = [
+        'flex:1', `background:${C.bgDark}`, `color:${C.fg}`,
+        `border:1px solid ${C.border}`, 'border-radius:2px',
+        'padding:4px 6px', 'font-size:11px', 'cursor:pointer',
+      ].join(';');
+      for (const [val, txt] of options) {
+        const opt = document.createElement('option');
+        opt.value = val; opt.textContent = txt;
+        if (val === value) opt.selected = true;
+        sel.appendChild(opt);
+      }
+      sel.addEventListener('change', () => onChange(sel.value));
+      row.append(lbl, sel);
+      return row;
+    };
+
+    const makeSlider = (label, min, max, step, init, onChange) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:10px;';
+      const lbl = document.createElement('span');
+      lbl.textContent = label;
+      lbl.style.cssText = `color:${C.dim};font-size:10px;flex-shrink:0;min-width:70px;`;
       const sl = document.createElement('input');
       sl.type = 'range';
       sl.min = String(min); sl.max = String(max); sl.step = String(step);
       sl.value = String(init);
-      sl.style.cssText = 'flex:1;cursor:pointer;accent-color:' + C.accent + ';';
-      const display = fmt ?? (v => Number.isInteger(step) ? String(Math.round(v)) : v.toFixed(2));
+      sl.style.cssText = 'flex:1;cursor:pointer;accent-color:var(--asm-accent);';
+      const fmt = v => Number.isInteger(step) ? String(Math.round(v)) : v.toFixed(2);
       const val = document.createElement('span');
-      val.textContent = display(init);
-      val.style.cssText = [
-        `color:${C.accent}`, 'min-width:34px', 'text-align:right',
-        'font-variant-numeric:tabular-nums', 'font-size:10px',
-      ].join(';');
-      sl.addEventListener('input', () => {
-        const v = parseFloat(sl.value);
-        val.textContent = display(v);
-        onChange(v);
-      });
+      val.textContent = fmt(init);
+      val.style.cssText = `color:var(--asm-accent);min-width:34px;text-align:right;font-size:10px;font-variant-numeric:tabular-nums;`;
+      sl.addEventListener('input', () => { const v = parseFloat(sl.value); val.textContent = fmt(v); onChange(v); });
       row.append(lbl, sl, val);
       return row;
     };
 
-    const pp = this._physParams;
+    // ── Carte : Dock ─────────────────────────────────────────────────────────
+    const dockCard = makeCard('Dock');
 
-    // ── Assemblage ─────────────────────────────────────────────────────────────
-    panel.append(makeSection('Assemblage'));
-    panel.append(makeSlider('Plan Y', -2, 5, 0.05, this._wsm._y, v => {
-      this._wsm.setY(v);
-    }));
-
-    // ── Moteur physique ────────────────────────────────────────────────────────
-    panel.append(makeSection('Moteur physique'));
-    panel.append(makeSlider('Solver iter.', 1, 50, 1, pp.solverIterations, v => {
-      pp.solverIterations = v;
-      if (this._simulating) this.engine.world.numSolverIterations = v;
-    }));
-    panel.append(makeSlider('Gravité', -30, 0, 0.1, pp.gravity, v => {
-      pp.gravity = v;
-      if (this._simulating) this.engine.world.gravity = { x: 0, y: v, z: 0 };
-    }));
-    panel.append(makeSlider('Amort. lin.', 0, 5, 0.05, pp.linearDamping, v => {
-      pp.linearDamping = v;
-      if (this._simulating) {
-        for (const inst of this._instances.values())
-          if (inst.body) inst.body.setLinearDamping(v);
-      }
-    }));
-    panel.append(makeSlider('Amort. ang.', 0, 20, 0.1, pp.angularDamping, v => {
-      pp.angularDamping = v;
-      if (this._simulating) {
-        for (const inst of this._instances.values())
-          if (inst.body) inst.body.setAngularDamping(v);
-      }
-    }));
-
-    // ── Briques sim ────────────────────────────────────────────────────────────
-    panel.append(makeSection('Briques sim'));
-    panel.append(makeSlider('Densité', 10, 500, 10, pp.density, v => {
-      pp.density = v;
-      if (this._simulating) {
-        for (const inst of this._instances.values()) {
-          if (inst.body) { const col = inst.body.collider(0); if (col) col.setDensity(v); }
-        }
-      }
-    }));
-    panel.append(makeSlider('Damping moteur', 0, 50, 1, pp.motorDamping, v => {
-      pp.motorDamping = v;
-      // Appliqué aux nouveaux joints au prochain lancement
-    }));
-
-    // ── Simulation ─────────────────────────────────────────────────────────────
-    panel.append(makeSection('Simulation'));
-
-    // Ligne 1 : démarrer / arrêter
-    const panelSimBtn = document.createElement('button');
-    panelSimBtn.className = 'asm-btn primary';
-    panelSimBtn.textContent = '▶ Simuler';
-    panelSimBtn.style.cssText = 'width:100%;margin-bottom:4px;padding:4px 0;font-size:11px;';
-    panelSimBtn.addEventListener('click', () => this._toggleSim());
-    panelSimBtn.addEventListener('touchstart', e => { e.preventDefault(); this._toggleSim(); }, { passive: false });
-    panel.append(panelSimBtn);
-    this._simPanelBtn = panelSimBtn;
-
-    // Ligne 2 : pause / pas-à-pas
-    const ctrlRow = document.createElement('div');
-    ctrlRow.style.cssText = 'display:flex;gap:5px;margin-bottom:3px;';
-
-    const pauseBtn = document.createElement('button');
-    pauseBtn.className = 'asm-btn';
-    pauseBtn.textContent = '⏸';
-    pauseBtn.title = 'Pause physique';
-    pauseBtn.disabled = true;
-    pauseBtn.style.cssText = 'flex:1;padding:3px 0;font-size:14px;';
-
-    const stepBtn = document.createElement('button');
-    stepBtn.className = 'asm-btn';
-    stepBtn.textContent = '⏭ Pas';
-    stepBtn.title = 'Avancer d\'un pas (1/60 s)';
-    stepBtn.disabled = true;
-    stepBtn.style.cssText = 'flex:1;padding:3px 0;font-size:11px;';
-
-    const doPause = () => {
-      if (!this._simulating) return;
-      const eng = this.engine;
-      eng.physPaused = !eng.physPaused;
-      pauseBtn.textContent = eng.physPaused ? '▶' : '⏸';
-      pauseBtn.title = eng.physPaused ? 'Reprendre' : 'Pause physique';
-      stepBtn.disabled = !eng.physPaused;
-    };
-    const doStep = () => {
-      if (!this._simulating || !this.engine.physPaused) return;
-      this.engine.stepOnce();
+    const makeToggle = (label, init, onChange) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:10px;';
+      const lbl = document.createElement('span');
+      lbl.textContent = label;
+      lbl.style.cssText = `color:${C.dim};font-size:10px;flex:1;`;
+      const track = document.createElement('div');
+      let on = init;
+      const update = () => {
+        track.style.background = on ? C.accent : C.border;
+        thumb.style.transform = on ? 'translateX(14px)' : 'translateX(0)';
+      };
+      track.style.cssText = [
+        'width:28px', 'height:14px', 'border-radius:7px',
+        'position:relative', 'cursor:pointer', 'flex-shrink:0',
+        'transition:background .15s',
+      ].join(';');
+      const thumb = document.createElement('div');
+      thumb.style.cssText = [
+        'position:absolute', 'top:1px', 'left:1px',
+        'width:12px', 'height:12px', 'border-radius:50%',
+        'background:#fff', 'transition:transform .15s',
+      ].join(';');
+      track.appendChild(thumb);
+      update();
+      track.addEventListener('click', () => { on = !on; update(); onChange(on); });
+      row.append(lbl, track);
+      return row;
     };
 
-    pauseBtn.addEventListener('click', doPause);
-    pauseBtn.addEventListener('touchstart', e => { e.preventDefault(); doPause(); }, { passive: false });
-    stepBtn.addEventListener('click', doStep);
-    stepBtn.addEventListener('touchstart', e => { e.preventDefault(); doStep(); }, { passive: false });
+    dockCard.append(
+      makeSelect('Bord', [
+        ['bottom','Bas'], ['top','Haut'], ['left','Gauche'], ['right','Droite'],
+      ], this._dock._edge, v => { this._dock.setPosition(v, this._dock._align); this._dock.setInsets({ top: BAR_H }); this._saveConfig({ dockEdge: v }); }),
+      makeSelect('Alignement', [
+        ['center','Centre'], ['start','Début'], ['end','Fin'],
+      ], this._dock._align, v => { this._dock.setPosition(this._dock._edge, v); this._dock.setInsets({ top: BAR_H }); this._saveConfig({ dockAlign: v }); }),
+      makeToggle('Activer au tap extérieur', this._dock._activateOnOutsideTap,
+        v => { this._dock.setActivateOnOutsideTap(v); this._saveConfig({ activateOnOutsideTap: v }); }),
+    );
+    body.append(dockCard);
 
-    ctrlRow.append(pauseBtn, stepBtn);
-    panel.append(ctrlRow);
+    // ── Carte : World Slots ───────────────────────────────────────────────────
+    const wsCard = makeCard('World Slots');
+    wsCard.append(
+      makeSlider('Plan Y', -2, 5, 0.05, this._wsm._y, v => { this._wsm.setY(v); this._saveConfig({ planY: v }); }),
+      makeSlider('Rayon snap', 0.3, 4, 0.1, this._wsm.SNAP_R, v => { this._wsm.SNAP_R = v; this._saveConfig({ snapR: v }); }),
+      makeToggle('Plan visible', this._wsm._planeMesh?.visible ?? true,
+        v => { if (this._wsm._planeMesh) this._wsm._planeMesh.visible = v; this._saveConfig({ planVisible: v }); }),
+    );
+    body.append(wsCard);
 
-    this._simPauseBtn   = pauseBtn;
-    this._simStepOneBtn = stepBtn;
+    // ── Carte : Thème ────────────────────────────────────────────────────────
+    const themeCard = makeCard('Thème');
+    const themeStyle = document.createElement('style');
+    document.head.appendChild(themeStyle);
+    this._ui.push(themeStyle);
 
-    // ── Statut ─────────────────────────────────────────────────────────────────
-    const sep = document.createElement('div');
-    sep.style.cssText = `border-top:1px solid ${C.border};margin:8px 0 6px;`;
+    const accents = [
+      ['#7aafc8', 'Acier'],
+      ['#6abf8a', 'Jade'],
+      ['#d4884a', 'Forge'],
+      ['#9b7fc8', 'Violet'],
+      ['#c87a7a', 'Brique'],
+    ];
+    const swatchRow = document.createElement('div');
+    swatchRow.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;';
+    let currentAccent = this._loadConfig().accent;
+    if (currentAccent !== C.accent) themeStyle.textContent = `:root { --asm-accent: ${currentAccent}; }`;
+    for (const [color, name] of accents) {
+      const sw = document.createElement('button');
+      sw.title = name;
+      sw.style.cssText = [
+        `background:${color}`, 'width:32px', 'height:32px',
+        'border-radius:50%', 'cursor:pointer',
+        `border:2px solid ${color === currentAccent ? '#fff' : 'transparent'}`,
+        'transition:border-color .15s',
+      ].join(';');
+      sw.addEventListener('click', () => {
+        currentAccent = color;
+        themeStyle.textContent = `:root { --asm-accent: ${color}; }`;
+        swatchRow.querySelectorAll('button').forEach(b => { b.style.borderColor = 'transparent'; });
+        sw.style.borderColor = '#fff';
+        this._saveConfig({ accent: color });
+      });
+      swatchRow.append(sw);
+    }
+    themeCard.append(swatchRow);
+    body.append(themeCard);
 
-    this._debugStatusEl = document.createElement('div');
-    this._debugStatusEl.style.cssText = `color:${C.dim};font-size:10px;line-height:1.6;`;
-    this._debugStatusEl.textContent = 'Composants : —';
-
-    panel.append(sep, this._debugStatusEl);
-    document.body.appendChild(panel);
-    this._ui.push(panel);
+    modal.append(header, body);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    this._ui.push(overlay);
+    this._configOverlay = overlay;
   }
 
-  _toggleSim() {
-    if (!this._simulating) {
-      if (!this._instances.size) return;
-      this._startSimulation();
-      const label = '⏹ Arrêter';
-      this._simBtn.textContent = label;
-      this._simBtn.classList.remove('primary');
-      this._simBtn.classList.add('danger');
-      if (this._simPanelBtn) {
-        this._simPanelBtn.textContent = label;
-        this._simPanelBtn.classList.remove('primary');
-        this._simPanelBtn.classList.add('danger');
-      }
-      if (this._clearBtn) this._clearBtn.disabled = true;
-      if (this._shootBtn) this._shootBtn.style.display = 'block';
-      if (this._simPauseBtn)   this._simPauseBtn.disabled   = false;
-      if (this._simStepOneBtn) this._simStepOneBtn.disabled  = true;
+  _openConfigModal() {
+    if (this._configOverlay) this._configOverlay.style.display = 'flex';
+  }
+
+  _closeConfigModal() {
+    if (this._configOverlay) this._configOverlay.style.display = 'none';
+  }
+
+  _toggleFullscreen() {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.();
     } else {
-      this._stopSimulation();
-      const label = '▶ Simuler';
-      this._simBtn.textContent = label;
-      this._simBtn.classList.add('primary');
-      this._simBtn.classList.remove('danger');
-      if (this._simPanelBtn) {
-        this._simPanelBtn.textContent = label;
-        this._simPanelBtn.classList.add('primary');
-        this._simPanelBtn.classList.remove('danger');
-      }
-      if (this._clearBtn) this._clearBtn.disabled = false;
-      if (this._shootBtn) this._shootBtn.style.display = 'none';
-      if (this._simPauseBtn) {
-        this._simPauseBtn.textContent = '⏸';
-        this._simPauseBtn.title = 'Pause physique';
-        this._simPauseBtn.disabled = true;
-      }
-      if (this._simStepOneBtn) this._simStepOneBtn.disabled = true;
-      this.engine.physPaused = false;
+      document.exitFullscreen?.();
     }
   }
 
   _clearAll() {
-    // Supprimer tous les joints assembly
-    for (const j of this._assemblyJoints) {
-      try { this.engine.world.removeImpulseJoint(j, true); } catch {}
-    }
-    this._assemblyJoints = [];
-
-    // Supprimer tous les marqueurs visuels
     for (const { mesh } of this._jointMarkers) {
       this.engine.scene.remove(mesh);
       mesh.geometry.dispose(); mesh.material.dispose();
@@ -1314,12 +1067,10 @@ export class Assembler {
       this.engine.scene.remove(inst.mesh);
       inst.mesh.geometry.dispose();
       inst.mesh.material.dispose();
-      if (inst.body) this.engine.world.removeRigidBody(inst.body);
     }
     this._instances.clear();
-    this._connections    = [];
-    this._wsConnections  = [];
-    // Libérer les world slots
+    this._connections   = [];
+    this._wsConnections = [];
     for (const ws of [...this._wsm.slots]) this._wsm.unbind(ws);
     this._updateCount();
   }
@@ -1372,21 +1123,18 @@ export class Assembler {
                        slotA: clip.slotA, slotB: clip.slotB,
                        liaison: clip.liaison, implicit: true };
         this._connections.push(conn);
-        this._makeJoint(conn, this._assemblyJoints);
         this._addJointMarker(conn);
       }
     }
   }
 
   // Enregistre dans _connections toutes les paires implicites non encore connues
-  // (à appeler avant la simulation)
   _registerImplicitConnections() {
     const instances = [...this._instances.values()];
     for (let i = 0; i < instances.length; i++) {
       for (let j = i + 1; j < instances.length; j++) {
         const instA = instances[i];
         const instB = instances[j];
-        // Ignorer si déjà une connexion explicite entre ces deux instances
         const alreadyKnown = this._connections.some(
           c => (c.instA === instA && c.instB === instB) ||
                (c.instA === instB && c.instB === instA)
@@ -1398,7 +1146,6 @@ export class Assembler {
                          slotA: clip.slotA, slotB: clip.slotB,
                          liaison: clip.liaison, implicit: true };
           this._connections.push(conn);
-          this._makeJoint(conn, this._assemblyJoints);
           this._addJointMarker(conn);
         }
       }
@@ -1444,6 +1191,60 @@ export class Assembler {
 
   // ─── Utilitaires ─────────────────────────────────────────────────────────────
 
+  // Assemble instA (brique saisie) sur instB (brique cible) après un drag-drop scène→scène
+  _connectDrag(instA, grabX, grabY, instB, dropX, dropY) {
+    const nearSlotsA = this._nearSlotsOfInstance(instA, grabX, grabY);
+    const nearSlotsB = this._nearSlotsOfInstance(instB, dropX, dropY);
+    this._solver.refresh();
+    const result = this._solver.solve(nearSlotsA, nearSlotsB);
+    if (result) {
+      const snap = this._computeSnapTransform(result.slotA, result.slotB, instB);
+      instA.mesh.position.copy(snap.position);
+      instA.mesh.quaternion.copy(snap.quaternion);
+      instA.origPos  = snap.position.clone();
+      instA.origQuat = snap.quaternion.clone();
+      const conn = { instA, instB,
+                     slotA: result.slotA, slotB: result.slotB,
+                     liaison: result.liaison };
+      this._connections.push(conn);
+      this._addJointMarker(conn);
+      this._registerImplicitConnectionsFor(instA);
+      this._showSnapHelper(instA.mesh.position.clone());
+    } else {
+      this._solver.diagnose(nearSlotsA, nearSlotsB);
+    }
+  }
+
+  _removeFromScene(inst) {
+    this.engine.scene.remove(inst.mesh);
+    inst.mesh.geometry.dispose();
+    inst.mesh.material.dispose();
+
+    // Supprimer les connexions impliquant cette instance + leurs marqueurs
+    const connToRemove = this._connections.filter(c => c.instA === inst || c.instB === inst);
+    for (const conn of connToRemove) {
+      const mi = this._jointMarkers.findIndex(jm => jm.conn === conn);
+      if (mi !== -1) {
+        const { mesh } = this._jointMarkers[mi];
+        this.engine.scene.remove(mesh);
+        mesh.geometry.dispose(); mesh.material.dispose();
+        this._jointMarkers.splice(mi, 1);
+      }
+    }
+    this._connections = this._connections.filter(c => c.instA !== inst && c.instB !== inst);
+
+    // Libérer le world slot lié (le cas échéant)
+    const wsConns = this._wsConnections.filter(wsc => wsc.inst === inst);
+    for (const wsc of wsConns) {
+      this._wsm.unbind(wsc.wslot);
+      this._wsm.remove(wsc.wslot);
+    }
+    this._wsConnections = this._wsConnections.filter(wsc => wsc.inst !== inst);
+
+    this._instances.delete(inst.id);
+    this._updateCount();
+  }
+
   _isOverScreenSlot(cx, cy) {
     if (!this._dock?.el) return false;
     const rect = this._dock.el.getBoundingClientRect();
@@ -1451,7 +1252,7 @@ export class Assembler {
   }
 
   _isOverUI(target) {
-    return target.closest?.('.brick-dock, .asm-footer, .asm-bar, .asm-config');
+    return target.closest?.('.brick-dock, .asm-bar, .asm-modal-overlay');
   }
 
   _updateCount() {
