@@ -445,7 +445,7 @@ export class Forge {
   _addLiaison() {
     const store = this._liaisons();
     const id    = uid('li');
-    store[id]   = { id, name: 'Liaison ' + (Object.keys(store).length + 1), pairs: [], dof: [] };
+    store[id]   = { id, name: 'Liaison ' + (Object.keys(store).length + 1), type: 'standard', pairs: [], dof: [] };
     this._saveLiaisons(store);
     this._renderMecaTab();
   }
@@ -606,7 +606,7 @@ export class Forge {
       .fg-tab-content::-webkit-scrollbar-thumb { background:#555; border-radius:2px; }
 
       /* ── Sous-onglets ── */
-      .fg-subtabs { display:flex; gap:3px; flex-shrink:0; }
+      .fg-subtabs { display:flex; gap:3px; flex-shrink:0; margin-bottom:4px; }
       .fg-subtab  { flex:1; padding:5px 4px; text-align:center; cursor:pointer;
         font:9px sans-serif; color:var(--fg-dim); text-transform:uppercase;
         letter-spacing:.08em; border:1px solid var(--fg-border); border-radius:2px;
@@ -697,7 +697,7 @@ export class Forge {
       .fg-row { display:flex; gap:6px; align-items:center; }
 
       /* ── Table vue d'ensemble ── */
-      .fg-overview { overflow-x:auto; margin-bottom:8px; }
+      .fg-overview { overflow-x:auto; margin-bottom:8px; flex-shrink:0; }
       .fg-ov-table { border-collapse:collapse; font:9px sans-serif; }
       .fg-ov-table th, .fg-ov-table td { padding:3px 6px;
         border:1px solid var(--fg-border); text-align:center; }
@@ -1122,9 +1122,6 @@ export class Forge {
     });
     el.appendChild(subtabs);
 
-    // Table vue d'ensemble (partagée)
-    this._renderOverviewTable(el);
-
     if (this._mecaSubTab === 'types') this._renderMecaTypesSubTab(el);
     else                              this._renderMecaLiaisonsSubTab(el);
   }
@@ -1214,6 +1211,7 @@ export class Forge {
   }
 
   _renderMecaLiaisonsSubTab(container) {
+    this._renderOverviewTable(container);
     const liaisons  = this._liaisons();
     const slotTypes = this._slotTypes();
 
@@ -1221,15 +1219,28 @@ export class Forge {
     Object.values(liaisons).forEach(li => {
       const item = document.createElement('div'); item.className = 'fg-meca-item';
 
-      // En-tête : nom + supprimer
+      // En-tête : nom + type + supprimer
       const hdr  = document.createElement('div'); hdr.className = 'fg-meca-hdr';
       const nameInp = document.createElement('input'); nameInp.className = 'fg-input'; nameInp.style.flex='1';
       nameInp.value = li.name;
       nameInp.addEventListener('change', e => this._patchLiaison(li.id, { name: e.target.value }));
+      const typeSel2 = document.createElement('select'); typeSel2.className = 'fg-select'; typeSel2.style.cssText='flex:0 0 auto;';
+      [['standard','Standard'],['weld','Soudure']].forEach(([val,lbl]) => {
+        const o = document.createElement('option'); o.value=val; o.textContent=lbl; typeSel2.appendChild(o);
+      });
+      typeSel2.value = li.type ?? 'standard';
+      typeSel2.addEventListener('change', e => { this._patchLiaison(li.id, { type: e.target.value }); this._renderMecaTab(); });
       const del = document.createElement('button'); del.className = 'fg-btn'; del.textContent = '✕';
       del.addEventListener('click', () => this._deleteLiaison(li.id));
-      hdr.append(nameInp, del);
+      hdr.append(nameInp, typeSel2, del);
       item.appendChild(hdr);
+
+      const isWeld = (li.type === 'weld');
+      if (isWeld) {
+        const weldBadge = document.createElement('div'); weldBadge.className = 'fg-meca-row';
+        weldBadge.innerHTML = '<span class="fg-meca-key">Type</span><span style="color:#f09060;font:700 10px sans-serif;">Joint fixe (soudure) — 0 DOF</span>';
+        item.appendChild(weldBadge);
+      }
 
       // Couples compatibles
       const pairsLbl = document.createElement('div'); pairsLbl.className = 'fg-meca-row';
@@ -1263,7 +1274,8 @@ export class Forge {
         item.appendChild(pairForm);
       }
 
-      // DOF
+      // DOF (masqué pour soudure)
+      if (isWeld) { list.appendChild(item); return; }
       const dofLbl = document.createElement('div'); dofLbl.className = 'fg-meca-row'; dofLbl.style.marginTop='6px';
       dofLbl.innerHTML = '<span class="fg-meca-key">DOF</span>';
       const dofTags = document.createElement('div'); dofTags.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;';
@@ -1272,10 +1284,11 @@ export class Forge {
         const col = DOF_COLOR[d.type] ?? 0xffffff;
         tag.style.borderColor = '#' + col.toString(16).padStart(6, '0');
         const label = DOF_LABELS[d.type] ?? d.type;
-        const axStr = d.axis ? `[${d.axis.map(v => v.toFixed(2)).join(', ')}]` : '';
-        const bound = (d.min != null && d.max != null) ? ` ${d.min}…${d.max}` : '';
-        const step  = d.step != null ? ` step ${d.step}` : '';
-        tag.innerHTML = `${label} ${axStr}${bound}${step} <span class="fg-pair-del" data-idx="${idx}">✕</span>`;
+        const axStr  = d.axis ? `[${d.axis.map(v => v.toFixed(2)).join(', ')}]` : '';
+        const bound  = (d.min != null && d.max != null) ? ` ${d.min}…${d.max}` : '';
+        const step   = d.step != null ? ` step ${d.step}` : '';
+        const phys = d.damping > 0 ? ` friction:${d.damping}` : '';
+        tag.innerHTML = `${label} ${axStr}${bound}${step}${phys} <span class="fg-pair-del" data-idx="${idx}">✕</span>`;
         tag.querySelector('.fg-pair-del').addEventListener('click', () => this._removeLiaisonDof(li.id, idx));
         dofTags.appendChild(tag);
       });
@@ -1308,17 +1321,27 @@ export class Forge {
       const stepInp = document.createElement('input'); stepInp.className='fg-coord'; stepInp.type='text'; stepInp.placeholder='step';
       dofRow3.append(minInp, maxInp, stepInp);
 
+      // Friction
+      const dofRow4 = document.createElement('div'); dofRow4.className = 'fg-row';
+      const fricLbl = document.createElement('span');
+      fricLbl.style.cssText = 'font:9px sans-serif;color:var(--fg-dim);min-width:28px;';
+      fricLbl.textContent = 'Fric.';
+      const dampInp = document.createElement('input'); dampInp.className='fg-coord'; dampInp.type='text';
+      dampInp.placeholder='0'; dampInp.title='Friction (0 = libre, ex: 0.5, 5, 50…)';
+      dofRow4.append(fricLbl, dampInp);
+
       const addDofBtn = document.createElement('button'); addDofBtn.className='fg-btn w100 accent'; addDofBtn.textContent='+ Ajouter DOF';
       addDofBtn.addEventListener('click', () => {
-        const type  = typeSel.value;
-        const axis  = axInputs.map(inp => parseFloat(inp.value) || 0);
-        const min   = minInp.value  !== '' ? parseFloat(minInp.value)  : null;
-        const max   = maxInp.value  !== '' ? parseFloat(maxInp.value)  : null;
-        const step  = stepInp.value !== '' ? parseFloat(stepInp.value) : null;
-        this._addLiaisonDof(li.id, { type, axis, min, max, step });
+        const type    = typeSel.value;
+        const axis    = axInputs.map(inp => parseFloat(inp.value) || 0);
+        const min     = minInp.value  !== '' ? parseFloat(minInp.value)  : null;
+        const max     = maxInp.value  !== '' ? parseFloat(maxInp.value)  : null;
+        const step    = stepInp.value !== '' ? parseFloat(stepInp.value) : null;
+        const damping = dampInp.value !== '' ? parseFloat(dampInp.value) : 0;
+        this._addLiaisonDof(li.id, { type, axis, min, max, step, damping });
       });
 
-      dofForm.append(dofRow1, dofRow2, dofRow3, addDofBtn);
+      dofForm.append(dofRow1, dofRow2, dofRow3, dofRow4, addDofBtn);
       item.appendChild(dofForm);
 
       list.appendChild(item);

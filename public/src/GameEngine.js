@@ -158,6 +158,10 @@ export class GameEngine {
     return this;
   }
 
+  stepOnce() {
+    this._pendingStep = true;
+  }
+
   _loop() {
     if (!this._running) return;
     requestAnimationFrame(() => this._loop());
@@ -166,9 +170,15 @@ export class GameEngine {
     const dt  = Math.min((now - this._lastTime) / 1000, 0.05);
     this._lastTime = now;
 
-    // Pas physique
-    this.world.timestep = dt;
-    this.world.step();
+    // Pas physique (skip si pausé — le rendu continue)
+    if (!this.physPaused) {
+      this.world.timestep = dt;
+      this.world.step();
+    } else if (this._pendingStep) {
+      this._pendingStep = false;
+      this.world.timestep = 1 / 60;
+      this.world.step();
+    }
 
     // Sync Three.js ← Rapier (corps dynamiques uniquement)
     for (const { mesh, body, isStatic } of this._bodies) {

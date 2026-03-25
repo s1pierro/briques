@@ -10,9 +10,15 @@ const C = {
   fg:        '#d0d0d0',
   dim:       '#888',
   accent:    '#7aafc8',
-  worldSlot: 0x7aafc8,
-  snapRing:  0x00ff88,
+  worldSlot:    0x7aafc8,
+  snapRing:     0x00ff88,
+  jointExplicit: 0x00ccff,
+  jointImplicit: 0xffaa00,
 };
+
+// Collision groups pour éviter auto-collision entre briques assemblées (Rapier 0.12)
+// Membership bit 15 (0x8000) ; filter = tout sauf bit 15
+const BRICK_SIM_GROUPS = (0x8000 << 16) | 0x7FFF;
 
 // ─── Spirale phyllotaxique ────────────────────────────────────────────────────
 function spiralPos(n, spacing = 2.0) {
@@ -28,19 +34,46 @@ function spiralPos(n, spacing = 2.0) {
 
 class WorldSlotManager {
   constructor(scene) {
-    this._scene   = scene;
-    this._slots   = []; // { index, position:Vector3, mesh, brickInstanceId|null }
-    this._plane   = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0); // Y = 0
-    this.SNAP_R   = 1.2; // rayon de snap trackball
+    this._scene      = scene;
+    this._slots      = []; // { index, position:Vector3, mesh, brickInstanceId|null }
+    this._y          = 0.25; // hauteur du plan world slots
+    this._plane      = new THREE.Plane(new THREE.Vector3(0, 1, 0), -this._y);
+    this._planeMesh  = null;
+    this.SNAP_R      = 1.2;
+    this._initPlaneMesh();
+  }
+
+  // ── Plan visuel semi-transparent ─────────────────────────────────────────────
+  _initPlaneMesh() {
+    const geo = new THREE.PlaneGeometry(26, 26);
+    const mat = new THREE.MeshBasicMaterial({
+      color: C.worldSlot, transparent: true, opacity: 0.07,
+      side: THREE.DoubleSide, depthWrite: false,
+    });
+    this._planeMesh = new THREE.Mesh(geo, mat);
+    this._planeMesh.rotation.x = -Math.PI / 2;
+    this._planeMesh.position.y = this._y;
+    this._scene.add(this._planeMesh);
+  }
+
+  // ── Changer la hauteur du plan ────────────────────────────────────────────────
+  setY(y) {
+    this._y = y;
+    this._plane.constant = -y;
+    this._planeMesh.position.y = y;
+    for (const s of this._slots) {
+      s.position.y = y;
+      s.mesh.position.setY(y + 0.01);
+      if (s.mesh.userData.ring) s.mesh.userData.ring.position.setY(y + 0.011);
+    }
   }
 
   // ── Ajouter un world slot à la position la plus proche sur la spirale ───────
   add(worldPos) {
-    // Projeter sur le plan Y=0
-    const pos = new THREE.Vector3(worldPos.x, 0, worldPos.z);
-    // Chercher l'index libre le plus proche
+    const pos   = new THREE.Vector3(worldPos.x, 0, worldPos.z); // XZ seulement pour la spirale
     const index = this._nextFreeIndex(pos);
     const slotPos = spiralPos(index);
+    slotPos.y = this._y; // forcer la hauteur courante
     const mesh = this._makeMesh(slotPos);
     this._scene.add(mesh);
     const slot = { index, position: slotPos, mesh, brickInstanceId: null };
@@ -49,6 +82,11 @@ class WorldSlotManager {
   }
 
   remove(slot) {
+    if (slot.mesh.userData.ring) {
+      this._scene.remove(slot.mesh.userData.ring);
+      slot.mesh.userData.ring.geometry.dispose();
+      slot.mesh.userData.ring.material.dispose();
+    }
     this._scene.remove(slot.mesh);
     slot.mesh.geometry.dispose();
     slot.mesh.material.dispose();
@@ -87,11 +125,22 @@ class WorldSlotManager {
   // ── Nettoyage ────────────────────────────────────────────────────────────────
   dispose() {
     for (const s of this._slots) {
+      if (s.mesh.userData.ring) {
+        this._scene.remove(s.mesh.userData.ring);
+        s.mesh.userData.ring.geometry.dispose();
+        s.mesh.userData.ring.material.dispose();
+      }
       this._scene.remove(s.mesh);
       s.mesh.geometry.dispose();
       s.mesh.material.dispose();
     }
     this._slots = [];
+    if (this._planeMesh) {
+      this._scene.remove(this._planeMesh);
+      this._planeMesh.geometry.dispose();
+      this._planeMesh.material.dispose();
+      this._planeMesh = null;
+    }
   }
 
   get slots() { return this._slots; }
@@ -118,7 +167,7 @@ class WorldSlotManager {
     });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.x = -Math.PI / 2;
-    mesh.position.copy(pos).setY(0.01);
+    mesh.position.set(pos.x, pos.y + 0.01, pos.z);
 
     // Anneau extérieur
     const ring = new THREE.Mesh(
@@ -126,9 +175,9 @@ class WorldSlotManager {
       new THREE.MeshBasicMaterial({ color: C.worldSlot, side: THREE.DoubleSide, depthWrite: false })
     );
     ring.rotation.x = -Math.PI / 2;
-    ring.position.copy(pos).setY(0.011);
+    ring.position.set(pos.x, pos.y + 0.011, pos.z);
     this._scene.add(ring);
-    mesh.userData.ring = ring; // pour dispose
+    mesh.userData.ring = ring;
     return mesh;
   }
 }
@@ -137,7 +186,7 @@ class WorldSlotManager {
 // ScreenSlotManager
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const SS_W = 120, SS_H = 90; // taille d'un screen slot en px
+const SS_W = 240, SS_H = 180; // taille d'un screen slot en px
 const SS_PAD = 6;
 const SS_ROWS = 2;
 
@@ -377,14 +426,18 @@ class ScreenSlotManager {
     const ndcX =  ((cx - rect.left)  / rect.width)  * 2 - 1;
     const ndcY = -((cy - rect.top)   / rect.height) * 2 + 1;
     const touchNDC = new THREE.Vector2(ndcX, ndcY);
-    // Projeter chaque slot
+    // slot.mesh.position = -geoCenter (appliqué dans _loadBrick par mesh.position.sub(center))
+    // Position corrigée d'un slot = s.position + mesh.position = s.position - geoCenter
+    const meshPos = slot.mesh ? slot.mesh.position : new THREE.Vector3();
     return brick.slots
       .map(s => {
-        const p  = new THREE.Vector3(...s.position);
-        if (slot.mesh) p.sub(slot.mesh.position); // correction centrage
+        // Position monde dans la scène du screen slot pour projection NDC
+        const p = new THREE.Vector3(...s.position).add(meshPos);
         p.project(slot.camera);
-        const d  = touchNDC.distanceTo(new THREE.Vector2(p.x, p.y));
-        return { slot: s, dist: d };
+        const d = touchNDC.distanceTo(new THREE.Vector2(p.x, p.y));
+        // Slot avec position corrigée (repère centré = repère de l'instance spawned)
+        const corrected = { ...s, position: [s.position[0] + meshPos.x, s.position[1] + meshPos.y, s.position[2] + meshPos.z] };
+        return { slot: corrected, dist: d };
       })
       .sort((a, b) => a.dist - b.dist)
       .map(x => x.slot);
@@ -427,6 +480,37 @@ class AssemblySolver {
     return { id: '__ball__', name: 'Rotule', dof: [{ type: 'ball', axis: [0,1,0] }] };
   }
 
+  // Vérifie la compatibilité de deux typeIds (public)
+  compatible(typeA, typeB) { return this._findLiaison(typeA, typeB); }
+
+  // Diagnostic console quand solve() échoue
+  diagnose(nearA, nearB) {
+    console.group('[AssemblySolver] solve() → null');
+    if (!nearA.length) { console.warn('Brique source : aucun slot défini'); console.groupEnd(); return; }
+    if (!nearB.length) { console.warn('Brique cible  : aucun slot défini'); console.groupEnd(); return; }
+
+    const nullA = nearA.filter(s => !s.typeId);
+    const nullB = nearB.filter(s => !s.typeId);
+    if (nullA.length) console.warn(`Source : ${nullA.length} slot(s) sans typeId`);
+    if (nullB.length) console.warn(`Cible  : ${nullB.length} slot(s) sans typeId`);
+
+    const allTypes = new Set(
+      Object.values(this._liaisons).flatMap(l => (l.pairs || []).flatMap(p => [p.typeA, p.typeB]))
+    );
+    if (!allTypes.size) {
+      console.warn('rbang_liaisons vide — aucune liaison définie dans la Forge');
+    } else {
+      const misA = nearA.filter(s => s.typeId && !allTypes.has(s.typeId)).map(s => s.typeId);
+      const misB = nearB.filter(s => s.typeId && !allTypes.has(s.typeId)).map(s => s.typeId);
+      if (misA.length) console.warn('typeId(s) source absents des liaisons :', misA);
+      if (misB.length) console.warn('typeId(s) cible  absents des liaisons :', misB);
+    }
+
+    console.warn('typeIds source :', nearA.map(s => s.typeId));
+    console.warn('typeIds cible  :', nearB.map(s => s.typeId));
+    console.groupEnd();
+  }
+
   _findLiaison(typeA, typeB) {
     for (const li of Object.values(this._liaisons)) {
       for (const pair of (li.pairs || [])) {
@@ -449,6 +533,8 @@ class BrickInstance {
     this.mesh      = mesh;
     this.body      = body;      // Rapier body (null avant simulation)
     this.pts       = pts;       // Float32Array pour convexHull
+    this.slots     = [];        // slots corrigés pour le centrage géo (position - geoCenter)
+    this.geoCenter = new THREE.Vector3(); // décalage bounding-box appliqué à la géo
     this.joints    = [];        // { instanceId, rapierJoint }
     this.origPos   = mesh.position.clone();
     this.origQuat  = mesh.quaternion.clone();
@@ -475,8 +561,14 @@ export class Assembler {
     this._idSeq       = 0;
     this._connections = []; // { instA, instB, slotA, slotB, liaison }
     this._wsConnections = []; // { wslot, inst, slotA } pour world slots
-    this._simJoints   = []; // handles Rapier joints actifs
-    this._simWsBodies = []; // fixed bodies pour world slots
+    this._assemblyJoints = []; // joints Rapier créés pendant l'assemblage (bodies fixed)
+    this._simJoints      = []; // joints Rapier créés au démarrage simulation (bodies dynamic)
+    this._simWsBodies    = []; // fixed bodies pour world slots
+    this._jointMarkers   = []; // { mesh, conn } marqueurs visuels des liaisons
+    this._debugStatusEl  = null;
+    this._shootBalls     = []; // { mesh, body } balles de tir
+    this._shootBtn       = null;
+    this._stepBtn        = null;
   }
 
   // ─── Cycle de vie ──────────────────────────────────────────────────────────
@@ -578,7 +670,6 @@ export class Assembler {
   // ─── Assembler une brique sur une instance existante ────────────────────────
 
   async _assembleTo(brickId, nearSlotsA, targetInst, endX, endY) {
-    // Calculer les slots de la brique cible proches du point de contact
     const nearSlotsB = this._nearSlotsOfInstance(targetInst, endX, endY);
     this._solver.refresh();
     const result = this._solver.solve(nearSlotsA, nearSlotsB);
@@ -591,13 +682,20 @@ export class Assembler {
       const snapTransform = this._computeSnapTransform(result.slotA, result.slotB, targetInst);
       const inst = await this._spawnBrick(brickId, null, snapTransform);
       if (inst) {
-        this._connections.push({ instA: inst, instB: targetInst,
-                                 slotA: result.slotA, slotB: result.slotB,
-                                 liaison: result.liaison });
+        const conn = { instA: inst, instB: targetInst,
+                       slotA: result.slotA, slotB: result.slotB,
+                       liaison: result.liaison };
+        this._connections.push(conn);
+        this._makeJoint(conn, this._assemblyJoints);
+        this._addJointMarker(conn);
+        // Détection implicites induites par le nouveau placement
+        this._registerImplicitConnectionsFor(inst);
         this._showSnapHelper(inst.mesh.position.clone());
+        this._updateCount();
       }
     } else {
-      // Pas de liaison compatible → placer à côté sur le sol
+      // Pas de liaison compatible → diagnostic console + placer à côté
+      this._solver.diagnose(nearSlotsA, nearSlotsB);
       const pos = targetInst.mesh.position.clone().add(new THREE.Vector3(2, 0, 0));
       await this._spawnBrick(brickId, pos);
     }
@@ -642,13 +740,30 @@ export class Assembler {
         mesh.position.copy(snapTransform.position);
         mesh.quaternion.copy(snapTransform.quaternion);
       } else {
-        // Poser la brique sur le sol — calculé depuis la box originale (évite le cache périmé)
-        const GROUND_TOP = 0.25;
-        mesh.position.set(pos.x, GROUND_TOP - (box.min.y - center.y), pos.z);
+        // Poser la brique sur le plan world slot — calculé depuis la box originale (évite le cache périmé)
+        mesh.position.set(pos.x, this._wsm._y - (box.min.y - center.y), pos.z);
       }
       this.engine.scene.add(mesh);
       const id   = `bi-${++this._idSeq}`;
       const inst = new BrickInstance(id, brick, mesh, null, pts);
+      inst.geoCenter = center.clone();
+      inst.slots = (brick.slots || []).map(s => ({
+        ...s,
+        position: [s.position[0] - center.x, s.position[1] - center.y, s.position[2] - center.z],
+      }));
+
+      // Corps Rapier fixed immédiatement (sera converti en dynamic à la simulation)
+      const R = this.engine.R;
+      const world = this.engine.world;
+      const { x, y, z } = mesh.position;
+      const q = mesh.quaternion;
+      const body = world.createRigidBody(R.RigidBodyDesc.fixed().setTranslation(x, y, z));
+      body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
+      const cd = (R.ColliderDesc.convexHull(pts) ?? R.ColliderDesc.ball(0.5))
+        .setRestitution(0.2).setFriction(0.6);
+      world.createCollider(cd, body);
+      inst.body = body;
+
       this._instances.set(id, inst);
       this._updateCount();
       return inst;
@@ -661,7 +776,7 @@ export class Assembler {
   // ─── Slots d'une instance proches d'un point écran ──────────────────────────
 
   _nearSlotsOfInstance(inst, cx, cy) {
-    const slots = inst.brickData.slots || [];
+    const slots = inst.slots.length ? inst.slots : (inst.brickData.slots || []);
     if (!slots.length) return [];
     const ndcX =  (cx / innerWidth)  * 2 - 1;
     const ndcY = -(cy / innerHeight) * 2 + 1;
@@ -786,61 +901,176 @@ export class Assembler {
     const R = this.engine.R;
     const world = this.engine.world;
 
-    // 1. Créer tous les corps dynamiques
+    // 1. Supprimer tous les joints d'assemblage existants
+    for (const j of this._assemblyJoints) {
+      try { world.removeImpulseJoint(j, true); } catch {}
+    }
+    this._assemblyJoints = [];
+
+    // 2. Connexions implicites restantes → enregistrement + marqueurs seulement,
+    //    les joints seront créés à l'étape 4 sur les corps dynamic
+    this._registerImplicitConnections();
+    // Supprimer les joints créés par _registerImplicitConnections (sur corps encore fixed)
+    for (const j of this._assemblyJoints) {
+      try { world.removeImpulseJoint(j, true); } catch {}
+    }
+    this._assemblyJoints = [];
+
+    // 3. Plus d'itérations solver pour résoudre joints + contacts simultanément
+    world.numSolverIterations = 20;
     for (const inst of this._instances.values()) {
-      const { x, y, z } = inst.mesh.position;
-      const q    = inst.mesh.quaternion;
-      const body = world.createRigidBody(
-        R.RigidBodyDesc.dynamic().setTranslation(x, y, z)
-      );
-      body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
-      const cd = (R.ColliderDesc.convexHull(inst.pts) ?? R.ColliderDesc.ball(0.5))
-        .setRestitution(0.2).setFriction(0.6);
-      world.createCollider(cd, body);
-      inst.body    = body;
       inst.origPos  = inst.mesh.position.clone();
       inst.origQuat = inst.mesh.quaternion.clone();
-      this.engine._bodies.push({ mesh: inst.mesh, body, isStatic: false });
+      try { world.removeRigidBody(inst.body); } catch {}
+      const { x, y, z } = inst.origPos;
+      const q = inst.origQuat;
+      const newBody = world.createRigidBody(
+        R.RigidBodyDesc.dynamic()
+          .setTranslation(x, y, z)
+          .setLinearDamping(0.8)
+          .setAngularDamping(2.0)
+      );
+      newBody.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
+      const cd = (R.ColliderDesc.convexHull(inst.pts) ?? R.ColliderDesc.ball(0.5))
+        .setRestitution(0).setFriction(0.8).setDensity(50);
+      world.createCollider(cd, newBody);
+      // Appliquer les groupes de collision directement sur le collider (plus fiable que via desc)
+      const simCol = newBody.collider(0);
+      if (simCol) {
+        simCol.setCollisionGroups(BRICK_SIM_GROUPS);
+        console.debug('[sim col groups]', simCol.collisionGroups()?.toString(16));
+      } else {
+        console.warn('[sim] collider(0) null');
+      }
+      inst.body = newBody;
+      this.engine._bodies.push({ mesh: inst.mesh, body: inst.body, isStatic: false });
     }
 
-    // 2. Joints depuis connexions slot↔slot (world slots libérés — pas de joint)
+    // 4. Créer les joints sim sur les corps dynamic
     for (const conn of this._connections) {
-      const { instA, instB, slotA, slotB, liaison } = conn;
-      if (!instA.body || !instB.body) continue;
-      try {
-        const joint = this._createJoint(R, world, instA.body, instB.body, slotA, slotB, liaison);
-        if (joint) this._simJoints.push(joint);
-      } catch (e) { console.warn('Joint creation error', e); }
+      this._makeJoint(conn, this._simJoints);
     }
+  }
+
+  // ─── Joint + marqueur immédiat (assemblage ou simulation) ────────────────────
+
+  // Crée un joint Rapier pour une connexion et l'ajoute au tableau cible
+  _makeJoint(conn, targetArray) {
+    const R = this.engine.R;
+    const world = this.engine.world;
+    const { instA, instB, slotA, slotB, liaison } = conn;
+    if (!instA.body || !instB.body) return;
+    try {
+      // Diagnostic : vérifier cohérence mesh ↔ body
+      const bta = instA.body.translation(), bra = instA.body.rotation();
+      const btb = instB.body.translation(), brb = instB.body.rotation();
+      const qaM = instA.mesh.quaternion, qbM = instB.mesh.quaternion;
+      const paM = instA.mesh.position,   pbM = instB.mesh.position;
+      // Ancres en espace monde (doivent coïncider pour un joint valide)
+      const wA = new THREE.Vector3(...slotA.position).applyQuaternion(qaM).add(paM);
+      const wB = new THREE.Vector3(...slotB.position).applyQuaternion(qbM).add(pbM);
+      const delta = wA.distanceTo(wB);
+      console.debug('[joint]', liaison?.name, {
+        slotA_local: slotA.position.map(v=>v.toFixed(3)),
+        slotB_local: slotB.position.map(v=>v.toFixed(3)),
+        ancA_world: `${wA.x.toFixed(3)},${wA.y.toFixed(3)},${wA.z.toFixed(3)}`,
+        ancB_world: `${wB.x.toFixed(3)},${wB.y.toFixed(3)},${wB.z.toFixed(3)}`,
+        delta: delta.toFixed(4),
+      });
+      const j = this._createJoint(
+        R, world,
+        instA.body, instB.body,
+        slotA, slotB, liaison,
+        instA.mesh.quaternion, instB.mesh.quaternion
+      );
+      if (j) targetArray.push(j);
+    } catch (e) { console.warn('_makeJoint error', e); }
+  }
+
+  // Ajoute un marqueur disque à la position monde du slot de la connexion
+  _addJointMarker(conn) {
+    const { instA, slotA, implicit } = conn;
+    const color = implicit ? C.jointImplicit : C.jointExplicit;
+    const geo = new THREE.CylinderGeometry(0.75, 0.75, 0.06, 32);
+    const mat = new THREE.MeshBasicMaterial({
+      color, transparent: true, opacity: 0.55,
+      depthWrite: false, side: THREE.DoubleSide,
+    });
+    const marker = new THREE.Mesh(geo, mat);
+    // Position monde du slot A
+    const wp = new THREE.Vector3(...slotA.position)
+      .applyQuaternion(instA.mesh.quaternion)
+      .add(instA.mesh.position);
+    marker.position.copy(wp);
+    // Orientation : disque perpendiculaire à l'axe de DOF (pivot/glissière)
+    // ou à la normale du slot (soudure / pas de DOF)
+    const dofs = conn.liaison?.dof ?? [];
+    const hasDofAxis = dofs.length === 1 && dofs[0].axis;
+    if (hasDofAxis) {
+      // Axe monde = (quatBrique_B × quatSlot_B) × dof.axis
+      // Le dof.axis est défini dans le repère du slot, pas du brick directement
+      const rawAxis = new THREE.Vector3(...dofs[0].axis).normalize();
+      const slotBQ = new THREE.Quaternion(...conn.slotB.quaternion);
+      const worldSlotBQ = slotBQ.clone().premultiply(conn.instB.mesh.quaternion.clone());
+      const axisWorld = rawAxis.clone().applyQuaternion(worldSlotBQ).normalize();
+      marker.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axisWorld);
+    } else if (slotA.quaternion) {
+      const slotQ = new THREE.Quaternion(...slotA.quaternion);
+      const worldQ = slotQ.premultiply(instA.mesh.quaternion.clone());
+      marker.quaternion.copy(worldQ).multiply(
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0))
+      );
+    }
+    this.engine.scene.add(marker);
+    this._jointMarkers.push({ mesh: marker, conn });
+  }
+
+  // Supprime les marqueurs des connexions implicites
+  _clearImplicitMarkers() {
+    this._jointMarkers = this._jointMarkers.filter(({ mesh, conn }) => {
+      if (!conn.implicit) return true;
+      this.engine.scene.remove(mesh);
+      mesh.geometry.dispose(); mesh.material.dispose();
+      return false;
+    });
   }
 
   // ─── Création d'un joint Rapier selon la liaison ──────────────────────────────
 
-  _createJoint(R, world, bodyA, bodyB, slotA, slotB, liaison) {
+  _createJoint(R, world, bodyA, bodyB, slotA, slotB, liaison, quatAMesh, quatBMesh) {
     const ancA = { x: slotA.position[0], y: slotA.position[1], z: slotA.position[2] };
     const ancB = { x: slotB.position[0], y: slotB.position[1], z: slotB.position[2] };
     const dofs = liaison?.dof ?? [];
 
     let jd;
+    const isWeld = liaison?.type === 'weld';
 
-    if (dofs.length === 0) {
+    if (isWeld || dofs.length === 0) {
       const qa = new THREE.Quaternion(...slotA.quaternion);
       const qb = new THREE.Quaternion(...slotB.quaternion);
       jd = R.JointData.fixed(ancA, { x: qa.x, y: qa.y, z: qa.z, w: qa.w },
                               ancB, { x: qb.x, y: qb.y, z: qb.z, w: qb.w });
     } else if (dofs.length === 1) {
       const dof = dofs[0];
-      const axA = new THREE.Vector3(...(dof.axis ?? [0, 1, 0]))
-                    .applyQuaternion(new THREE.Quaternion(...slotA.quaternion)).normalize();
-      const axB = new THREE.Vector3(...(dof.axis ?? [0, 1, 0]))
-                    .applyQuaternion(new THREE.Quaternion(...slotB.quaternion)).normalize();
+      // dof.axis est défini dans le repère du SLOT (pas du brick directement).
+      // Axe monde = (quatB_mesh × quatSlot_B) × dof.axis
+      const quatA = quatAMesh ?? (() => { const q = bodyA.rotation(); return new THREE.Quaternion(q.x, q.y, q.z, q.w); })();
+      const quatB = quatBMesh ?? (() => { const q = bodyB.rotation(); return new THREE.Quaternion(q.x, q.y, q.z, q.w); })();
+      const rawAxis   = new THREE.Vector3(...(dof.axis ?? [0, 0, 1]));
+      const slotBQ    = new THREE.Quaternion(...slotB.quaternion);
+      const worldSlotBQ = slotBQ.clone().premultiply(quatB.clone());
+      const axisWorld = rawAxis.clone().applyQuaternion(worldSlotBQ).normalize();
+      // axB : axe dans le repère local du brick B = slotBQ × dof.axis
+      const axB = rawAxis.clone().applyQuaternion(slotBQ).normalize();
+      // axA : même axe physique exprimé dans le repère local du brick A
+      const axA = axisWorld.clone().applyQuaternion(quatA.clone().invert());
       const vA  = { x: axA.x, y: axA.y, z: axA.z };
       const vB  = { x: axB.x, y: axB.y, z: axB.z };
       switch (dof.type) {
-        case 'rotation':    jd = R.JointData.revolute(ancA, vA, ancB, vB);   break;
-        case 'translation': jd = R.JointData.prismatic(ancA, vA, ancB, vB);  break;
-        case 'ball':        jd = R.JointData.spherical(ancA, ancB);           break;
-        case 'cylindrical': jd = R.JointData.revolute(ancA, vA, ancB, vB);   break;
+        case 'rotation':    jd = R.JointData.revolute(ancA, ancB, vA);   break;
+        case 'translation': jd = R.JointData.prismatic(ancA, ancB, vA);  break;
+        case 'ball':        jd = R.JointData.spherical(ancA, ancB);       break;
+        case 'cylindrical': jd = R.JointData.revolute(ancA, ancB, vA);   break;
         default:            jd = R.JointData.spherical(ancA, ancB);
       }
     } else {
@@ -848,35 +1078,77 @@ export class Assembler {
     }
 
     const joint = world.createImpulseJoint(jd, bodyA, bodyB, true);
-    // Désactiver la collision entre les deux corps reliés pour éviter
-    // les forces de pénétration qui combattent le joint
-    if (typeof joint.setContactsEnabled === 'function') joint.setContactsEnabled(false);
+
+    // Amortissement DDL libre : minimum 10 pour absorber l'énergie d'impact
+    // (valeur basse → invisible pendant la chute libre, efficace à haute vitesse angulaire)
+    if (dofs.length === 1) {
+      let axis = null;
+      switch (dofs[0].type) {
+        case 'rotation':    axis = R.JointAxis.AngX; break;
+        case 'cylindrical': axis = R.JointAxis.AngX; break;
+        case 'translation': axis = R.JointAxis.LinX; break;
+      }
+      if (axis !== null) {
+        const damping = Math.max(dofs[0].damping ?? 0, 10);
+        joint.configureMotorVelocity(axis, 0, damping);
+      }
+    }
+
     return joint;
   }
 
   _stopSimulation() {
-    // Supprimer les joints (Rapier les supprime avec les corps, mais on nettoie explicitement)
+    const R = this.engine.R;
+    const world = this.engine.world;
+    world.numSolverIterations = 4; // restaurer la valeur par défaut
+
+    // 1. Supprimer les joints sim
     for (const j of this._simJoints) {
-      try { this.engine.world.removeImpulseJoint(j, true); } catch {}
+      try { world.removeImpulseJoint(j, true); } catch {}
     }
     this._simJoints = [];
 
-    // Supprimer les fixed bodies des world slots
-    for (const b of this._simWsBodies) {
-      try { this.engine.world.removeRigidBody(b); } catch {}
-    }
+    // 2. (world slots : pas de corps séparés créés, rien à supprimer)
     this._simWsBodies = [];
 
+    // 3. Supprimer les balles de tir
+    for (const { mesh, body } of this._shootBalls) {
+      this.engine.scene.remove(mesh);
+      mesh.geometry.dispose(); mesh.material.dispose();
+      try { world.removeRigidBody(body); } catch {}
+      const idx = this.engine._bodies.findIndex(b => b.body === body);
+      if (idx !== -1) this.engine._bodies.splice(idx, 1);
+    }
+    this._shootBalls = [];
+
+    // 4. Retirer les connexions implicites + leurs marqueurs
+    this._clearImplicitMarkers();
+    this._connections = this._connections.filter(c => !c.implicit);
+
+    // 5. Restaurer positions mesh + recréer corps fixed
     for (const inst of this._instances.values()) {
-      if (inst.body) {
-        const idx = this.engine._bodies.findIndex(b => b.body === inst.body);
-        if (idx !== -1) this.engine._bodies.splice(idx, 1);
-        this.engine.world.removeRigidBody(inst.body);
-        inst.body = null;
-      }
+      const idx = this.engine._bodies.findIndex(b => b.body === inst.body);
+      if (idx !== -1) this.engine._bodies.splice(idx, 1);
       inst.mesh.position.copy(inst.origPos);
       inst.mesh.quaternion.copy(inst.origQuat);
+      try { world.removeRigidBody(inst.body); } catch {}
+      const { x, y, z } = inst.origPos;
+      const q = inst.origQuat;
+      const newBody = world.createRigidBody(
+        R.RigidBodyDesc.fixed().setTranslation(x, y, z)
+      );
+      newBody.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
+      const cd = (R.ColliderDesc.convexHull(inst.pts) ?? R.ColliderDesc.ball(0.5))
+        .setRestitution(0.2).setFriction(0.6);
+      world.createCollider(cd, newBody);
+      inst.body = newBody;
     }
+
+    // 6. Recréer les joints assembly pour les connexions explicites restantes
+    for (const conn of this._connections) {
+      this._makeJoint(conn, this._assemblyJoints);
+    }
+
     this._simulating = false;
   }
 
@@ -996,10 +1268,169 @@ export class Assembler {
     document.body.appendChild(footer);
     this._ui.push(footer);
 
+    // ── Bouton tir (visible seulement en simulation) ───────────────────────────
+    this._shootBtn = document.createElement('button');
+    this._shootBtn.className = 'asm-btn';
+    this._shootBtn.textContent = '●';
+    this._shootBtn.title = 'Tirer une balle';
+    this._shootBtn.style.cssText = [
+      'position:fixed', 'right:12px',
+      `bottom:${SS_H * 2 + SS_PAD * 3 + 56}px`,
+      'width:44px', 'height:44px', 'padding:0',
+      'border-radius:50%', 'font-size:20px',
+      'display:none', 'z-index:56',
+      'background:#4a3a2a', 'border-color:#8a6a4a', 'color:#f8e4c0',
+    ].join(';');
+    const shoot = () => {
+      if (!this._simulating) return;
+      const dir = new THREE.Vector3();
+      this.engine.camera.getWorldDirection(dir);
+      const p = this.engine.camera.position;
+      const { mesh, body } = this.engine.addDynamicSphere(0.18, p.x, p.y, p.z, 0xddaa55, 1.5);
+      body.setLinvel({ x: dir.x * 28, y: dir.y * 28, z: dir.z * 28 }, true);
+      this._shootBalls.push({ mesh, body });
+    };
+    this._shootBtn.addEventListener('click', shoot);
+    this._shootBtn.addEventListener('touchstart', e => { e.preventDefault(); shoot(); }, { passive: false });
+    document.body.appendChild(this._shootBtn);
+    this._ui.push(this._shootBtn);
+
+    // ── Bouton pause/step physique (visible seulement en simulation) ──────────
+    this._stepBtn = document.createElement('button');
+    this._stepBtn.className = 'asm-btn';
+    this._stepBtn.textContent = '⏸';
+    this._stepBtn.title = 'Pause / Step physique';
+    this._stepBtn.style.cssText = [
+      'position:fixed', 'right:12px',
+      `bottom:${SS_H * 2 + SS_PAD * 3 + 120}px`,
+      'width:44px', 'height:44px', 'padding:0',
+      'border-radius:50%', 'font-size:20px',
+      'display:none', 'z-index:56',
+      'background:#2a4a3a', 'border-color:#4a8a6a', 'color:#c0f0d8',
+    ].join(';');
+    const toggleStep = () => {
+      if (!this._simulating) return;
+      const engine = this.engine;
+      if (!engine.physPaused) {
+        engine.physPaused = true;
+        this._stepBtn.textContent = '▶';
+        this._stepBtn.title = 'Avancer d\'un pas (1/60 s)';
+      } else {
+        engine.stepOnce();
+      }
+    };
+    this._stepBtn.addEventListener('click', toggleStep);
+    this._stepBtn.addEventListener('touchstart', e => { e.preventDefault(); toggleStep(); }, { passive: false });
+    document.body.appendChild(this._stepBtn);
+    this._ui.push(this._stepBtn);
+
+    // ── Panneau de configuration ──────────────────────────────────────────────
+    this._setupConfigPanel();
+
     // ── onUpdate ──────────────────────────────────────────────────────────────
     this.engine.onUpdate = () => {
-      this._countEl.textContent = `Briques : ${this._instances.size}`;
+      const n = this._instances.size;
+      const c = n ? this._componentCount() : 0;
+      this._countEl.textContent = `Briques : ${n}` + (n ? `  |  Composants : ${c}` : '');
+      if (this._debugStatusEl) {
+        const conn = this._connections.length;
+        this._debugStatusEl.textContent =
+          `Briques : ${n}\nLiaisons : ${conn}\nComposants : ${c}`;
+      }
+      // Mise à jour des marqueurs de liaison pendant la simulation
+      if (this._simulating) {
+        for (const { mesh: marker, conn } of this._jointMarkers) {
+          const { instA, slotA } = conn;
+          // Position monde du slot A (mesh déjà sync depuis le body Rapier)
+          marker.position.set(...slotA.position)
+            .applyQuaternion(instA.mesh.quaternion)
+            .add(instA.mesh.position);
+          // Orientation
+          const dofs = conn.liaison?.dof ?? [];
+          if (dofs.length === 1 && dofs[0].axis) {
+            const slotBQ = new THREE.Quaternion(...conn.slotB.quaternion);
+            const worldSlotBQ = slotBQ.clone().premultiply(conn.instB.mesh.quaternion.clone());
+            const axisWorld = new THREE.Vector3(...dofs[0].axis).normalize()
+              .applyQuaternion(worldSlotBQ).normalize();
+            marker.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axisWorld);
+          } else {
+            const slotQ = new THREE.Quaternion(...slotA.quaternion);
+            marker.quaternion.copy(slotQ.premultiply(instA.mesh.quaternion.clone()))
+              .multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0)));
+          }
+        }
+      }
+
+      // Nettoyage des balles hors scène (Y < -20)
+      this._shootBalls = this._shootBalls.filter(({ mesh, body }) => {
+        if (body.translation().y < -20) {
+          this.engine.scene.remove(mesh);
+          mesh.geometry.dispose(); mesh.material.dispose();
+          this.engine.world.removeRigidBody(body);
+          const idx = this.engine._bodies.findIndex(b => b.body === body);
+          if (idx !== -1) this.engine._bodies.splice(idx, 1);
+          return false;
+        }
+        return true;
+      });
     };
+  }
+
+  _setupConfigPanel() {
+    const panel = document.createElement('div');
+    panel.className = 'asm-config';
+    panel.style.cssText = [
+      'position:fixed', 'right:12px', 'top:36px',
+      `background:${C.bg}`, `border:1px solid ${C.border}`,
+      'border-radius:2px', 'padding:8px 10px',
+      'z-index:60', `font:11px sans-serif`, `color:${C.fg}`,
+      'min-width:160px', 'pointer-events:auto',
+      'box-shadow:0 2px 8px rgba(0,0,0,.5)',
+    ].join(';');
+
+    const title = document.createElement('div');
+    title.style.cssText = [
+      `font-size:9px`, `color:${C.dim}`,
+      'text-transform:uppercase', 'letter-spacing:.08em', 'margin-bottom:8px',
+    ].join(';');
+    title.textContent = 'Paramètres';
+
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:6px;';
+
+    const lbl = document.createElement('span');
+    lbl.textContent = 'Plan Y';
+    lbl.style.cssText = `color:${C.dim};flex-shrink:0;`;
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = '-2'; slider.max = '5'; slider.step = '0.05';
+    slider.value = String(this._wsm._y);
+    slider.style.cssText = 'flex:1;cursor:pointer;accent-color:' + C.accent + ';';
+
+    const valEl = document.createElement('span');
+    valEl.textContent = this._wsm._y.toFixed(2);
+    valEl.style.cssText = `color:${C.accent};min-width:32px;text-align:right;font-variant-numeric:tabular-nums;`;
+
+    slider.addEventListener('input', () => {
+      const y = parseFloat(slider.value);
+      valEl.textContent = y.toFixed(2);
+      this._wsm.setY(y);
+    });
+
+    row.append(lbl, slider, valEl);
+
+    // Ligne de statut assemblage
+    const sep = document.createElement('div');
+    sep.style.cssText = `border-top:1px solid ${C.border};margin:8px 0 6px;`;
+
+    this._debugStatusEl = document.createElement('div');
+    this._debugStatusEl.style.cssText = `color:${C.dim};font-size:10px;line-height:1.6;`;
+    this._debugStatusEl.textContent = 'Composants : —';
+
+    panel.append(title, row, sep, this._debugStatusEl);
+    document.body.appendChild(panel);
+    this._ui.push(panel);
   }
 
   _populateBrickList() {
@@ -1037,16 +1468,38 @@ export class Assembler {
       this._simBtn.classList.remove('primary');
       this._simBtn.classList.add('danger');
       clearBtn.disabled = true;
+      if (this._shootBtn) this._shootBtn.style.display = 'block';
+      if (this._stepBtn)  this._stepBtn.style.display  = 'block';
     } else {
       this._stopSimulation();
       this._simBtn.textContent = '▶ Simuler';
       this._simBtn.classList.add('primary');
       this._simBtn.classList.remove('danger');
       clearBtn.disabled = false;
+      if (this._shootBtn) this._shootBtn.style.display = 'none';
+      if (this._stepBtn)  {
+        this._stepBtn.style.display = 'none';
+        this._stepBtn.textContent = '⏸';
+        this._stepBtn.title = 'Pause / Step physique';
+        this.engine.physPaused = false;
+      }
     }
   }
 
   _clearAll() {
+    // Supprimer tous les joints assembly
+    for (const j of this._assemblyJoints) {
+      try { this.engine.world.removeImpulseJoint(j, true); } catch {}
+    }
+    this._assemblyJoints = [];
+
+    // Supprimer tous les marqueurs visuels
+    for (const { mesh } of this._jointMarkers) {
+      this.engine.scene.remove(mesh);
+      mesh.geometry.dispose(); mesh.material.dispose();
+    }
+    this._jointMarkers = [];
+
     for (const inst of [...this._instances.values()]) {
       this.engine.scene.remove(inst.mesh);
       inst.mesh.geometry.dispose();
@@ -1054,11 +1507,129 @@ export class Assembler {
       if (inst.body) this.engine.world.removeRigidBody(inst.body);
     }
     this._instances.clear();
-    this._connections = [];
-    this._wsConnections = [];
+    this._connections    = [];
+    this._wsConnections  = [];
     // Libérer les world slots
     for (const ws of [...this._wsm.slots]) this._wsm.unbind(ws);
     this._updateCount();
+  }
+
+  // ─── Détection de connexions implicites (clipping spatial) ──────────────────
+
+  // Seuil de proximité pour considérer deux slots comme coïncidents (unités scène)
+  static CLIP_DIST = 0.12;
+
+  // Transforme la position locale d'un slot en coordonnées monde
+  _slotWorldPos(slot, inst) {
+    return new THREE.Vector3(...slot.position)
+      .applyQuaternion(inst.mesh.quaternion)
+      .add(inst.mesh.position);
+  }
+
+  // Cherche la première paire de slots coïncidents + compatibles entre deux instances
+  // Retourne { slotA, slotB, liaison } ou null
+  _isClipped(instA, instB) {
+    this._solver.refresh();
+    const slotsA = instA.slots.length ? instA.slots : (instA.brickData.slots || []);
+    const slotsB = instB.slots.length ? instB.slots : (instB.brickData.slots || []);
+    for (const sA of slotsA) {
+      if (!sA.typeId) continue;
+      const posA = this._slotWorldPos(sA, instA);
+      for (const sB of slotsB) {
+        if (!sB.typeId) continue;
+        if (posA.distanceTo(this._slotWorldPos(sB, instB)) < Assembler.CLIP_DIST) {
+          const li = this._solver.compatible(sA.typeId, sB.typeId);
+          if (li) return { slotA: sA, slotB: sB, liaison: li };
+        }
+      }
+    }
+    return null;
+  }
+
+  // Version incrémentale : vérifie uniquement newInst contre toutes les autres
+  _registerImplicitConnectionsFor(newInst) {
+    this._solver.refresh();
+    for (const other of this._instances.values()) {
+      if (other === newInst) continue;
+      const alreadyKnown = this._connections.some(
+        c => (c.instA === newInst && c.instB === other) ||
+             (c.instA === other  && c.instB === newInst)
+      );
+      if (alreadyKnown) continue;
+      const clip = this._isClipped(newInst, other);
+      if (clip) {
+        const conn = { instA: newInst, instB: other,
+                       slotA: clip.slotA, slotB: clip.slotB,
+                       liaison: clip.liaison, implicit: true };
+        this._connections.push(conn);
+        this._makeJoint(conn, this._assemblyJoints);
+        this._addJointMarker(conn);
+      }
+    }
+  }
+
+  // Enregistre dans _connections toutes les paires implicites non encore connues
+  // (à appeler avant la simulation)
+  _registerImplicitConnections() {
+    const instances = [...this._instances.values()];
+    for (let i = 0; i < instances.length; i++) {
+      for (let j = i + 1; j < instances.length; j++) {
+        const instA = instances[i];
+        const instB = instances[j];
+        // Ignorer si déjà une connexion explicite entre ces deux instances
+        const alreadyKnown = this._connections.some(
+          c => (c.instA === instA && c.instB === instB) ||
+               (c.instA === instB && c.instB === instA)
+        );
+        if (alreadyKnown) continue;
+        const clip = this._isClipped(instA, instB);
+        if (clip) {
+          const conn = { instA, instB,
+                         slotA: clip.slotA, slotB: clip.slotB,
+                         liaison: clip.liaison, implicit: true };
+          this._connections.push(conn);
+          this._makeJoint(conn, this._assemblyJoints);
+          this._addJointMarker(conn);
+        }
+      }
+    }
+  }
+
+  // ─── Classe d'équivalence (BFS sur le graphe _connections + clipping) ────────
+
+  // Retourne le Set<BrickInstance> du composant connexe contenant startInst
+  _connectedComponent(startInst) {
+    const visited = new Set();
+    const queue   = [startInst];
+    visited.add(startInst.id);
+    while (queue.length) {
+      const inst = queue.shift();
+      // Connexions explicites enregistrées
+      for (const conn of this._connections) {
+        let neighbor = null;
+        if (conn.instA === inst && !visited.has(conn.instB.id)) neighbor = conn.instB;
+        if (conn.instB === inst && !visited.has(conn.instA.id)) neighbor = conn.instA;
+        if (neighbor) { visited.add(neighbor.id); queue.push(neighbor); }
+      }
+      // Connexions implicites (clipping spatial)
+      for (const other of this._instances.values()) {
+        if (visited.has(other.id)) continue;
+        if (this._isClipped(inst, other)) { visited.add(other.id); queue.push(other); }
+      }
+    }
+    return new Set([...this._instances.values()].filter(i => visited.has(i.id)));
+  }
+
+  // Nombre de composants connexes dans la scène courante
+  _componentCount() {
+    const seen = new Set();
+    let count  = 0;
+    for (const inst of this._instances.values()) {
+      if (seen.has(inst.id)) continue;
+      for (const i of this._connectedComponent(inst)) seen.add(i.id);
+      count++;
+    }
+    return count;
   }
 
   // ─── Utilitaires ─────────────────────────────────────────────────────────────
@@ -1072,7 +1643,7 @@ export class Assembler {
   }
 
   _isOverUI(target) {
-    return target.closest?.('.asm-panel, .asm-footer, .asm-bar, #asm-screenslots');
+    return target.closest?.('.asm-panel, .asm-footer, .asm-bar, .asm-config, #asm-screenslots');
   }
 
   _updateCount() {
