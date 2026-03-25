@@ -568,7 +568,20 @@ export class Assembler {
     this._debugStatusEl  = null;
     this._shootBalls     = []; // { mesh, body } balles de tir
     this._shootBtn       = null;
-    this._stepBtn        = null;
+    // Paramètres physique (lus par _startSimulation, modifiables via le panneau)
+    this._physParams = {
+      solverIterations : 20,
+      gravity          : -9.81,
+      linearDamping    : 0.8,
+      angularDamping   : 2.0,
+      density          : 200,
+      motorDamping     : 10,
+    };
+    // Refs vers les contrôles dans le panneau (créés par _setupConfigPanel)
+    this._simPanelBtn    = null; // bouton démarrer/arrêter du panneau
+    this._simPauseBtn    = null; // bouton pause
+    this._simStepOneBtn  = null; // bouton pas-à-pas
+    this._clearBtn       = null; // bouton Effacer (pour _toggleSim)
   }
 
   // ─── Cycle de vie ──────────────────────────────────────────────────────────
@@ -916,8 +929,10 @@ export class Assembler {
     }
     this._assemblyJoints = [];
 
-    // 3. Plus d'itérations solver pour résoudre joints + contacts simultanément
-    world.numSolverIterations = 20;
+    // 3. Appliquer les paramètres physique du panneau
+    const pp = this._physParams;
+    world.numSolverIterations = pp.solverIterations;
+    world.gravity = { x: 0, y: pp.gravity, z: 0 };
     for (const inst of this._instances.values()) {
       inst.origPos  = inst.mesh.position.clone();
       inst.origQuat = inst.mesh.quaternion.clone();
@@ -927,12 +942,12 @@ export class Assembler {
       const newBody = world.createRigidBody(
         R.RigidBodyDesc.dynamic()
           .setTranslation(x, y, z)
-          .setLinearDamping(0.8)
-          .setAngularDamping(2.0)
+          .setLinearDamping(pp.linearDamping)
+          .setAngularDamping(pp.angularDamping)
       );
       newBody.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
       const cd = (R.ColliderDesc.convexHull(inst.pts) ?? R.ColliderDesc.ball(0.5))
-        .setRestitution(0).setFriction(0.8).setDensity(50);
+        .setRestitution(0).setFriction(0.8).setDensity(pp.density);
       world.createCollider(cd, newBody);
       // Appliquer les groupes de collision directement sur le collider (plus fiable que via desc)
       const simCol = newBody.collider(0);
@@ -1079,8 +1094,7 @@ export class Assembler {
 
     const joint = world.createImpulseJoint(jd, bodyA, bodyB, true);
 
-    // Amortissement DDL libre : minimum 10 pour absorber l'énergie d'impact
-    // (valeur basse → invisible pendant la chute libre, efficace à haute vitesse angulaire)
+    // Amortissement DDL libre : absorbe l'énergie d'impact (plancher motorDamping)
     if (dofs.length === 1) {
       let axis = null;
       switch (dofs[0].type) {
@@ -1089,7 +1103,7 @@ export class Assembler {
         case 'translation': axis = R.JointAxis.LinX; break;
       }
       if (axis !== null) {
-        const damping = Math.max(dofs[0].damping ?? 0, 10);
+        const damping = Math.max(dofs[0].damping ?? 0, this._physParams.motorDamping);
         joint.configureMotorVelocity(axis, 0, damping);
       }
     }
@@ -1259,10 +1273,12 @@ export class Assembler {
     clearBtn.textContent = 'Effacer';
     clearBtn.addEventListener('click', () => { if (!this._simulating) this._clearAll(); });
 
+    this._clearBtn = clearBtn; // référence pour _toggleSim et _setupConfigPanel
+
     this._simBtn = document.createElement('button');
     this._simBtn.className = 'asm-btn primary';
     this._simBtn.textContent = '▶ Simuler';
-    this._simBtn.addEventListener('click', () => this._toggleSim(clearBtn));
+    this._simBtn.addEventListener('click', () => this._toggleSim());
 
     footer.append(clearBtn, this._simBtn);
     document.body.appendChild(footer);
@@ -1295,34 +1311,7 @@ export class Assembler {
     document.body.appendChild(this._shootBtn);
     this._ui.push(this._shootBtn);
 
-    // ── Bouton pause/step physique (visible seulement en simulation) ──────────
-    this._stepBtn = document.createElement('button');
-    this._stepBtn.className = 'asm-btn';
-    this._stepBtn.textContent = '⏸';
-    this._stepBtn.title = 'Pause / Step physique';
-    this._stepBtn.style.cssText = [
-      'position:fixed', 'right:12px',
-      `bottom:${SS_H * 2 + SS_PAD * 3 + 120}px`,
-      'width:44px', 'height:44px', 'padding:0',
-      'border-radius:50%', 'font-size:20px',
-      'display:none', 'z-index:56',
-      'background:#2a4a3a', 'border-color:#4a8a6a', 'color:#c0f0d8',
-    ].join(';');
-    const toggleStep = () => {
-      if (!this._simulating) return;
-      const engine = this.engine;
-      if (!engine.physPaused) {
-        engine.physPaused = true;
-        this._stepBtn.textContent = '▶';
-        this._stepBtn.title = 'Avancer d\'un pas (1/60 s)';
-      } else {
-        engine.stepOnce();
-      }
-    };
-    this._stepBtn.addEventListener('click', toggleStep);
-    this._stepBtn.addEventListener('touchstart', e => { e.preventDefault(); toggleStep(); }, { passive: false });
-    document.body.appendChild(this._stepBtn);
-    this._ui.push(this._stepBtn);
+    // (pause/step gérés dans _setupConfigPanel)
 
     // ── Panneau de configuration ──────────────────────────────────────────────
     this._setupConfigPanel();
@@ -1383,44 +1372,156 @@ export class Assembler {
       'position:fixed', 'right:12px', 'top:36px',
       `background:${C.bg}`, `border:1px solid ${C.border}`,
       'border-radius:2px', 'padding:8px 10px',
-      'z-index:60', `font:11px sans-serif`, `color:${C.fg}`,
-      'min-width:160px', 'pointer-events:auto',
+      'z-index:60', 'font:11px sans-serif', `color:${C.fg}`,
+      'min-width:180px', 'pointer-events:auto',
       'box-shadow:0 2px 8px rgba(0,0,0,.5)',
     ].join(';');
 
-    const title = document.createElement('div');
-    title.style.cssText = [
-      `font-size:9px`, `color:${C.dim}`,
-      'text-transform:uppercase', 'letter-spacing:.08em', 'margin-bottom:8px',
-    ].join(';');
-    title.textContent = 'Paramètres';
+    // ── Helpers ────────────────────────────────────────────────────────────────
+    const makeSection = txt => {
+      const s = document.createElement('div');
+      s.style.cssText = [
+        'font-size:9px', `color:${C.dim}`,
+        'text-transform:uppercase', 'letter-spacing:.08em',
+        'margin:8px 0 4px',
+      ].join(';');
+      s.textContent = txt;
+      return s;
+    };
 
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:6px;';
+    // Crée une ligne label + slider + valeur
+    // isInt : si true, affiche entier ; fmt : fn optionnelle (v => string)
+    const makeSlider = (label, min, max, step, init, onChange, fmt) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:5px;margin-bottom:3px;';
+      const lbl = document.createElement('span');
+      lbl.textContent = label;
+      lbl.style.cssText = `color:${C.dim};flex-shrink:0;min-width:90px;font-size:10px;`;
+      const sl = document.createElement('input');
+      sl.type = 'range';
+      sl.min = String(min); sl.max = String(max); sl.step = String(step);
+      sl.value = String(init);
+      sl.style.cssText = 'flex:1;cursor:pointer;accent-color:' + C.accent + ';';
+      const display = fmt ?? (v => Number.isInteger(step) ? String(Math.round(v)) : v.toFixed(2));
+      const val = document.createElement('span');
+      val.textContent = display(init);
+      val.style.cssText = [
+        `color:${C.accent}`, 'min-width:34px', 'text-align:right',
+        'font-variant-numeric:tabular-nums', 'font-size:10px',
+      ].join(';');
+      sl.addEventListener('input', () => {
+        const v = parseFloat(sl.value);
+        val.textContent = display(v);
+        onChange(v);
+      });
+      row.append(lbl, sl, val);
+      return row;
+    };
 
-    const lbl = document.createElement('span');
-    lbl.textContent = 'Plan Y';
-    lbl.style.cssText = `color:${C.dim};flex-shrink:0;`;
+    const pp = this._physParams;
 
-    const slider = document.createElement('input');
-    slider.type = 'range';
-    slider.min = '-2'; slider.max = '5'; slider.step = '0.05';
-    slider.value = String(this._wsm._y);
-    slider.style.cssText = 'flex:1;cursor:pointer;accent-color:' + C.accent + ';';
+    // ── Assemblage ─────────────────────────────────────────────────────────────
+    panel.append(makeSection('Assemblage'));
+    panel.append(makeSlider('Plan Y', -2, 5, 0.05, this._wsm._y, v => {
+      this._wsm.setY(v);
+    }));
 
-    const valEl = document.createElement('span');
-    valEl.textContent = this._wsm._y.toFixed(2);
-    valEl.style.cssText = `color:${C.accent};min-width:32px;text-align:right;font-variant-numeric:tabular-nums;`;
+    // ── Moteur physique ────────────────────────────────────────────────────────
+    panel.append(makeSection('Moteur physique'));
+    panel.append(makeSlider('Solver iter.', 1, 50, 1, pp.solverIterations, v => {
+      pp.solverIterations = v;
+      if (this._simulating) this.engine.world.numSolverIterations = v;
+    }));
+    panel.append(makeSlider('Gravité', -30, 0, 0.1, pp.gravity, v => {
+      pp.gravity = v;
+      if (this._simulating) this.engine.world.gravity = { x: 0, y: v, z: 0 };
+    }));
+    panel.append(makeSlider('Amort. lin.', 0, 5, 0.05, pp.linearDamping, v => {
+      pp.linearDamping = v;
+      if (this._simulating) {
+        for (const inst of this._instances.values())
+          if (inst.body) inst.body.setLinearDamping(v);
+      }
+    }));
+    panel.append(makeSlider('Amort. ang.', 0, 20, 0.1, pp.angularDamping, v => {
+      pp.angularDamping = v;
+      if (this._simulating) {
+        for (const inst of this._instances.values())
+          if (inst.body) inst.body.setAngularDamping(v);
+      }
+    }));
 
-    slider.addEventListener('input', () => {
-      const y = parseFloat(slider.value);
-      valEl.textContent = y.toFixed(2);
-      this._wsm.setY(y);
-    });
+    // ── Briques sim ────────────────────────────────────────────────────────────
+    panel.append(makeSection('Briques sim'));
+    panel.append(makeSlider('Densité', 10, 500, 10, pp.density, v => {
+      pp.density = v;
+      if (this._simulating) {
+        for (const inst of this._instances.values()) {
+          if (inst.body) { const col = inst.body.collider(0); if (col) col.setDensity(v); }
+        }
+      }
+    }));
+    panel.append(makeSlider('Damping moteur', 0, 50, 1, pp.motorDamping, v => {
+      pp.motorDamping = v;
+      // Appliqué aux nouveaux joints au prochain lancement
+    }));
 
-    row.append(lbl, slider, valEl);
+    // ── Simulation ─────────────────────────────────────────────────────────────
+    panel.append(makeSection('Simulation'));
 
-    // Ligne de statut assemblage
+    // Ligne 1 : démarrer / arrêter
+    const panelSimBtn = document.createElement('button');
+    panelSimBtn.className = 'asm-btn primary';
+    panelSimBtn.textContent = '▶ Simuler';
+    panelSimBtn.style.cssText = 'width:100%;margin-bottom:4px;padding:4px 0;font-size:11px;';
+    panelSimBtn.addEventListener('click', () => this._toggleSim());
+    panelSimBtn.addEventListener('touchstart', e => { e.preventDefault(); this._toggleSim(); }, { passive: false });
+    panel.append(panelSimBtn);
+    this._simPanelBtn = panelSimBtn;
+
+    // Ligne 2 : pause / pas-à-pas
+    const ctrlRow = document.createElement('div');
+    ctrlRow.style.cssText = 'display:flex;gap:5px;margin-bottom:3px;';
+
+    const pauseBtn = document.createElement('button');
+    pauseBtn.className = 'asm-btn';
+    pauseBtn.textContent = '⏸';
+    pauseBtn.title = 'Pause physique';
+    pauseBtn.disabled = true;
+    pauseBtn.style.cssText = 'flex:1;padding:3px 0;font-size:14px;';
+
+    const stepBtn = document.createElement('button');
+    stepBtn.className = 'asm-btn';
+    stepBtn.textContent = '⏭ Pas';
+    stepBtn.title = 'Avancer d\'un pas (1/60 s)';
+    stepBtn.disabled = true;
+    stepBtn.style.cssText = 'flex:1;padding:3px 0;font-size:11px;';
+
+    const doPause = () => {
+      if (!this._simulating) return;
+      const eng = this.engine;
+      eng.physPaused = !eng.physPaused;
+      pauseBtn.textContent = eng.physPaused ? '▶' : '⏸';
+      pauseBtn.title = eng.physPaused ? 'Reprendre' : 'Pause physique';
+      stepBtn.disabled = !eng.physPaused;
+    };
+    const doStep = () => {
+      if (!this._simulating || !this.engine.physPaused) return;
+      this.engine.stepOnce();
+    };
+
+    pauseBtn.addEventListener('click', doPause);
+    pauseBtn.addEventListener('touchstart', e => { e.preventDefault(); doPause(); }, { passive: false });
+    stepBtn.addEventListener('click', doStep);
+    stepBtn.addEventListener('touchstart', e => { e.preventDefault(); doStep(); }, { passive: false });
+
+    ctrlRow.append(pauseBtn, stepBtn);
+    panel.append(ctrlRow);
+
+    this._simPauseBtn   = pauseBtn;
+    this._simStepOneBtn = stepBtn;
+
+    // ── Statut ─────────────────────────────────────────────────────────────────
     const sep = document.createElement('div');
     sep.style.cssText = `border-top:1px solid ${C.border};margin:8px 0 6px;`;
 
@@ -1428,7 +1529,7 @@ export class Assembler {
     this._debugStatusEl.style.cssText = `color:${C.dim};font-size:10px;line-height:1.6;`;
     this._debugStatusEl.textContent = 'Composants : —';
 
-    panel.append(title, row, sep, this._debugStatusEl);
+    panel.append(sep, this._debugStatusEl);
     document.body.appendChild(panel);
     this._ui.push(panel);
   }
@@ -1460,29 +1561,43 @@ export class Assembler {
     }
   }
 
-  _toggleSim(clearBtn) {
+  _toggleSim() {
     if (!this._simulating) {
       if (!this._instances.size) return;
       this._startSimulation();
-      this._simBtn.textContent = '⏹ Arrêter';
+      const label = '⏹ Arrêter';
+      this._simBtn.textContent = label;
       this._simBtn.classList.remove('primary');
       this._simBtn.classList.add('danger');
-      clearBtn.disabled = true;
+      if (this._simPanelBtn) {
+        this._simPanelBtn.textContent = label;
+        this._simPanelBtn.classList.remove('primary');
+        this._simPanelBtn.classList.add('danger');
+      }
+      if (this._clearBtn) this._clearBtn.disabled = true;
       if (this._shootBtn) this._shootBtn.style.display = 'block';
-      if (this._stepBtn)  this._stepBtn.style.display  = 'block';
+      if (this._simPauseBtn)   this._simPauseBtn.disabled   = false;
+      if (this._simStepOneBtn) this._simStepOneBtn.disabled  = true;
     } else {
       this._stopSimulation();
-      this._simBtn.textContent = '▶ Simuler';
+      const label = '▶ Simuler';
+      this._simBtn.textContent = label;
       this._simBtn.classList.add('primary');
       this._simBtn.classList.remove('danger');
-      clearBtn.disabled = false;
-      if (this._shootBtn) this._shootBtn.style.display = 'none';
-      if (this._stepBtn)  {
-        this._stepBtn.style.display = 'none';
-        this._stepBtn.textContent = '⏸';
-        this._stepBtn.title = 'Pause / Step physique';
-        this.engine.physPaused = false;
+      if (this._simPanelBtn) {
+        this._simPanelBtn.textContent = label;
+        this._simPanelBtn.classList.add('primary');
+        this._simPanelBtn.classList.remove('danger');
       }
+      if (this._clearBtn) this._clearBtn.disabled = false;
+      if (this._shootBtn) this._shootBtn.style.display = 'none';
+      if (this._simPauseBtn) {
+        this._simPauseBtn.textContent = '⏸';
+        this._simPauseBtn.title = 'Pause physique';
+        this._simPauseBtn.disabled = true;
+      }
+      if (this._simStepOneBtn) this._simStepOneBtn.disabled = true;
+      this.engine.physPaused = false;
     }
   }
 
