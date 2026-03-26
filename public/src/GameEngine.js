@@ -58,8 +58,9 @@ export class GameEngine {
 
     this._vpLeft  = 0;
     this._vpRight = 0;
+    this._vpTop   = 0;
 
-    window.addEventListener('resize', () => this.resizeViewport(this._vpLeft, this._vpRight));
+    window.addEventListener('resize', () => this.resizeViewport(this._vpLeft, this._vpRight, this._vpTop));
   }
 
   _initLights() {
@@ -77,15 +78,16 @@ export class GameEngine {
     this.scene.add(sun);
   }
 
-  resizeViewport(leftOffset = 0, rightOffset = 0) {
+  resizeViewport(leftOffset = 0, rightOffset = 0, topOffset = 0) {
     this._vpLeft  = leftOffset;
     this._vpRight = rightOffset;
+    this._vpTop   = topOffset;
     const w = Math.max(100, innerWidth  - leftOffset - rightOffset);
-    const h = Math.max(100, innerHeight);
+    const h = Math.max(100, innerHeight - topOffset);
     const el = this.renderer.domElement;
     el.style.position = 'fixed';
     el.style.left     = leftOffset + 'px';
-    el.style.top      = '0';
+    el.style.top      = topOffset  + 'px';
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
@@ -158,6 +160,10 @@ export class GameEngine {
     return this;
   }
 
+  stepOnce() {
+    this._pendingStep = true;
+  }
+
   _loop() {
     if (!this._running) return;
     requestAnimationFrame(() => this._loop());
@@ -166,9 +172,15 @@ export class GameEngine {
     const dt  = Math.min((now - this._lastTime) / 1000, 0.05);
     this._lastTime = now;
 
-    // Pas physique
-    this.world.timestep = dt;
-    this.world.step();
+    // Pas physique (skip si pausé — le rendu continue)
+    if (!this.physPaused) {
+      this.world.timestep = dt;
+      this.world.step();
+    } else if (this._pendingStep) {
+      this._pendingStep = false;
+      this.world.timestep = 1 / 60;
+      this.world.step();
+    }
 
     // Sync Three.js ← Rapier (corps dynamiques uniquement)
     for (const { mesh, body, isStatic } of this._bodies) {
