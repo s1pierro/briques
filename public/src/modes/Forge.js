@@ -218,10 +218,10 @@ export class Forge {
     sp.renderOrder = 999;
     group.add(sp);
 
-    // DOF helpers — liaisons référençant ce type de slot
+    // DOF helpers — liaisons référençant ce type de slot, représentés via asmDof
     for (const liaison of liaisons) {
       if (!liaison.pairs?.some(p => p.typeA === slot.typeId || p.typeB === slot.typeId)) continue;
-      for (const dof of (liaison.dof || [])) this._addDofHelper(group, dof);
+      for (const dof of (liaison.asmDof || [])) this._addDofHelper(group, dof);
     }
 
     return group;
@@ -425,14 +425,13 @@ export class Forge {
     this._rebuildHelpers();
   }
 
-  _updateSlotRepeat(id, count, step) {
+  _updateSlotRepeats(id, repeats) {
     const s = this._currentBrick?.slots.find(s => s.id === id);
     if (!s) return;
-    if (count <= 1) {
-      delete s.repeat;
-    } else {
-      s.repeat = { count, step };
-    }
+    delete s.repeat; // supprime l'ancien format singulier
+    const active = repeats.filter(r => (r.count ?? 1) > 1);
+    if (active.length === 0) delete s.repeats;
+    else                     s.repeats = repeats;
     this._markDirty();
     this._rebuildHelpers();
   }
@@ -464,7 +463,7 @@ export class Forge {
   _addLiaison() {
     const store = this._liaisons();
     const id    = uid('li');
-    store[id]   = { id, name: 'Liaison ' + (Object.keys(store).length + 1), type: 'standard', pairs: [], dof: [] };
+    store[id]   = { id, name: 'Liaison ' + (Object.keys(store).length + 1), type: 'standard', pairs: [], dof: [], asmDof: [] };
     this._saveLiaisons(store);
     this._renderMecaTab();
   }
@@ -516,6 +515,23 @@ export class Forge {
     this._saveLiaisons(store);
     this._renderMecaTab();
     this._rebuildHelpers();
+  }
+
+  _addLiaisonAsmDof(liId, dof) {
+    const store = this._liaisons();
+    if (!store[liId]) return;
+    if (!store[liId].asmDof) store[liId].asmDof = [];
+    store[liId].asmDof.push(dof);
+    this._saveLiaisons(store);
+    this._renderMecaTab();
+  }
+
+  _removeLiaisonAsmDof(liId, idx) {
+    const store = this._liaisons();
+    if (!store[liId]) return;
+    store[liId].asmDof?.splice(idx, 1);
+    this._saveLiaisons(store);
+    this._renderMecaTab();
   }
 
   // ─── Export / Import ──────────────────────────────────────────────────────
@@ -1136,35 +1152,76 @@ export class Forge {
     quatInfo.textContent = `x ${qx}  y ${qy}  z ${qz}  w ${qw}`;
     editor.append(quatLbl, quatInfo);
 
-    // Répétition linéaire
-    const repLbl = document.createElement('div'); repLbl.className = 'fg-label'; repLbl.textContent = 'Répétition linéaire';
-    const repRow = document.createElement('div'); repRow.className = 'fg-coords';
-    repRow.style.marginBottom = '6px';
+    // Répétitions multi-axes
+    const repLbl = document.createElement('div'); repLbl.className = 'fg-label'; repLbl.textContent = 'Répétitions';
 
-    const countInp = document.createElement('input');
-    countInp.className = 'fg-coord'; countInp.type = 'number';
-    countInp.min = '1'; countInp.step = '1';
-    countInp.placeholder = 'N'; countInp.title = 'Nombre de répétitions';
-    countInp.value = String(s.repeat?.count ?? 1);
+    // État courant : repeats (nouveau) ou repeat legacy
+    let repeats = s.repeats
+      ? s.repeats.map(r => ({ ...r }))
+      : s.repeat ? [{ ...s.repeat }] : [];
 
-    const [stepX, stepY, stepZ] = s.repeat?.step ?? [0, 0, 0];
-    const stepInputs = ['dX', 'dY', 'dZ'].map((ph, i) => {
-      const inp = document.createElement('input');
-      inp.className = 'fg-coord'; inp.type = 'text'; inp.placeholder = ph;
-      inp.value = [stepX, stepY, stepZ][i].toFixed(4);
-      return inp;
+    const repContainer = document.createElement('div');
+    repContainer.style.cssText = 'display:flex;flex-direction:column;gap:4px;margin-bottom:6px;';
+
+    const save = () => this._updateSlotRepeats(slotId, repeats);
+
+    const buildAxisRow = (axisIdx) => {
+      const r = repeats[axisIdx];
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:3px;';
+
+      const countInp = document.createElement('input');
+      countInp.className = 'fg-coord'; countInp.type = 'number';
+      countInp.min = '1'; countInp.step = '1'; countInp.placeholder = 'N';
+      countInp.title = 'Nombre de répétitions'; countInp.value = String(r.count ?? 1);
+
+      const [sx, sy, sz] = r.step ?? [0, 0, 0];
+      const stepInputs = ['dX', 'dY', 'dZ'].map((ph, i) => {
+        const inp = document.createElement('input');
+        inp.className = 'fg-coord'; inp.type = 'text'; inp.placeholder = ph;
+        inp.value = [sx, sy, sz][i].toFixed(4);
+        return inp;
+      });
+
+      const apply = () => {
+        repeats[axisIdx] = {
+          count: Math.max(1, parseInt(countInp.value) || 1),
+          step:  stepInputs.map(inp => parseFloat(inp.value) || 0),
+        };
+        countInp.value = String(repeats[axisIdx].count);
+        save();
+      };
+      [countInp, ...stepInputs].forEach(inp => inp.addEventListener('change', apply));
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'fg-rotbtn'; delBtn.textContent = '×'; delBtn.title = 'Supprimer cet axe';
+      delBtn.style.cssText = 'width:22px;padding:0;flex-shrink:0;';
+      delBtn.addEventListener('click', () => {
+        repeats.splice(axisIdx, 1);
+        save();
+        renderAxes();
+      });
+
+      row.append(countInp, ...stepInputs, delBtn);
+      return row;
+    };
+
+    const renderAxes = () => {
+      repContainer.innerHTML = '';
+      repeats.forEach((_, i) => repContainer.appendChild(buildAxisRow(i)));
+    };
+    renderAxes();
+
+    const addBtn = document.createElement('button');
+    addBtn.className = 'fg-rotbtn'; addBtn.textContent = '+ Ajouter un axe';
+    addBtn.style.cssText = 'width:100%;margin-top:2px;';
+    addBtn.addEventListener('click', () => {
+      repeats.push({ count: 2, step: [0, 0, 0] });
+      save();
+      renderAxes();
     });
 
-    const applyRepeat = () => {
-      const count = Math.max(1, parseInt(countInp.value) || 1);
-      const step  = stepInputs.map(inp => parseFloat(inp.value) || 0);
-      countInp.value = String(count);
-      this._updateSlotRepeat(slotId, count, step);
-    };
-    [countInp, ...stepInputs].forEach(inp => inp.addEventListener('change', applyRepeat));
-
-    repRow.append(countInp, ...stepInputs);
-    editor.append(repLbl, repRow);
+    editor.append(repLbl, repContainer, addBtn);
 
     container.appendChild(editor);
   }
@@ -1339,9 +1396,8 @@ export class Forge {
         item.appendChild(pairForm);
       }
 
-      // DOF (masqué pour soudure)
-      if (isWeld) { list.appendChild(item); return; }
-      const dofLbl = document.createElement('div'); dofLbl.className = 'fg-meca-row'; dofLbl.style.marginTop='6px';
+      // DOF simulation (masqué pour soudure)
+      if (!isWeld) { const dofLbl = document.createElement('div'); dofLbl.className = 'fg-meca-row'; dofLbl.style.marginTop='6px';
       dofLbl.innerHTML = '<span class="fg-meca-key">DOF</span>';
       const dofTags = document.createElement('div'); dofTags.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;';
       (li.dof || []).forEach((d, idx) => {
@@ -1408,6 +1464,69 @@ export class Forge {
 
       dofForm.append(dofRow1, dofRow2, dofRow3, dofRow4, addDofBtn);
       item.appendChild(dofForm);
+      } // fin if (!isWeld)
+
+      // ── DOF assemblage ───────────────────────────────────────────────────
+      const sep = document.createElement('div');
+      sep.style.cssText = `border-top:1px solid var(--fg-border);margin:10px 0 6px;`;
+      item.appendChild(sep);
+
+      const asmLbl = document.createElement('div'); asmLbl.className = 'fg-meca-row'; asmLbl.style.marginTop='0';
+      asmLbl.innerHTML = '<span class="fg-meca-key">Asm DOF</span>';
+      const asmTags = document.createElement('div'); asmTags.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;';
+      (li.asmDof || []).forEach((d, idx) => {
+        const tag = document.createElement('span'); tag.className = 'fg-dof-tag';
+        const col = DOF_COLOR[d.type] ?? 0xffffff;
+        tag.style.borderColor = '#' + col.toString(16).padStart(6, '0');
+        const label = DOF_LABELS[d.type] ?? d.type;
+        const axStr = d.axis ? `[${d.axis.map(v => v.toFixed(2)).join(', ')}]` : '';
+        const bound = (d.min != null && d.max != null) ? ` ${d.min}…${d.max}` : '';
+        const step  = d.step != null ? ` step ${d.step}` : '';
+        tag.innerHTML = `${label} ${axStr}${bound}${step} <span class="fg-pair-del" data-idx="${idx}">✕</span>`;
+        tag.querySelector('.fg-pair-del').addEventListener('click', () => this._removeLiaisonAsmDof(li.id, idx));
+        asmTags.appendChild(tag);
+      });
+      asmLbl.appendChild(asmTags);
+      item.appendChild(asmLbl);
+
+      // Formulaire ajout Asm DOF
+      const asmForm = document.createElement('div'); asmForm.className = 'fg-add-form'; asmForm.style.marginTop='4px';
+      const asmRow1 = document.createElement('div'); asmRow1.className = 'fg-row';
+      const asmTypeSel = document.createElement('select'); asmTypeSel.className = 'fg-select'; asmTypeSel.style.flex='1';
+      Object.entries(DOF_LABELS).forEach(([val, lbl]) => {
+        const o = document.createElement('option'); o.value = val; o.textContent = lbl; asmTypeSel.appendChild(o);
+      });
+      asmRow1.appendChild(asmTypeSel);
+
+      const asmRow2 = document.createElement('div'); asmRow2.className = 'fg-row';
+      const asmAxisRow = document.createElement('div'); asmAxisRow.className = 'fg-row'; asmAxisRow.style.flex='1';
+      const asmAxLbl = document.createElement('span'); asmAxLbl.style.cssText='font:9px sans-serif;color:var(--fg-dim);min-width:28px;'; asmAxLbl.textContent='Axe';
+      const asmAxInputs = ['X','Y','Z'].map((a, i) => {
+        const inp = document.createElement('input'); inp.className='fg-coord'; inp.type='text'; inp.placeholder=a;
+        inp.value = i === 2 ? '1' : '0';
+        return inp;
+      });
+      asmAxisRow.append(asmAxLbl, ...asmAxInputs);
+      asmRow2.appendChild(asmAxisRow);
+
+      const asmRow3 = document.createElement('div'); asmRow3.className = 'fg-row';
+      const asmMinInp  = document.createElement('input'); asmMinInp.className='fg-coord'; asmMinInp.type='text'; asmMinInp.placeholder='min';
+      const asmMaxInp  = document.createElement('input'); asmMaxInp.className='fg-coord'; asmMaxInp.type='text'; asmMaxInp.placeholder='max';
+      const asmStepInp = document.createElement('input'); asmStepInp.className='fg-coord'; asmStepInp.type='text'; asmStepInp.placeholder='step';
+      asmRow3.append(asmMinInp, asmMaxInp, asmStepInp);
+
+      const addAsmDofBtn = document.createElement('button'); addAsmDofBtn.className='fg-btn w100'; addAsmDofBtn.textContent='+ Ajouter Asm DOF';
+      addAsmDofBtn.addEventListener('click', () => {
+        const type = asmTypeSel.value;
+        const axis = asmAxInputs.map(inp => parseFloat(inp.value) || 0);
+        const min  = asmMinInp.value  !== '' ? parseFloat(asmMinInp.value)  : null;
+        const max  = asmMaxInp.value  !== '' ? parseFloat(asmMaxInp.value)  : null;
+        const step = asmStepInp.value !== '' ? parseFloat(asmStepInp.value) : null;
+        this._addLiaisonAsmDof(li.id, { type, axis, min, max, step });
+      });
+
+      asmForm.append(asmRow1, asmRow2, asmRow3, addAsmDofBtn);
+      item.appendChild(asmForm);
 
       list.appendChild(item);
     });
