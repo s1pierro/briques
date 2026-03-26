@@ -35,6 +35,23 @@ const CFG_DEFAULTS = {
   stackPersist         : false,
   asmHelperStepsRot    : 16,   // nombre de divisions sur 360°
   asmHelperStepsTrans  : 20,   // nombre de divisions sur la plage
+  // ── Apparence des cellules dock ───────────────────────────────────────────
+  cellBgColor            : '#1e1e1e',
+  cellBgOpacity          : 0.82,
+  cellBorderVisible      : true,
+  cellBorderColor        : '#555555',
+  cellBorderWidth        : 1,
+  cellActiveBgColor      : '#1e1e1e',
+  cellActiveBgOpacity    : 0.82,
+  cellActiveBorderVisible: true,
+  cellActiveBorderColor  : '#7aafc8',
+  cellActiveBorderWidth  : 1,
+  cellBorderRadius       : 4,
+  // ── Label des cellules ────────────────────────────────────────────────────
+  cellLabelBgColor       : '#0a0a0f',
+  cellLabelBgOpacity     : 0.75,
+  cellLabelColor         : '#888888',
+  cellLabelVisible       : true,
 };
 
 // ─── Spirale phyllotaxique ────────────────────────────────────────────────────
@@ -342,6 +359,7 @@ export class Assembler {
     this._dock.setPosition(cfg.dockEdge, cfg.dockAlign);
     this._dock.setActivateOnOutsideTap(cfg.activateOnOutsideTap);
     this._dock.setStackPersist(cfg.stackPersist);
+    this._dock.setCellStyles(cfg);
     this._wsm.setY(cfg.planY);
     this._wsm.SNAP_R = cfg.snapR;
     if (this._wsm._planeMesh) this._wsm._planeMesh.visible = cfg.planVisible;
@@ -1120,6 +1138,77 @@ export class Assembler {
         v => { this._dock.setActivateOnOutsideTap(v); this._saveConfig({ activateOnOutsideTap: v }); }),
     );
     body.append(dockCard);
+
+    // ── Carte : Cellules ──────────────────────────────────────────────────────
+    const cellCard = makeCard('Cellules');
+
+    const makeColorRow = (label, init, onChange) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:10px;';
+      const lbl = document.createElement('span');
+      lbl.textContent = label;
+      lbl.style.cssText = `color:${C.dim};font-size:10px;flex:1;`;
+      const inp = document.createElement('input');
+      inp.type = 'color';
+      inp.value = init;
+      inp.style.cssText = 'width:36px;height:24px;border:none;background:none;cursor:pointer;padding:0;';
+      inp.addEventListener('input', () => onChange(inp.value));
+      row.append(lbl, inp);
+      return row;
+    };
+
+    const makeSectionLabel = txt => {
+      const s = document.createElement('div');
+      s.textContent = txt;
+      s.style.cssText = [
+        'font-size:9px', `color:${C.dim}`,
+        'text-transform:uppercase', 'letter-spacing:.08em',
+        'margin:8px 0 6px',
+      ].join(';');
+      return s;
+    };
+
+    const cellCfg = this._loadConfig();
+
+    cellCard.append(makeSectionLabel('Inactif'));
+    cellCard.append(makeColorRow('Fond', cellCfg.cellBgColor,
+      v => { this._saveConfig({ cellBgColor: v }); this._dock.setCellStyles(this._loadConfig()); }));
+    cellCard.append(makeSlider('Opacité fond', 0, 1, 0.05, cellCfg.cellBgOpacity,
+      v => { this._saveConfig({ cellBgOpacity: v }); this._dock.setCellStyles(this._loadConfig()); }));
+    cellCard.append(makeToggle('Bordure', cellCfg.cellBorderVisible,
+      v => { this._saveConfig({ cellBorderVisible: v }); this._dock.setCellStyles(this._loadConfig()); }));
+    cellCard.append(makeColorRow('Couleur bordure', cellCfg.cellBorderColor,
+      v => { this._saveConfig({ cellBorderColor: v }); this._dock.setCellStyles(this._loadConfig()); }));
+    cellCard.append(makeSlider('Épaisseur bordure', 0, 6, 0.5, cellCfg.cellBorderWidth,
+      v => { this._saveConfig({ cellBorderWidth: v }); this._dock.setCellStyles(this._loadConfig()); }));
+
+    cellCard.append(makeSectionLabel('Actif'));
+    cellCard.append(makeColorRow('Fond', cellCfg.cellActiveBgColor,
+      v => { this._saveConfig({ cellActiveBgColor: v }); this._dock.setCellStyles(this._loadConfig()); }));
+    cellCard.append(makeSlider('Opacité fond', 0, 1, 0.05, cellCfg.cellActiveBgOpacity,
+      v => { this._saveConfig({ cellActiveBgOpacity: v }); this._dock.setCellStyles(this._loadConfig()); }));
+    cellCard.append(makeToggle('Bordure', cellCfg.cellActiveBorderVisible,
+      v => { this._saveConfig({ cellActiveBorderVisible: v }); this._dock.setCellStyles(this._loadConfig()); }));
+    cellCard.append(makeColorRow('Couleur bordure', cellCfg.cellActiveBorderColor,
+      v => { this._saveConfig({ cellActiveBorderColor: v }); this._dock.setCellStyles(this._loadConfig()); }));
+    cellCard.append(makeSlider('Épaisseur bordure', 0, 6, 0.5, cellCfg.cellActiveBorderWidth,
+      v => { this._saveConfig({ cellActiveBorderWidth: v }); this._dock.setCellStyles(this._loadConfig()); }));
+
+    cellCard.append(makeSectionLabel('Forme'));
+    cellCard.append(makeSlider('Border radius', 0, 30, 1, cellCfg.cellBorderRadius,
+      v => { this._saveConfig({ cellBorderRadius: v }); this._dock.setCellStyles(this._loadConfig()); }));
+
+    cellCard.append(makeSectionLabel('Label'));
+    cellCard.append(makeToggle('Visible', cellCfg.cellLabelVisible,
+      v => { this._saveConfig({ cellLabelVisible: v }); this._dock.setCellStyles(this._loadConfig()); }));
+    cellCard.append(makeColorRow('Fond', cellCfg.cellLabelBgColor,
+      v => { this._saveConfig({ cellLabelBgColor: v }); this._dock.setCellStyles(this._loadConfig()); }));
+    cellCard.append(makeSlider('Opacité fond', 0, 1, 0.05, cellCfg.cellLabelBgOpacity,
+      v => { this._saveConfig({ cellLabelBgOpacity: v }); this._dock.setCellStyles(this._loadConfig()); }));
+    cellCard.append(makeColorRow('Couleur police', cellCfg.cellLabelColor,
+      v => { this._saveConfig({ cellLabelColor: v }); this._dock.setCellStyles(this._loadConfig()); }));
+
+    body.append(cellCard);
 
     // ── Carte : Stack ─────────────────────────────────────────────────────────
     const stackCard = makeCard('Stack');

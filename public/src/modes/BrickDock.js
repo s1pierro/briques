@@ -15,6 +15,26 @@ const C = {
   dim    : '#888',
 };
 
+function _hexRgba(hex, alpha) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+const CELL_STYLES_DEFAULTS = {
+  bg                  : C.bgCell,
+  borderWidth         : 1,
+  borderColor         : C.border,
+  activeBg            : C.bgCell,
+  activeBorderWidth   : 1,
+  activeBorderColor   : '#7aafc8',
+  borderRadius        : 4,
+  labelBg             : 'rgba(10,10,15,0.75)',
+  labelColor          : C.dim,
+  labelVisible        : true,
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // BrickDock
 // Palette de briques ancrée sur un bord d'écran, groupée par famille.
@@ -46,6 +66,17 @@ export class BrickDock {
     this._activateOnOutsideTap = true;
     this._stackPersist = false;
     this._stackFamily = { name: '(tmp)Stack', bricks: [] };
+    this._cellStyles = { ...CELL_STYLES_DEFAULTS };
+
+    // Renderer WebGL UNIQUE partagé par toutes les cellules
+    // → évite d'épuiser la limite de contextes WebGL du navigateur (~8-16 sur mobile)
+    this._sharedCanvas   = document.createElement('canvas');
+    this._sharedRenderer = new THREE.WebGLRenderer({
+      canvas: this._sharedCanvas, antialias: true, alpha: true,
+      preserveDrawingBuffer: true,          // nécessaire pour drawImage après render
+    });
+    this._sharedRenderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    this._sharedRenderer.setSize(CELL_ACTIVE, CELL_ACTIVE);
 
     this._buildDOM();
     this._startLoop();
@@ -66,6 +97,44 @@ export class BrickDock {
   }
 
   setActivateOnOutsideTap(val) { this._activateOnOutsideTap = val; }
+
+  setCellStyles(cfg) {
+    const {
+      cellBgColor = '#1e1e1e', cellBgOpacity = 0.82,
+      cellBorderVisible = true, cellBorderColor = '#555555', cellBorderWidth = 1,
+      cellActiveBgColor = '#1e1e1e', cellActiveBgOpacity = 0.82,
+      cellActiveBorderVisible = true, cellActiveBorderColor = '#7aafc8', cellActiveBorderWidth = 1,
+      cellLabelBgColor = '#0a0a0f', cellLabelBgOpacity = 0.75,
+      cellLabelColor = '#888888', cellLabelVisible = true,
+      cellBorderRadius = 4,
+    } = cfg;
+    this._cellStyles = {
+      bg                : _hexRgba(cellBgColor, cellBgOpacity),
+      borderWidth       : cellBorderVisible ? cellBorderWidth : 0,
+      borderColor       : cellBorderColor,
+      activeBg          : _hexRgba(cellActiveBgColor, cellActiveBgOpacity),
+      activeBorderWidth : cellActiveBorderVisible ? cellActiveBorderWidth : 0,
+      activeBorderColor : cellActiveBorderColor,
+      borderRadius      : cellBorderRadius,
+      labelBg           : _hexRgba(cellLabelBgColor, cellLabelBgOpacity),
+      labelColor        : cellLabelColor,
+      labelVisible      : cellLabelVisible,
+    };
+    this._cells.forEach(cell => this._applyCellStyle(cell, cell === this._activeCell));
+  }
+
+  _applyCellStyle(cell, active) {
+    const s = this._cellStyles;
+    cell.el.style.background        = active ? s.activeBg          : s.bg;
+    cell.el.style.borderWidth       = (active ? s.activeBorderWidth : s.borderWidth) + 'px';
+    cell.el.style.borderColor       = active ? s.activeBorderColor  : s.borderColor;
+    cell.el.style.borderRadius      = s.borderRadius + 'px';
+    if (cell.label) {
+      cell.label.style.display    = s.labelVisible ? '' : 'none';
+      cell.label.style.background = s.labelBg;
+      cell.label.style.color      = s.labelColor;
+    }
+  }
 
   showStack() {
     const idx = this._families.indexOf(this._stackFamily);
@@ -113,6 +182,7 @@ export class BrickDock {
   destroy() {
     cancelAnimationFrame(this._animId);
     this._disposeCells();
+    this._sharedRenderer.dispose();
     this._el?.remove();
   }
 
@@ -284,45 +354,55 @@ export class BrickDock {
 
   async _createCell(brickId, brickData) {
     const el = document.createElement('div');
+    const s = this._cellStyles;
     el.style.cssText = [
       `width:${CELL}px`, `height:${CELL}px`, 'flex-shrink:0',
-      `background:${C.bgCell}`, `border:1px solid ${C.border}`,
-      'border-radius:4px', 'overflow:hidden', 'position:relative',
+      `background:${s.bg}`,
+      `border-style:solid`, `border-width:${s.borderWidth}px`, `border-color:${s.borderColor}`,
+      `border-radius:${s.borderRadius}px`, 'overflow:hidden', 'position:relative',
       'pointer-events:auto', 'touch-action:none',
       'transition:width 0.18s ease, height 0.18s ease, border-color 0.18s ease',
     ].join(';');
 
+    // Canvas 2D — réceptacle de l'image rendue par le renderer partagé
+    const pxSize = Math.round(CELL_ACTIVE * Math.min(devicePixelRatio, 2));
     const canvas = document.createElement('canvas');
-    canvas.width  = Math.round(CELL * devicePixelRatio);
-    canvas.height = Math.round(CELL * devicePixelRatio);
+    canvas.width  = pxSize;
+    canvas.height = pxSize;
     canvas.style.cssText = `width:${CELL}px;height:${CELL}px;display:block;transition:width 0.18s ease, height 0.18s ease;`;
     el.appendChild(canvas);
+    const ctx2d = canvas.getContext('2d');
 
     // Nom de la brique
     const label = document.createElement('div');
     label.textContent = brickData.name || brickId;
+    const ls = this._cellStyles;
     label.style.cssText = [
       'position:absolute', 'bottom:0', 'left:0', 'right:0',
-      'padding:2px 5px', 'background:rgba(10,10,15,0.75)',
-      `color:${C.dim}`, 'font:8px sans-serif',
+      'padding:2px 5px', `background:${ls.labelBg}`,
+      `color:${ls.labelColor}`, 'font:8px sans-serif',
       'white-space:nowrap', 'overflow:hidden', 'text-overflow:ellipsis',
       'pointer-events:none',
     ].join(';');
+    if (!ls.labelVisible) label.style.display = 'none';
     el.appendChild(label);
-
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-    renderer.setPixelRatio(devicePixelRatio);
-    renderer.setSize(CELL, CELL);
 
     const scene  = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 200);
-    camera.position.set(0, 0, 3);
     scene.add(new THREE.AmbientLight(0xffffff, 0.6));
     const sun = new THREE.DirectionalLight(0xffffff, 1.0);
     sun.position.set(2, 4, 3);
     scene.add(sun);
 
-    const cell = { el, canvas, renderer, scene, camera, brickId, brickData, mesh: null };
+    // État sphérique de la caméra — orbite autour du centre de la brique
+    const cell = {
+      el, canvas, ctx2d, label, scene, camera,
+      brickId, brickData, mesh: null,
+      _camTheta : 0.4,   // azimut initial (rad)
+      _camPhi   : 1.1,   // angle polaire depuis +Y (rad)
+      _camRadius: 3,     // distance initiale (ajustée après chargement géométrie)
+    };
+    this._applyCamOrbit(cell);
     await this._loadCellGeometry(cell);
     this._bindCellGestures(cell);
     return cell;
@@ -341,13 +421,35 @@ export class BrickDock {
       const { geo } = manifoldToGeometry(mf);
       const color    = parseInt((brick.color || '#888888').replace('#', ''), 16);
       const mesh     = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.55 }));
-      const box      = new THREE.Box3().setFromObject(mesh);
-      mesh.position.sub(box.getCenter(new THREE.Vector3()));
+      const box    = new THREE.Box3().setFromObject(mesh);
+      const center = box.getCenter(new THREE.Vector3());
+      mesh.position.sub(center);         // brique centrée à l'origine = pivot d'orbite
       const size = box.getSize(new THREE.Vector3()).length();
-      cell.camera.position.set(0, 0, size * 1.5);
+      cell._camRadius = size * 1.5;      // distance adaptée à la taille réelle
+      this._applyCamOrbit(cell);
       cell.scene.add(mesh);
       cell.mesh = mesh;
     } catch (e) { console.warn('[BrickDock] geometry', e); }
+  }
+
+  // ── Caméra orbite ─────────────────────────────────────────────────────────
+
+  /** Repositionne la caméra selon les coordonnées sphériques stockées dans cell. */
+  _applyCamOrbit(cell) {
+    const { _camRadius: r, _camTheta: t, _camPhi: p } = cell;
+    cell.camera.position.set(
+      r * Math.sin(p) * Math.sin(t),
+      r * Math.cos(p),
+      r * Math.sin(p) * Math.cos(t),
+    );
+    cell.camera.lookAt(0, 0, 0);
+  }
+
+  /** Applique un delta de drag en coordonnées sphériques. */
+  _orbitCell(cell, dx, dy) {
+    cell._camTheta -= dx * 0.012;
+    cell._camPhi    = Math.max(0.05, Math.min(Math.PI - 0.05, cell._camPhi + dy * 0.012));
+    this._applyCamOrbit(cell);
   }
 
   // ── Activation de cellule ──────────────────────────────────────────────────
@@ -356,40 +458,22 @@ export class BrickDock {
     if (this._activeCell === cell) return;
     this._deactivateCell();
     this._activeCell = cell;
-    // Annule tout resize différé en attente
-    if (cell._pendingResize) {
-      cell.el.removeEventListener('transitionend', cell._pendingResize);
-      cell._pendingResize = null;
-    }
-    const s = CELL_ACTIVE;
-    cell.renderer.setSize(s, s, false);
-    cell.canvas.style.width  = s + 'px';
-    cell.canvas.style.height = s + 'px';
-    cell.el.style.width      = s + 'px';
-    cell.el.style.height     = s + 'px';
-    cell.el.style.borderColor = '#7aafc8';
+    cell.canvas.style.width  = CELL_ACTIVE + 'px';
+    cell.canvas.style.height = CELL_ACTIVE + 'px';
+    cell.el.style.width      = CELL_ACTIVE + 'px';
+    cell.el.style.height     = CELL_ACTIVE + 'px';
+    this._applyCellStyle(cell, true);
   }
 
   _deactivateCell() {
     if (!this._activeCell) return;
     const cell = this._activeCell;
     this._activeCell = null;
-    // Annule tout resize différé en attente
-    if (cell._pendingResize) {
-      cell.el.removeEventListener('transitionend', cell._pendingResize);
-    }
-    const s = CELL;
-    cell.canvas.style.width  = s + 'px';
-    cell.canvas.style.height = s + 'px';
-    cell.el.style.width      = s + 'px';
-    cell.el.style.height     = s + 'px';
-    cell.el.style.borderColor = C.border;
-    // Resize WebGL seulement après la fin de la transition CSS
-    cell._pendingResize = () => {
-      cell._pendingResize = null;
-      cell.renderer.setSize(s, s, false);
-    };
-    cell.el.addEventListener('transitionend', cell._pendingResize, { once: true });
+    cell.canvas.style.width  = CELL + 'px';
+    cell.canvas.style.height = CELL + 'px';
+    cell.el.style.width      = CELL + 'px';
+    cell.el.style.height     = CELL + 'px';
+    this._applyCellStyle(cell, false);
   }
 
   // ── Gestes sur cellule ─────────────────────────────────────────────────────
@@ -436,14 +520,10 @@ export class BrickDock {
     el.addEventListener('pointermove', (e) => {
       if (!el.hasPointerCapture(e.pointerId)) return;
 
-      if (mode === 'trackball' && cell.mesh) {
+      if (mode === 'trackball') {
         const dx = e.clientX - lastX, dy = e.clientY - lastY;
         lastX = e.clientX; lastY = e.clientY;
-        cell.mesh.rotation.y += dx * 0.012;
-        cell.mesh.rotation.x = Math.max(
-          -Math.PI / 2,
-          Math.min(Math.PI / 2, cell.mesh.rotation.x + dy * 0.012)
-        );
+        this._orbitCell(cell, dx, dy);
         return;
       }
 
@@ -563,8 +643,11 @@ export class BrickDock {
   _startLoop() {
     const step = () => {
       this._animId = requestAnimationFrame(step);
+      const r = this._sharedRenderer;
       for (const cell of this._cells) {
-        cell.renderer.render(cell.scene, cell.camera);
+        r.render(cell.scene, cell.camera);
+        cell.ctx2d.clearRect(0, 0, cell.canvas.width, cell.canvas.height);
+        cell.ctx2d.drawImage(this._sharedCanvas, 0, 0, cell.canvas.width, cell.canvas.height);
       }
     };
     step();
@@ -575,7 +658,6 @@ export class BrickDock {
   _disposeCells() {
     this._activeCell = null;
     for (const cell of this._cells) {
-      cell.renderer.dispose();
       if (cell.mesh) { cell.mesh.geometry.dispose(); cell.mesh.material.dispose(); }
       cell.el.remove();
     }
