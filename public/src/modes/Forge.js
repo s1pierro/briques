@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 import { getManifold, buildCache, manifoldToGeometry } from '../csg-utils.js';
+import { expandSlots } from '../slot-utils.js';
 
 // ─── Stores localStorage ──────────────────────────────────────────────────────
 
@@ -180,7 +181,7 @@ export class Forge {
     const liaisons = Object.values(loadStore(LS_LIAISONS));
     const offset   = this._meshGroup?.position ?? new THREE.Vector3();
 
-    for (const slot of this._currentBrick.slots) {
+    for (const slot of expandSlots(this._currentBrick.slots)) {
       const g = this._buildSlotHelper(slot, liaisons, offset);
       this.engine.scene.add(g);
       this._helpers.push(g);
@@ -195,7 +196,7 @@ export class Forge {
     const [qx, qy, qz, qw] = slot.quaternion;
     group.quaternion.set(qx, qy, qz, qw);
 
-    const selected = slot.id === this._selectedSlotId;
+    const selected = (slot._defId ?? slot.id) === this._selectedSlotId;
     const axLen    = 0.12;
 
     // Trièdre XYZ
@@ -420,6 +421,18 @@ export class Forge {
     const s = this._currentBrick?.slots.find(s => s.id === id);
     if (!s) return;
     s.typeId = typeId || null;
+    this._markDirty();
+    this._rebuildHelpers();
+  }
+
+  _updateSlotRepeat(id, count, step) {
+    const s = this._currentBrick?.slots.find(s => s.id === id);
+    if (!s) return;
+    if (count <= 1) {
+      delete s.repeat;
+    } else {
+      s.repeat = { count, step };
+    }
     this._markDirty();
     this._rebuildHelpers();
   }
@@ -1006,7 +1019,11 @@ export class Forge {
     slotLbl.className = 'fg-label'; slotLbl.textContent = 'Slots';
     const slotCount = document.createElement('div');
     slotCount.style.cssText = 'font:10px sans-serif;color:var(--fg-dim);';
-    slotCount.textContent = (b.slots?.length || 0) + ' slot(s) défini(s)';
+    const defCount  = b.slots?.length || 0;
+    const virtCount = expandSlots(b.slots || []).length;
+    slotCount.textContent = virtCount !== defCount
+      ? `${defCount} déf. → ${virtCount} slots`
+      : `${defCount} slot(s) défini(s)`;
     slotSec.append(slotLbl, slotCount);
     el.appendChild(slotSec);
   }
@@ -1118,6 +1135,36 @@ export class Forge {
     const [qx, qy, qz, qw] = s.quaternion.map(v => v.toFixed(4));
     quatInfo.textContent = `x ${qx}  y ${qy}  z ${qz}  w ${qw}`;
     editor.append(quatLbl, quatInfo);
+
+    // Répétition linéaire
+    const repLbl = document.createElement('div'); repLbl.className = 'fg-label'; repLbl.textContent = 'Répétition linéaire';
+    const repRow = document.createElement('div'); repRow.className = 'fg-coords';
+    repRow.style.marginBottom = '6px';
+
+    const countInp = document.createElement('input');
+    countInp.className = 'fg-coord'; countInp.type = 'number';
+    countInp.min = '1'; countInp.step = '1';
+    countInp.placeholder = 'N'; countInp.title = 'Nombre de répétitions';
+    countInp.value = String(s.repeat?.count ?? 1);
+
+    const [stepX, stepY, stepZ] = s.repeat?.step ?? [0, 0, 0];
+    const stepInputs = ['dX', 'dY', 'dZ'].map((ph, i) => {
+      const inp = document.createElement('input');
+      inp.className = 'fg-coord'; inp.type = 'text'; inp.placeholder = ph;
+      inp.value = [stepX, stepY, stepZ][i].toFixed(4);
+      return inp;
+    });
+
+    const applyRepeat = () => {
+      const count = Math.max(1, parseInt(countInp.value) || 1);
+      const step  = stepInputs.map(inp => parseFloat(inp.value) || 0);
+      countInp.value = String(count);
+      this._updateSlotRepeat(slotId, count, step);
+    };
+    [countInp, ...stepInputs].forEach(inp => inp.addEventListener('change', applyRepeat));
+
+    repRow.append(countInp, ...stepInputs);
+    editor.append(repLbl, repRow);
 
     container.appendChild(editor);
   }

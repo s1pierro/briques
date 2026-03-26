@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 import { getManifold, buildCache, manifoldToGeometry } from '../csg-utils.js';
 import { BrickDock } from './BrickDock.js';
+import { expandSlots } from '../slot-utils.js';
 
 // ─── Couleurs thème Industrial ────────────────────────────────────────────────
 const C = {
@@ -30,6 +31,7 @@ const CFG_DEFAULTS = {
   snapR                : 1.2,
   planVisible          : true,
   accent               : '#7aafc8',
+  stackPersist         : false,
 };
 
 // ─── Spirale phyllotaxique ────────────────────────────────────────────────────
@@ -334,6 +336,7 @@ export class Assembler {
     const cfg = this._loadConfig();
     this._dock.setPosition(cfg.dockEdge, cfg.dockAlign);
     this._dock.setActivateOnOutsideTap(cfg.activateOnOutsideTap);
+    this._dock.setStackPersist(cfg.stackPersist);
     this._wsm.setY(cfg.planY);
     this._wsm.SNAP_R = cfg.snapR;
     if (this._wsm._planeMesh) this._wsm._planeMesh.visible = cfg.planVisible;
@@ -500,7 +503,7 @@ export class Assembler {
       const inst = new BrickInstance(id, brick, mesh);
       inst.brickTypeId = brickId;
       inst.geoCenter = center.clone();
-      inst.slots = (brick.slots || []).map(s => ({
+      inst.slots = expandSlots(brick.slots || []).map(s => ({
         ...s,
         position: [s.position[0] - center.x, s.position[1] - center.y, s.position[2] - center.z],
       }));
@@ -984,6 +987,24 @@ export class Assembler {
         v => { this._dock.setActivateOnOutsideTap(v); this._saveConfig({ activateOnOutsideTap: v }); }),
     );
     body.append(dockCard);
+
+    // ── Carte : Stack ─────────────────────────────────────────────────────────
+    const stackCard = makeCard('Stack');
+    const clearBtn = document.createElement('button');
+    clearBtn.textContent = 'Vider la pile';
+    clearBtn.style.cssText = [
+      'width:100%', 'padding:6px 10px', 'margin-top:4px',
+      `background:${C.bgDark}`, `border:1px solid ${C.border}`,
+      `color:${C.dim}`, 'border-radius:2px', 'font-size:10px',
+      'cursor:pointer', 'text-align:center',
+    ].join(';');
+    clearBtn.addEventListener('click', () => this._dock.clearStack());
+    stackCard.append(
+      makeToggle('Persistance', this._loadConfig().stackPersist,
+        v => { this._dock.setStackPersist(v); this._saveConfig({ stackPersist: v }); }),
+      clearBtn,
+    );
+    body.append(stackCard);
 
     // ── Carte : World Slots ───────────────────────────────────────────────────
     const wsCard = makeCard('World Slots');

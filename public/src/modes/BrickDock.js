@@ -1,10 +1,12 @@
 import * as THREE from 'three';
 import { getManifold, buildCache, manifoldToGeometry } from '../csg-utils.js';
+import { expandSlots } from '../slot-utils.js';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 const CELL        = 110;  // px — cellule inactive
 const CELL_ACTIVE = 190;  // px — cellule active
 const GAP         = 6;    // px — espacement entre cellules
+const STACK_KEY   = 'rbang_dock_stack';
 
 // Couleurs (même thème Industrial que l'Assembler)
 const C = {
@@ -42,6 +44,7 @@ export class BrickDock {
     this._onPickBrick = null;
     this._activeCell  = null;
     this._activateOnOutsideTap = true;
+    this._stackPersist = false;
     this._stackFamily = { name: '(tmp)Stack', bricks: [] };
 
     this._buildDOM();
@@ -73,7 +76,31 @@ export class BrickDock {
     const alreadyIn = this._stackFamily.bricks.some(b => b.id === brickId);
     if (alreadyIn) { this.showStack(); return; }
     this._stackFamily.bricks.unshift({ id: brickId, data: brickData });
+    if (this._stackPersist) this._saveStack();
     this.showStack();
+  }
+
+  setStackPersist(enabled) {
+    this._stackPersist = enabled;
+    if (enabled) {
+      try {
+        const saved = JSON.parse(localStorage.getItem(STACK_KEY) || '[]');
+        if (Array.isArray(saved)) this._stackFamily.bricks = saved;
+      } catch { /* ignore */ }
+    }
+  }
+
+  clearStack() {
+    this._stackFamily.bricks = [];
+    if (this._stackPersist) localStorage.removeItem(STACK_KEY);
+    // Si on affiche actuellement la stack, revenir à la première famille
+    if (this._families[this._famIdx] === this._stackFamily) {
+      this._showFamily(0);
+    }
+  }
+
+  _saveStack() {
+    localStorage.setItem(STACK_KEY, JSON.stringify(this._stackFamily.bricks));
   }
 
   setPosition(edge, align = 'center') {
@@ -234,7 +261,11 @@ export class BrickDock {
 
   async _showFamily(idx) {
     if (!this._families.length) return;
-    this._famIdx = ((idx % this._families.length) + this._families.length) % this._families.length;
+    // Familles visibles : exclut la stack si elle est vide
+    const visible = this._families.filter(f => f !== this._stackFamily || f.bricks.length > 0);
+    if (!visible.length) return;
+    const normIdx = ((idx % visible.length) + visible.length) % visible.length;
+    this._famIdx  = this._families.indexOf(visible[normIdx]);
     const fam = this._families[this._famIdx];
 
     this._talonEl.textContent = fam.name;
@@ -258,12 +289,13 @@ export class BrickDock {
       `background:${C.bgCell}`, `border:1px solid ${C.border}`,
       'border-radius:4px', 'overflow:hidden', 'position:relative',
       'pointer-events:auto', 'touch-action:none',
+      'transition:width 0.18s ease, height 0.18s ease, border-color 0.18s ease',
     ].join(';');
 
     const canvas = document.createElement('canvas');
     canvas.width  = Math.round(CELL * devicePixelRatio);
     canvas.height = Math.round(CELL * devicePixelRatio);
-    canvas.style.cssText = `width:${CELL}px;height:${CELL}px;display:block;`;
+    canvas.style.cssText = `width:${CELL}px;height:${CELL}px;display:block;transition:width 0.18s ease, height 0.18s ease;`;
     el.appendChild(canvas);
 
     // Nom de la brique
@@ -324,26 +356,40 @@ export class BrickDock {
     if (this._activeCell === cell) return;
     this._deactivateCell();
     this._activeCell = cell;
+    // Annule tout resize différé en attente
+    if (cell._pendingResize) {
+      cell.el.removeEventListener('transitionend', cell._pendingResize);
+      cell._pendingResize = null;
+    }
     const s = CELL_ACTIVE;
-    cell.el.style.width  = s + 'px';
-    cell.el.style.height = s + 'px';
-    cell.el.style.borderColor = '#7aafc8';
+    cell.renderer.setSize(s, s, false);
     cell.canvas.style.width  = s + 'px';
     cell.canvas.style.height = s + 'px';
-    cell.renderer.setSize(s, s, false);
+    cell.el.style.width      = s + 'px';
+    cell.el.style.height     = s + 'px';
+    cell.el.style.borderColor = '#7aafc8';
   }
 
   _deactivateCell() {
     if (!this._activeCell) return;
     const cell = this._activeCell;
     this._activeCell = null;
+    // Annule tout resize différé en attente
+    if (cell._pendingResize) {
+      cell.el.removeEventListener('transitionend', cell._pendingResize);
+    }
     const s = CELL;
-    cell.el.style.width  = s + 'px';
-    cell.el.style.height = s + 'px';
-    cell.el.style.borderColor = C.border;
     cell.canvas.style.width  = s + 'px';
     cell.canvas.style.height = s + 'px';
-    cell.renderer.setSize(s, s, false);
+    cell.el.style.width      = s + 'px';
+    cell.el.style.height     = s + 'px';
+    cell.el.style.borderColor = C.border;
+    // Resize WebGL seulement après la fin de la transition CSS
+    cell._pendingResize = () => {
+      cell._pendingResize = null;
+      cell.renderer.setSize(s, s, false);
+    };
+    cell.el.addEventListener('transitionend', cell._pendingResize, { once: true });
   }
 
   // ── Gestes sur cellule ─────────────────────────────────────────────────────
@@ -465,7 +511,7 @@ export class BrickDock {
     const ndcY   = -((cy - rect.top)  / rect.height) * 2 + 1;
     const touch  = new THREE.Vector2(ndcX, ndcY);
     const offset = cell.mesh ? cell.mesh.position : new THREE.Vector3();
-    return brick.slots
+    return expandSlots(brick.slots)
       .map(s => {
         const p = new THREE.Vector3(...s.position).add(offset);
         p.project(cell.camera);
