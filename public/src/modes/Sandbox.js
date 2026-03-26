@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { getManifold, buildCache, manifoldToGeometry, manifoldToPoints } from '../csg-utils.js';
 
-const COLORS = [0x00aaff, 0xff6600, 0x00ff88, 0xff2255, 0xffcc00];
 
 export class Sandbox {
 
@@ -60,17 +59,19 @@ export class Sandbox {
   }
 
   _spawnRandom() {
-    const store = (() => {
-      try { return JSON.parse(localStorage.getItem('rbang_shapes') || '{}'); } catch { return {}; }
-    })();
-    const names = Object.keys(store);
-    if (!names.length) { this._spawnBox(); return; }
-    const data = store[names[Math.floor(Math.random() * names.length)]];
+    const load = key => { try { return JSON.parse(localStorage.getItem(key) || '{}'); } catch { return {}; } };
+    const bricks = load('rbang_bricks');
+    const keys   = Object.keys(bricks);
+    if (!keys.length) { this._spawnBox(); return; }
+    const brick = bricks[keys[Math.floor(Math.random() * keys.length)]];
+    if (!brick?.shapeRef) { this._spawnBox(); return; }
+    const shapes = load('rbang_shapes');
+    const data   = shapes[brick.shapeRef];
     if (!data?.steps || !data.rootId) { this._spawnBox(); return; }
-    this._spawnShape(data);
+    this._spawnShape(data, brick.color);
   }
 
-  async _spawnShape(data) {
+  async _spawnShape(data, colorHex) {
     try {
       const M      = await getManifold();
       const cache  = buildCache(data.steps, M);
@@ -80,7 +81,7 @@ export class Sandbox {
       const { geo } = manifoldToGeometry(mf);
       const pts     = manifoldToPoints(mf);
 
-      const color = COLORS[Math.floor(Math.random() * COLORS.length)];
+      const color = colorHex ? parseInt(colorHex.replace('#', ''), 16) : 0x888888;
       const mesh  = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color }));
       mesh.castShadow = mesh.receiveShadow = true;
 
@@ -105,7 +106,7 @@ export class Sandbox {
       (Math.random() - 0.5) * 5,
       8 + Math.random() * 2,
       (Math.random() - 0.5) * 5,
-      COLORS[Math.floor(Math.random() * COLORS.length)]
+      0x888888
     );
   }
 
@@ -210,8 +211,16 @@ export class Sandbox {
     ctrlRow.append(pauseBtn, stepBtn);
     panel.append(ctrlRow);
 
+    // Densité pixel
+    panel.append(makeSection('Rendu'));
+    panel.append(makeSlider('Densité pixel', 0.25, Math.min(3, devicePixelRatio), 0.25, devicePixelRatio, v => {
+      this.engine.renderer.setPixelRatio(v);
+      this.engine.resizeViewport(this.engine._vpLeft, this.engine._vpRight, this.engine._vpTop);
+    }));
+
     document.body.appendChild(panel);
     this._ui.push(panel);
+    this._panel = panel;
 
     this._linearDamping  = 0;
     this._angularDamping = 0;
@@ -231,8 +240,60 @@ export class Sandbox {
 
     const fps  = document.createElement('span');
     const objs = document.createElement('span');
+
+    const cfgBtn = document.createElement('button');
+    cfgBtn.textContent = '⚙';
+    cfgBtn.title = 'Panneau de configuration';
+    cfgBtn.style.cssText = [
+      'position:absolute', 'right:12px',
+      'background:transparent', 'border:none',
+      'color:#aaa', 'font-size:16px', 'cursor:pointer',
+      'pointer-events:auto', 'padding:0 4px', 'line-height:1',
+    ].join(';');
+    cfgBtn.addEventListener('click', () => {
+      const visible = this._panel.style.display !== 'none';
+      this._panel.style.display = visible ? 'none' : '';
+      cfgBtn.style.color = visible ? '#555' : '#aaa';
+    });
+    cfgBtn.addEventListener('touchstart', e => { e.preventDefault(); cfgBtn.click(); }, { passive: false });
+
+    const fsBtn = document.createElement('button');
+    fsBtn.textContent = '⛶';
+    fsBtn.title = 'Plein écran';
+    fsBtn.style.cssText = [
+      'position:absolute', 'right:40px',
+      'background:transparent', 'border:none',
+      'color:#aaa', 'font-size:16px', 'cursor:pointer',
+      'pointer-events:auto', 'padding:0 4px', 'line-height:1',
+    ].join(';');
+    const toggleFs = () => {
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+      else document.exitFullscreen?.();
+    };
+    fsBtn.addEventListener('click', toggleFs);
+    fsBtn.addEventListener('touchstart', e => { e.preventDefault(); toggleFs(); }, { passive: false });
+    document.addEventListener('fullscreenchange', () => {
+      fsBtn.textContent = document.fullscreenElement ? '✕' : '⛶';
+      fsBtn.title       = document.fullscreenElement ? 'Quitter le plein écran' : 'Plein écran';
+    });
+
+    const reloadBtn = document.createElement('button');
+    reloadBtn.textContent = '↺';
+    reloadBtn.title = 'Recharger';
+    reloadBtn.style.cssText = fsBtn.style.cssText.replace('right:40px', 'right:68px');
+    const hardReload = async () => {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+      location.reload();
+    };
+    reloadBtn.addEventListener('click', hardReload);
+    reloadBtn.addEventListener('touchstart', e => { e.preventDefault(); hardReload(); }, { passive: false });
+
     bar.appendChild(fps);
     bar.appendChild(objs);
+    bar.appendChild(reloadBtn);
+    bar.appendChild(fsBtn);
+    bar.appendChild(cfgBtn);
     document.body.appendChild(bar);
     this._ui.push(bar);
 

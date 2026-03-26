@@ -32,6 +32,7 @@ const CELL_STYLES_DEFAULTS = {
   borderRadius        : 4,
   labelBg             : 'rgba(10,10,15,0.75)',
   labelColor          : C.dim,
+  labelFontSize       : 8,
   labelVisible        : true,
 };
 
@@ -105,7 +106,7 @@ export class BrickDock {
       cellActiveBgColor = '#1e1e1e', cellActiveBgOpacity = 0.82,
       cellActiveBorderVisible = true, cellActiveBorderColor = '#7aafc8', cellActiveBorderWidth = 1,
       cellLabelBgColor = '#0a0a0f', cellLabelBgOpacity = 0.75,
-      cellLabelColor = '#888888', cellLabelVisible = true,
+      cellLabelColor = '#888888', cellLabelFontSize = 8, cellLabelVisible = true,
       cellBorderRadius = 4,
     } = cfg;
     this._cellStyles = {
@@ -118,6 +119,7 @@ export class BrickDock {
       borderRadius      : cellBorderRadius,
       labelBg           : _hexRgba(cellLabelBgColor, cellLabelBgOpacity),
       labelColor        : cellLabelColor,
+      labelFontSize     : cellLabelFontSize,
       labelVisible      : cellLabelVisible,
     };
     this._cells.forEach(cell => this._applyCellStyle(cell, cell === this._activeCell));
@@ -133,6 +135,7 @@ export class BrickDock {
       cell.label.style.display    = s.labelVisible ? '' : 'none';
       cell.label.style.background = s.labelBg;
       cell.label.style.color      = s.labelColor;
+      cell.label.style.fontSize   = s.labelFontSize + 'px';
     }
   }
 
@@ -380,9 +383,9 @@ export class BrickDock {
     label.style.cssText = [
       'position:absolute', 'bottom:0', 'left:0', 'right:0',
       'padding:2px 5px', `background:${ls.labelBg}`,
-      `color:${ls.labelColor}`, 'font:8px sans-serif',
+      `color:${ls.labelColor}`, `font:${ls.labelFontSize}px sans-serif`,
       'white-space:nowrap', 'overflow:hidden', 'text-overflow:ellipsis',
-      'pointer-events:none',
+      'text-align:center', 'pointer-events:none',
     ].join(';');
     if (!ls.labelVisible) label.style.display = 'none';
     el.appendChild(label);

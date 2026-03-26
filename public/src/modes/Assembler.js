@@ -51,6 +51,7 @@ const CFG_DEFAULTS = {
   cellLabelBgColor       : '#0a0a0f',
   cellLabelBgOpacity     : 0.75,
   cellLabelColor         : '#888888',
+  cellLabelFontSize      : 8,
   cellLabelVisible       : true,
 };
 
@@ -953,6 +954,16 @@ export class Assembler {
       fsBtn.textContent = document.fullscreenElement ? '⊡' : '⛶';
     });
 
+    const reloadBtn = document.createElement('button');
+    reloadBtn.className = 'asm-bar-btn';
+    reloadBtn.title = 'Recharger (vide le cache)';
+    reloadBtn.textContent = '↺';
+    reloadBtn.addEventListener('click', async () => {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+      location.reload();
+    });
+
     this._countEl = document.createElement('span');
     this._countEl.style.cssText = 'flex:1;text-align:center;pointer-events:none;';
 
@@ -962,7 +973,7 @@ export class Assembler {
     cfgBtn.textContent = '⚙';
     cfgBtn.addEventListener('click', () => this._openConfigModal());
 
-    bar.append(fsBtn, this._countEl, cfgBtn);
+    bar.append(fsBtn, reloadBtn, this._countEl, cfgBtn);
     document.body.appendChild(bar);
     this._ui.push(bar);
 
@@ -1207,6 +1218,8 @@ export class Assembler {
       v => { this._saveConfig({ cellLabelBgOpacity: v }); this._dock.setCellStyles(this._loadConfig()); }));
     cellCard.append(makeColorRow('Couleur police', cellCfg.cellLabelColor,
       v => { this._saveConfig({ cellLabelColor: v }); this._dock.setCellStyles(this._loadConfig()); }));
+    cellCard.append(makeSlider('Taille police', 5, 20, 1, cellCfg.cellLabelFontSize,
+      v => { this._saveConfig({ cellLabelFontSize: v }); this._dock.setCellStyles(this._loadConfig()); }));
 
     body.append(cellCard);
 
