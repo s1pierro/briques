@@ -3,7 +3,7 @@ import { expandSlots } from '../slot-utils.js';
 import { getManifold, buildCache, manifoldToGeometry } from '../csg-utils.js';
 
 // ─── Constantes visuelles ─────────────────────────────────────────────────────
-const WSM_COLOR   = 0x7aafc8;   // world slot / plan
+const WS_COLOR    = 0x7aafc8;   // world slot / plan
 const JOINT_COLOR = 0x00ccff;   // marqueur disque liaison explicite
 
 // ─── Spirale phyllotaxique (world slots) ──────────────────────────────────────
@@ -25,7 +25,7 @@ export class AsmBrick {
    * @param {string}         brickTypeId   — clé dans rbang_bricks
    * @param {Object}         brickData     — { name, shapeRef, color, slots, … }
    * @param {THREE.Mesh}     mesh
-   * @param {Array}          slots         — expandSlots + corrigés pour le centrage géo
+   * @param {Array}          slots         — expandSlots + corrigés géo
    * @param {THREE.Vector3}  geoCenter     — centre géométrique pré-translate
    */
   constructor(id, brickTypeId, brickData, mesh, slots, geoCenter) {
@@ -39,7 +39,7 @@ export class AsmBrick {
     this.origQuat    = mesh.quaternion.clone();
   }
 
-  /** Position monde d'un slot. */
+  /** Position monde d'un slot (calculée dynamiquement depuis la pose courante du mesh). */
   worldSlotPos(slot) {
     return new THREE.Vector3(...slot.position)
       .applyQuaternion(this.mesh.quaternion)
@@ -66,7 +66,7 @@ export class AsmBrick {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// _AssemblySolver  —  résolution de liaisons (interne à AsmSlots)
+// _AssemblySolver  —  résolution de liaisons (interne, partagé par WorldSlots + AsmJoints)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 class _AssemblySolver {
@@ -77,7 +77,6 @@ class _AssemblySolver {
     catch { this._liaisons = {}; }
   }
 
-  /** Trouve la meilleure liaison compatible. */
   solve(nearA, nearB) {
     this.refresh();
     for (const sa of nearA) {
@@ -89,19 +88,16 @@ class _AssemblySolver {
     return null;
   }
 
-  /** Liaison rotule universelle pour world-slot. */
   ballJoint() {
     return { id: '__ball__', name: 'Rotule', dof: [{ type: 'ball', axis: [0,1,0] }] };
   }
 
-  /** Vérifie la compatibilité de deux typeIds. */
   compatible(typeA, typeB) { return this._findLiaison(typeA, typeB); }
 
-  /** Diagnostic console quand solve() échoue. */
   diagnose(nearA, nearB) {
-    console.group('[AsmSlots/solver] solve() → null');
-    if (!nearA.length) { console.warn('Brique source : aucun slot défini'); console.groupEnd(); return; }
-    if (!nearB.length) { console.warn('Brique cible  : aucun slot défini'); console.groupEnd(); return; }
+    console.group('[AsmVerse/solver] solve() → null');
+    if (!nearA.length) { console.warn('Source : aucun slot défini'); console.groupEnd(); return; }
+    if (!nearB.length) { console.warn('Cible  : aucun slot défini'); console.groupEnd(); return; }
     const nullA = nearA.filter(s => !s.typeId);
     const nullB = nearB.filter(s => !s.typeId);
     if (nullA.length) console.warn(`Source : ${nullA.length} slot(s) sans typeId`);
@@ -114,8 +110,8 @@ class _AssemblySolver {
     } else {
       const misA = nearA.filter(s => s.typeId && !allTypes.has(s.typeId)).map(s => s.typeId);
       const misB = nearB.filter(s => s.typeId && !allTypes.has(s.typeId)).map(s => s.typeId);
-      if (misA.length) console.warn('typeId(s) source absents des liaisons :', misA);
-      if (misB.length) console.warn('typeId(s) cible  absents des liaisons :', misB);
+      if (misA.length) console.warn('typeId(s) source absents :', misA);
+      if (misB.length) console.warn('typeId(s) cible  absents :', misB);
     }
     console.warn('typeIds source :', nearA.map(s => s.typeId));
     console.warn('typeIds cible  :', nearB.map(s => s.typeId));
@@ -134,22 +130,122 @@ class _AssemblySolver {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// AsmSlots  —  géométrie des slots, snapping, world slots
+// AsmSlots  —  registre de tous les slots présents dans la scène
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/**
+ * Maintient un index plat `{ brick, slot }` de tous les slots de la scène.
+ * Met à jour cet index via deux points d'entrée :
+ *   - registerBrick(brick)   — appelé quand une brique est ajoutée
+ *   - unregisterBrick(brick) — appelé quand une brique est retirée
+ *
+ * Fournit des requêtes géométriques sur l'ensemble des slots sans avoir à
+ * itérer les briques.
+ */
 export class AsmSlots {
 
+  constructor() {
+    /** @type {Array<{ brick: AsmBrick, slot: Object }>} */
+    this._entries = [];
+  }
+
+  // ── Points d'entrée ──────────────────────────────────────────────────────────
+
+  /** Ajoute tous les slots d'une brique au registre. */
+  registerBrick(brick) {
+    for (const slot of brick.slots) {
+      this._entries.push({ brick, slot });
+    }
+  }
+
+  /** Retire tous les slots d'une brique du registre. */
+  unregisterBrick(brick) {
+    this._entries = this._entries.filter(e => e.brick !== brick);
+  }
+
+  // ── Requêtes ─────────────────────────────────────────────────────────────────
+
+  /** Toutes les entrées (brick, slot) de la scène. */
+  get entries() { return this._entries; }
+
+  /** Entrées filtrées pour une brique. */
+  slotsOf(brick) {
+    return this._entries.filter(e => e.brick === brick).map(e => e.slot);
+  }
+
   /**
-   * @param {THREE.Scene} scene
+   * Slots d'une brique triés par proximité au point écran (cx, cy).
+   * @param {AsmBrick}     brick
+   * @param {number}       cx, cy  — coordonnées écran
+   * @param {THREE.Camera} camera
+   * @returns {Object[]}  slots triés (dist croissante)
    */
-  constructor(scene) {
+  nearSlotsOf(brick, cx, cy, camera) {
+    const ndcX =  (cx / innerWidth)  * 2 - 1;
+    const ndcY = -(cy / innerHeight) * 2 + 1;
+    const touch = new THREE.Vector2(ndcX, ndcY);
+    return this._entries
+      .filter(e => e.brick === brick)
+      .map(e => {
+        const wp = e.brick.worldSlotPos(e.slot).clone();
+        wp.project(camera);
+        const d = touch.distanceTo(new THREE.Vector2(wp.x, wp.y));
+        return { slot: e.slot, dist: d };
+      })
+      .sort((a, b) => a.dist - b.dist)
+      .map(x => x.slot);
+  }
+
+  /**
+   * Tous les slots de la scène triés par proximité au point écran (cx, cy),
+   * optionnellement limités à un sous-ensemble de briques.
+   * @param {number}            cx, cy
+   * @param {THREE.Camera}      camera
+   * @param {Iterable<AsmBrick>} [exclude]  — briques à exclure (ex. brique en cours de drag)
+   * @returns {Array<{ brick: AsmBrick, slot: Object, dist: number }>}
+   */
+  nearSlotsAt(cx, cy, camera, exclude = []) {
+    const excluded = new Set(exclude);
+    const ndcX =  (cx / innerWidth)  * 2 - 1;
+    const ndcY = -(cy / innerHeight) * 2 + 1;
+    const touch = new THREE.Vector2(ndcX, ndcY);
+    return this._entries
+      .filter(e => !excluded.has(e.brick))
+      .map(e => {
+        const wp = e.brick.worldSlotPos(e.slot).clone();
+        wp.project(camera);
+        const d = touch.distanceTo(new THREE.Vector2(wp.x, wp.y));
+        return { brick: e.brick, slot: e.slot, dist: d };
+      })
+      .sort((a, b) => a.dist - b.dist);
+  }
+
+  /** Vide le registre (lors d'un clear() global). */
+  clear() { this._entries = []; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// WorldSlots  —  plan monde, spirale, snap, résolution de liaison
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Gère les world slots (points d'ancrage sur le plan monde) et la géométrie
+ * de snap entre slots de briques.
+ */
+export class WorldSlots {
+
+  /**
+   * @param {THREE.Scene}      scene
+   * @param {_AssemblySolver}  solver
+   */
+  constructor(scene, solver) {
     this._scene     = scene;
-    this._slots     = [];   // WorldSlot[]
+    this._solver    = solver;
+    this._slots     = [];
     this._y         = 0.25;
     this._plane     = new THREE.Plane(new THREE.Vector3(0, 1, 0), -this._y);
     this._planeMesh = null;
     this.snapR      = 1.2;
-    this.solver     = new _AssemblySolver();
     this._initPlaneMesh();
   }
 
@@ -169,14 +265,14 @@ export class AsmSlots {
   }
 
   get planMesh() { return this._planeMesh; }
-  get worldSlots() { return this._slots; }
+  get all() { return this._slots; }
 
   // ── World slots ─────────────────────────────────────────────────────────────
 
   /** Ajoute un world slot proche de worldPos sur la spirale. */
   addWorldSlot(worldPos) {
-    const pos   = new THREE.Vector3(worldPos.x, 0, worldPos.z);
-    const index = this._nextFreeIndex(pos);
+    const pos    = new THREE.Vector3(worldPos.x, 0, worldPos.z);
+    const index  = this._nextFreeIndex(pos);
     const slotPos = _spiralPos(index);
     slotPos.y = this._y;
     const mesh = this._makeSlotMesh(slotPos);
@@ -186,20 +282,17 @@ export class AsmSlots {
     return slot;
   }
 
-  /** Lie un world slot à une instance de brique (par id). */
-  bindWorldSlot(wslot, brickInstanceId) {
+  bind(wslot, brickInstanceId) {
     wslot.brickInstanceId = brickInstanceId;
     wslot.mesh.material.color.setHex(0x4a8a6a);
   }
 
-  /** Délie un world slot. */
-  unbindWorldSlot(wslot) {
+  unbind(wslot) {
     wslot.brickInstanceId = null;
-    wslot.mesh.material.color.setHex(WSM_COLOR);
+    wslot.mesh.material.color.setHex(WS_COLOR);
   }
 
-  /** Retire un world slot de la scène et de la liste. */
-  removeWorldSlot(wslot) {
+  remove(wslot) {
     if (wslot.mesh.userData.ring) {
       this._scene.remove(wslot.mesh.userData.ring);
       wslot.mesh.userData.ring.geometry.dispose();
@@ -212,8 +305,7 @@ export class AsmSlots {
     if (idx !== -1) this._slots.splice(idx, 1);
   }
 
-  /** World slot le plus proche d'un point (XZ uniquement). */
-  nearestWorldSlot(worldPos, maxDist = Infinity) {
+  nearest(worldPos, maxDist = Infinity) {
     let best = null, bestD = maxDist;
     for (const s of this._slots) {
       const d = new THREE.Vector2(worldPos.x - s.position.x, worldPos.z - s.position.z).length();
@@ -222,43 +314,19 @@ export class AsmSlots {
     return best;
   }
 
-  /** Intersecte le ray du raycaster avec le plan de world slots. */
+  /** Intersecte le ray du raycaster avec le plan des world slots. */
   raycastPlane(raycaster) {
     const pt = new THREE.Vector3();
     return raycaster.ray.intersectPlane(this._plane, pt) ? pt : null;
   }
 
-  // ── Slots d'une brique ───────────────────────────────────────────────────────
-
-  /**
-   * Retourne les slots d'une brique triés par proximité au point écran (cx, cy).
-   * @param {AsmBrick}       brick
-   * @param {number}         cx, cy  — coordonnées écran
-   * @param {THREE.Camera}   camera
-   * @returns {Array}  slots triés par distance NDC croissante
-   */
-  nearSlotsOf(brick, cx, cy, camera) {
-    const slots = brick.slots;
-    if (!slots.length) return [];
-    const ndcX =  (cx / innerWidth)  * 2 - 1;
-    const ndcY = -(cy / innerHeight) * 2 + 1;
-    const touch = new THREE.Vector2(ndcX, ndcY);
-    return slots
-      .map(s => {
-        const wp = brick.worldSlotPos(s).clone();
-        wp.project(camera);
-        const d = touch.distanceTo(new THREE.Vector2(wp.x, wp.y));
-        return { slot: s, dist: d };
-      })
-      .sort((a, b) => a.dist - b.dist)
-      .map(x => x.slot);
-  }
+  // ── Géométrie de snap ────────────────────────────────────────────────────────
 
   /**
    * Calcule la transform de snap : newBrick = targetSlot_world × sourceSlot_local⁻¹
-   * @param {Object}    slotA      — slot de la brique source
-   * @param {Object}    slotB      — slot de la brique cible
-   * @param {AsmBrick}  targetBrick
+   * @param {Object}    slotA       — slot de la brique source
+   * @param {Object}    slotB       — slot de la brique cible
+   * @param {AsmBrick}  targetBrick — brique cible (contient slotB)
    * @returns {{ position: THREE.Vector3, quaternion: THREE.Quaternion }}
    */
   computeSnap(slotA, slotB, targetBrick) {
@@ -286,17 +354,17 @@ export class AsmSlots {
   }
 
   /**
-   * Résout la meilleure liaison entre deux listes de slots triées.
+   * Résout la meilleure liaison compatible entre deux listes de slots triés.
    * @returns {{ slotA, slotB, liaison } | null}
    */
   resolve(nearA, nearB) {
-    return this.solver.solve(nearA, nearB);
+    return this._solver.solve(nearA, nearB);
   }
 
   // ── Nettoyage ────────────────────────────────────────────────────────────────
 
   dispose() {
-    for (const s of [...this._slots]) this.removeWorldSlot(s);
+    for (const s of [...this._slots]) this.remove(s);
     if (this._planeMesh) {
       this._scene.remove(this._planeMesh);
       this._planeMesh.geometry.dispose();
@@ -310,7 +378,7 @@ export class AsmSlots {
   _initPlaneMesh() {
     const geo = new THREE.PlaneGeometry(26, 26);
     const mat = new THREE.MeshBasicMaterial({
-      color: WSM_COLOR, transparent: true, opacity: 0.07,
+      color: WS_COLOR, transparent: true, opacity: 0.07,
       side: THREE.DoubleSide, depthWrite: false,
     });
     this._planeMesh = new THREE.Mesh(geo, mat);
@@ -334,7 +402,7 @@ export class AsmSlots {
   _makeSlotMesh(pos) {
     const geo  = new THREE.CircleGeometry(0.35, 32);
     const mat  = new THREE.MeshBasicMaterial({
-      color: WSM_COLOR, transparent: true, opacity: 0.55,
+      color: WS_COLOR, transparent: true, opacity: 0.55,
       side: THREE.DoubleSide, depthWrite: false,
     });
     const mesh = new THREE.Mesh(geo, mat);
@@ -343,7 +411,7 @@ export class AsmSlots {
 
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(0.35, 0.42, 32),
-      new THREE.MeshBasicMaterial({ color: WSM_COLOR, side: THREE.DoubleSide, depthWrite: false })
+      new THREE.MeshBasicMaterial({ color: WS_COLOR, side: THREE.DoubleSide, depthWrite: false })
     );
     ring.rotation.x = -Math.PI / 2;
     ring.position.set(pos.x, pos.y + 0.011, pos.z);
@@ -354,9 +422,17 @@ export class AsmSlots {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// AsmJoints  —  connexions, marqueurs, implicites
+// AsmJoints  —  connexions, liaisons de la scène, marqueurs, implicites
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/**
+ * Décrit l'ensemble des liaisons existant dans la scène d'assemblage :
+ * connexions explicites (snap), implicites (clipping spatial), et leurs
+ * représentations visuelles (marqueurs disque).
+ *
+ * Une connexion = { instA, instB, slotA, slotB, liaison, implicit? }
+ * où liaison est un objet du store rbang_liaisons (ou null).
+ */
 export class AsmJoints {
 
   /** Distance max pour considérer deux slots comme coïncidents (unités scène). */
@@ -364,19 +440,23 @@ export class AsmJoints {
 
   /**
    * @param {THREE.Scene}      scene
-   * @param {_AssemblySolver}  solver   — référence partagée depuis AsmSlots
+   * @param {_AssemblySolver}  solver
    */
   constructor(scene, solver) {
-    this._scene   = scene;
-    this._solver  = solver;
+    this._scene  = scene;
+    this._solver = solver;
+
+    /** @type {Object[]}  toutes les connexions (explicites + implicites) */
     this.connections = [];
-    this._markers    = []; // { mesh, conn }
+
+    /** @type {Array<{ mesh: THREE.Mesh, conn: Object }>} */
+    this._markers = [];
 
     /**
-     * Callback appelé lors de l'ajout d'une connexion explicite.
+     * Callback déclenché lors de l'ajout d'une connexion EXPLICITE.
      * Signature : (conn) → bool
-     * Retourne true si les AsmHandlers ont pris en charge la connexion
-     * (auquel cas le disque marqueur n'est pas créé).
+     * Retourne true si des AsmHandlers ont pris en charge la connexion
+     * (remplacent alors le disque marqueur).
      * @type {((conn: Object) => boolean) | null}
      */
     this.onConnect = null;
@@ -393,20 +473,17 @@ export class AsmJoints {
     this.connections.push(conn);
     if (conn.implicit) return;
 
-    // Masquer tous les marqueurs existants
     for (const jm of this._markers) jm.mesh.visible = false;
 
-    // Déléguer l'activation des AsmHandlers à l'Assembler
     const handlersActive = this.onConnect?.(conn) ?? false;
-
-    // Créer le disque uniquement si aucun handler DOF n'est actif
     if (!handlersActive) this._createMarker(conn);
   }
 
   /**
-   * Scan spatial des connexions implicites induites par newBrick.
-   * @param {AsmBrick}           newBrick
-   * @param {Map<string,AsmBrick>} allBricks
+   * Détecte et enregistre les connexions implicites induites par newBrick
+   * avec toutes les autres briques de la scène.
+   * @param {AsmBrick}              newBrick
+   * @param {Map<string,AsmBrick>}  allBricks
    */
   addImplicitsFor(newBrick, allBricks) {
     this._solver.refresh();
@@ -415,19 +492,17 @@ export class AsmJoints {
       if (this.has(newBrick, other)) continue;
       const clip = this._isClipped(newBrick, other);
       if (clip) {
-        const conn = {
+        this.connections.push({
           instA: newBrick, instB: other,
           slotA: clip.slotA, slotB: clip.slotB,
           liaison: clip.liaison, implicit: true,
-        };
-        this.connections.push(conn);
-        // Pas de marqueur pour les connexions implicites
+        });
       }
     }
   }
 
   /**
-   * Supprime toutes les connexions (explicites + implicites) impliquant brick,
+   * Supprime toutes les connexions impliquant brick (explicites + implicites)
    * et nettoie les marqueurs associés.
    */
   removeFor(brick) {
@@ -453,12 +528,12 @@ export class AsmJoints {
     );
   }
 
-  /** Connexions explicites uniquement (implicit: false). */
+  /** Connexions explicites (implicit !== true). */
   explicitConnections() {
     return this.connections.filter(c => !c.implicit);
   }
 
-  /** Retire tous les marqueurs de la scène et libère les ressources. */
+  /** Retire tous les marqueurs et vide les connexions. */
   dispose() {
     for (const { mesh } of this._markers) {
       this._scene.remove(mesh);
@@ -479,21 +554,20 @@ export class AsmJoints {
       depthWrite: false, side: THREE.DoubleSide,
     });
     const marker = new THREE.Mesh(geo, mat);
-
-    // Position monde du slot A
     marker.position.copy(instA.worldSlotPos(slotA));
 
-    // Orientation : axe du DOF ou normale du slot
     const dofs = conn.liaison?.dof ?? [];
     const hasDofAxis = dofs.length === 1 && dofs[0].axis;
     if (hasDofAxis) {
-      const rawAxis   = new THREE.Vector3(...dofs[0].axis).normalize();
-      const slotBQ    = new THREE.Quaternion(...(conn.slotB.quaternion ?? [0,0,0,1]));
-      const worldBQ   = slotBQ.clone().premultiply(conn.instB.mesh.quaternion.clone());
-      const axisWorld = rawAxis.clone().applyQuaternion(worldBQ).normalize();
-      marker.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axisWorld);
+      const rawAxis = new THREE.Vector3(...dofs[0].axis).normalize();
+      const slotBQ  = new THREE.Quaternion(...(conn.slotB.quaternion ?? [0,0,0,1]));
+      const worldBQ = slotBQ.clone().premultiply(conn.instB.mesh.quaternion.clone());
+      marker.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 1, 0),
+        rawAxis.clone().applyQuaternion(worldBQ).normalize()
+      );
     } else if (slotA.quaternion) {
-      const slotQ  = new THREE.Quaternion(...slotA.quaternion);
+      const slotQ = new THREE.Quaternion(...slotA.quaternion);
       const worldQ = slotQ.premultiply(instA.mesh.quaternion.clone());
       marker.quaternion.copy(worldQ).multiply(
         new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0))
@@ -523,63 +597,51 @@ export class AsmJoints {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// AsmEquivalenceClass  —  composantes connexes (BFS stateless)
+// AsmEquivalenceClass  —  classe d'équivalence (composante connexe rigide)
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/**
+ * Décrit UNE composante connexe rigide de l'assemblage :
+ * - `bricks`  — briques qu'elle contient (reliées entre elles par des connexions rigides)
+ * - `joints`  — connexions rigides internes (subset de AsmJoints.connections)
+ * - `links`   — connexions DOF vers d'autres composantes (liaisons cinématiques)
+ *
+ * Une connexion est dite "rigide" si sa liaison ne possède aucun DOF
+ * (`!liaison.dof?.length`) ou si elle est implicite (clipping).
+ * Les connexions DOF (`liaison.dof.length > 0`) forment les arêtes du graphe
+ * cinématique entre composantes.
+ *
+ * Instancié par AsmVerse.computeComponents() — ne pas créer directement.
+ */
 export class AsmEquivalenceClass {
 
   /**
-   * Retourne le Set des IDs du composant connexe contenant brick.
-   * @param {AsmBrick}  brick
-   * @param {AsmJoints} joints
-   * @returns {Set<string>}
+   * @param {Iterable<AsmBrick>} bricks
+   * @param {Object[]}           joints  — connexions rigides internes
    */
-  static componentOf(brick, joints) {
-    const visited = new Set([brick.id]);
-    const queue   = [brick];
-    while (queue.length) {
-      const b = queue.shift();
-      for (const conn of joints.connections) {
-        let neighbor = null;
-        if (conn.instA === b && !visited.has(conn.instB.id)) neighbor = conn.instB;
-        if (conn.instB === b && !visited.has(conn.instA.id)) neighbor = conn.instA;
-        if (neighbor) { visited.add(neighbor.id); queue.push(neighbor); }
-      }
-    }
-    return visited;
+  constructor(bricks, joints = []) {
+    /** @type {Set<AsmBrick>} */
+    this.bricks = new Set(bricks);
+
+    /** @type {Object[]}  connexions rigides internes */
+    this.joints = joints;
+
+    /**
+     * Connexions DOF reliant cette composante à d'autres.
+     * @type {Array<{ connection: Object, other: AsmEquivalenceClass }>}
+     */
+    this.links = [];
   }
 
-  /**
-   * Nombre de composantes connexes dans bricks.
-   * @param {Map<string,AsmBrick>} bricks
-   * @param {AsmJoints}            joints
-   * @returns {number}
-   */
-  static count(bricks, joints) {
-    const seen = new Set();
-    let n = 0;
-    for (const brick of bricks.values()) {
-      if (seen.has(brick.id)) continue;
-      for (const id of AsmEquivalenceClass.componentOf(brick, joints)) seen.add(id);
-      n++;
-    }
-    return n;
-  }
+  /** Retourne true si brick appartient à cette composante. */
+  contains(brick) { return this.bricks.has(brick); }
 
-  /**
-   * Retourne true si brickA et brickB appartiennent au même composant.
-   * @param {AsmBrick}  brickA
-   * @param {AsmBrick}  brickB
-   * @param {AsmJoints} joints
-   * @returns {boolean}
-   */
-  static sameComponent(brickA, brickB, joints) {
-    return AsmEquivalenceClass.componentOf(brickA, joints).has(brickB.id);
-  }
+  /** Nombre de briques dans cette composante. */
+  get size() { return this.bricks.size; }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// AsmVerse  —  façade orchestratrice
+// AsmVerse  —  objet composite, façade de la scène d'assemblage
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export class AsmVerse {
@@ -588,10 +650,23 @@ export class AsmVerse {
    * @param {THREE.Scene} scene
    */
   constructor(scene) {
-    this.scene  = scene;
-    this.bricks = new Map();   // id → AsmBrick
-    this.slots  = new AsmSlots(scene);
-    this.joints = new AsmJoints(scene, this.slots.solver);
+    this.scene = scene;
+
+    // Solveur de liaisons partagé
+    this._solver = new _AssemblySolver();
+
+    /** @type {Map<string, AsmBrick>}  toutes les briques de la scène */
+    this.bricks = new Map();
+
+    /** Registre de tous les slots de la scène */
+    this.slots = new AsmSlots();
+
+    /** Plan monde, world slots, snap */
+    this.worldSlots = new WorldSlots(scene, this._solver);
+
+    /** Connexions et liaisons de la scène */
+    this.joints = new AsmJoints(scene, this._solver);
+
     this._idSeq = 0;
     this._wsConnections = []; // { wslot, brick, slotA }
   }
@@ -601,15 +676,14 @@ export class AsmVerse {
   /**
    * Crée et ajoute une brique dans la scène.
    *
-   * @param {string}  brickTypeId        — clé dans rbang_bricks
-   * @param {Object}  brickData          — { name, shapeRef, color, slots, … }
-   * @param {THREE.Vector3|null}  pos    — position sol (world slot), exclusif avec snapTransform
-   * @param {{position,quaternion}|null} snapTransform
-   * @param {Object|null}  shapeData     — données CSG ; si null, chargées depuis localStorage
+   * @param {string}                        brickTypeId
+   * @param {Object}                        brickData     — { name, shapeRef, color, slots, … }
+   * @param {THREE.Vector3|null}            pos           — position sol (world slot)
+   * @param {{position,quaternion}|null}    snapTransform — exclusif avec pos
+   * @param {Object|null}                   shapeData     — données CSG ; null = charge depuis localStorage
    * @returns {Promise<AsmBrick|null>}
    */
   async spawnBrick(brickTypeId, brickData, pos = null, snapTransform = null, shapeData = null) {
-    // Résolution des données shape
     if (!shapeData) {
       try {
         const store = JSON.parse(localStorage.getItem('rbang_shapes') || '{}');
@@ -636,13 +710,13 @@ export class AsmVerse {
       const box    = new THREE.Box3().setFromObject(mesh);
       const center = box.getCenter(new THREE.Vector3());
       geo.translate(-center.x, -center.y, -center.z);
-      geo.boundingBox = null; // invalider le cache après translate
+      geo.boundingBox = null;
 
       if (snapTransform) {
         mesh.position.copy(snapTransform.position);
         mesh.quaternion.copy(snapTransform.quaternion);
       } else if (pos) {
-        mesh.position.set(pos.x, this.slots.planY - (box.min.y - center.y), pos.z);
+        mesh.position.set(pos.x, this.worldSlots.planY - (box.min.y - center.y), pos.z);
       }
 
       this.scene.add(mesh);
@@ -659,6 +733,7 @@ export class AsmVerse {
 
       const brick = new AsmBrick(id, brickTypeId, brickData, mesh, slots, center);
       this.bricks.set(id, brick);
+      this.slots.registerBrick(brick);   // ← point d'entrée 1 du registre
       return brick;
     } catch (e) {
       console.error('[AsmVerse] spawnBrick error', e);
@@ -667,9 +742,8 @@ export class AsmVerse {
   }
 
   /**
-   * Retire une brique de la scène : libère mesh, connexions, world slot.
-   * ⚠ L'Assembler doit gérer le nettoyage des AsmHandlers AVANT d'appeler cette méthode.
-   * @param {AsmBrick} brick
+   * Retire une brique de la scène : mesh, slots, connexions, world slot.
+   * ⚠ L'Assembler doit gérer le nettoyage des AsmHandlers AVANT d'appeler ceci.
    */
   removeBrick(brick) {
     this.scene.remove(brick.mesh);
@@ -678,14 +752,13 @@ export class AsmVerse {
     // Libérer le world slot lié (le cas échéant)
     const wsConns = this._wsConnections.filter(wsc => wsc.brick === brick);
     for (const wsc of wsConns) {
-      this.slots.unbindWorldSlot(wsc.wslot);
-      this.slots.removeWorldSlot(wsc.wslot);
+      this.worldSlots.unbind(wsc.wslot);
+      this.worldSlots.remove(wsc.wslot);
     }
     this._wsConnections = this._wsConnections.filter(wsc => wsc.brick !== brick);
 
-    // Supprimer connexions + marqueurs
     this.joints.removeFor(brick);
-
+    this.slots.unregisterBrick(brick);   // ← point d'entrée 2 du registre
     this.bricks.delete(brick.id);
   }
 
@@ -703,18 +776,18 @@ export class AsmVerse {
 
   /**
    * Assemble brickA sur brickB d'après les points d'accroche écran.
-   * Déplace brickA à la transform de snap, enregistre la connexion.
+   * Déplace brickA, enregistre la connexion.
    * @returns {Object|null} conn, ou null si aucune liaison compatible
    */
   connectDrag(brickA, grabX, grabY, brickB, dropX, dropY, camera) {
-    const nearA = this.slots.nearSlotsOf(brickA, grabX, grabY, camera);
-    const nearB = this.slots.nearSlotsOf(brickB, dropX, dropY, camera);
-    const result = this.slots.resolve(nearA, nearB);
+    const nearA  = this.slots.nearSlotsOf(brickA, grabX, grabY, camera);
+    const nearB  = this.slots.nearSlotsOf(brickB, dropX, dropY, camera);
+    const result = this.worldSlots.resolve(nearA, nearB);
     if (!result) {
-      this.slots.solver.diagnose(nearA, nearB);
+      this._solver.diagnose(nearA, nearB);
       return null;
     }
-    const snap = this.slots.computeSnap(result.slotA, result.slotB, brickB);
+    const snap = this.worldSlots.computeSnap(result.slotA, result.slotB, brickB);
     brickA.mesh.position.copy(snap.position);
     brickA.mesh.quaternion.copy(snap.quaternion);
     brickA.origPos  = snap.position.clone();
@@ -724,26 +797,79 @@ export class AsmVerse {
 
   // ── World slot helpers ───────────────────────────────────────────────────────
 
-  /**
-   * Attache un world slot à une brique (mémorise la liaison).
-   */
+  /** Attache un world slot à une brique (mémorise la liaison pour removeBrick). */
   bindWorldSlot(wslot, brick, nearSlotA = null) {
-    this.slots.bindWorldSlot(wslot, brick.id);
+    this.worldSlots.bind(wslot, brick.id);
     this._wsConnections.push({ wslot, brick, slotA: nearSlotA });
   }
 
   // ── Topologie ────────────────────────────────────────────────────────────────
 
-  /** Nombre de composantes connexes dans la scène. */
+  /**
+   * Calcule et retourne les composantes connexes rigides de l'assemblage.
+   *
+   * Algorithme :
+   * 1. BFS en ne traversant que les connexions RIGIDES (sans DOF).
+   * 2. Pour chaque composante, rassemble les connexions DOF qui la relient
+   *    à d'autres composantes et les enregistre dans AsmEquivalenceClass.links.
+   *
+   * @returns {AsmEquivalenceClass[]}
+   */
+  computeComponents() {
+    const isRigid = c => c.implicit || !(c.liaison?.dof?.length);
+    const seen       = new Set();
+    const components = [];
+
+    for (const brick of this.bricks.values()) {
+      if (seen.has(brick.id)) continue;
+
+      // BFS rigide
+      const compIds = new Set([brick.id]);
+      const queue   = [brick];
+      while (queue.length) {
+        const b = queue.shift();
+        for (const conn of this.joints.connections) {
+          if (!isRigid(conn)) continue;
+          let neighbor = null;
+          if (conn.instA === b && !compIds.has(conn.instB.id)) neighbor = conn.instB;
+          if (conn.instB === b && !compIds.has(conn.instA.id)) neighbor = conn.instA;
+          if (neighbor) { compIds.add(neighbor.id); queue.push(neighbor); }
+        }
+      }
+
+      const compBricks = [...this.bricks.values()].filter(b => compIds.has(b.id));
+      const internalJoints = this.joints.connections.filter(
+        c => isRigid(c) && compIds.has(c.instA.id) && compIds.has(c.instB.id)
+      );
+      const ec = new AsmEquivalenceClass(compBricks, internalJoints);
+      components.push(ec);
+      for (const id of compIds) seen.add(id);
+    }
+
+    // Liens cinématiques (DOF) entre composantes
+    for (const conn of this.joints.connections) {
+      if (isRigid(conn)) continue;
+      const ecA = components.find(ec => ec.contains(conn.instA));
+      const ecB = components.find(ec => ec.contains(conn.instB));
+      if (ecA && ecB && ecA !== ecB) {
+        ecA.links.push({ connection: conn, other: ecB });
+        ecB.links.push({ connection: conn, other: ecA });
+      }
+    }
+
+    return components;
+  }
+
+  /** Nombre de composantes connexes rigides. */
   componentCount() {
-    return AsmEquivalenceClass.count(this.bricks, this.joints);
+    return this.computeComponents().length;
   }
 
   // ── Persistance ─────────────────────────────────────────────────────────────
 
   /**
-   * Sérialise la scène (même format que _saveScene / _restoreScene de l'Assembler).
-   * @returns {Object}
+   * Sérialise la scène (format compatible avec _saveScene / _restoreScene de l'Assembler).
+   * @returns {{ version: number, instances: Object[], connections: Object[] }}
    */
   serialize() {
     const instances = [...this.bricks.values()].map(b => ({
@@ -754,12 +880,12 @@ export class AsmVerse {
       qz: b.mesh.quaternion.z, qw: b.mesh.quaternion.w,
     }));
     const connections = this.joints.explicitConnections().map(c => ({
-      instAId   : c.instA.id,
-      instBId   : c.instB.id,
-      slotAId   : c.slotA.id,
-      slotBId   : c.slotB.id,
-      liaisonId : c.liaison?.id ?? null,
-      implicit  : false,
+      instAId  : c.instA.id,
+      instBId  : c.instB.id,
+      slotAId  : c.slotA.id,
+      slotBId  : c.slotB.id,
+      liaisonId: c.liaison?.id ?? null,
+      implicit : false,
     }));
     return { version: 1, instances, connections };
   }
@@ -768,30 +894,26 @@ export class AsmVerse {
    * Rehydrate la scène depuis des données sauvegardées.
    *
    * @param {Object}  data           — { version, instances, connections }
-   * @param {Object}  bricksStore    — rbang_bricks (id → brickData)
-   * @param {Object}  shapesStore    — rbang_shapes (shapeRef → shapeData)
-   * @param {Object}  liaisonsStore  — rbang_liaisons (id → liaison)
-   * @returns {Promise<Map<string,AsmBrick>>}  oldId → newBrick
+   * @param {Object}  bricksStore    — rbang_bricks  (id → brickData)
+   * @param {Object}  shapesStore    — rbang_shapes  (shapeRef → shapeData)
+   * @param {Object}  [liaisonsStore] — rbang_liaisons (id → liaison)
+   * @returns {Promise<Map<string,AsmBrick>>}  ancien id → AsmBrick
    */
   async restore(data, bricksStore, shapesStore, liaisonsStore = {}) {
     if (!data?.instances?.length) return new Map();
+    const idMap = new Map();
 
-    const idMap = new Map(); // ancien id → AsmBrick
-
-    // 1. Recréer les instances à leur pose sauvegardée
     for (const s of data.instances) {
       const brickData = bricksStore[s.brickTypeId];
       if (!brickData) continue;
-      const shapeData = shapesStore[brickData.shapeRef];
+      const shapeData = shapesStore[brickData.shapeRef] ?? null;
       const brick = await this.spawnBrick(
-        s.brickTypeId,
-        brickData,
+        s.brickTypeId, brickData,
         new THREE.Vector3(s.px, s.py, s.pz),
-        null,
-        shapeData ?? null
+        null, shapeData
       );
       if (!brick) continue;
-      // Appliquer la pose exacte (spawnBrick a posé la brique au sol, on corrige)
+      // Appliquer la pose exacte sauvegardée
       brick.mesh.position.set(s.px, s.py, s.pz);
       brick.mesh.quaternion.set(s.qx, s.qy, s.qz, s.qw);
       brick.origPos  = brick.mesh.position.clone();
@@ -799,7 +921,6 @@ export class AsmVerse {
       idMap.set(s.id, brick);
     }
 
-    // 2. Recréer les connexions explicites
     for (const c of (data.connections || [])) {
       if (c.implicit) continue;
       const brickA = idMap.get(c.instAId);
@@ -815,11 +936,9 @@ export class AsmVerse {
     return idMap;
   }
 
-  // ── Nettoyage global ─────────────────────────────────────────────────────────
+  // ── Nettoyage ────────────────────────────────────────────────────────────────
 
-  /**
-   * Vide entièrement la scène (briques, connexions, world slots, plan).
-   */
+  /** Vide entièrement la scène (briques, connexions, world slots). */
   clear() {
     this.joints.dispose();
     for (const brick of [...this.bricks.values()]) {
@@ -827,19 +946,17 @@ export class AsmVerse {
       brick.dispose();
     }
     this.bricks.clear();
+    this.slots.clear();
     for (const wsc of this._wsConnections) {
-      this.slots.unbindWorldSlot(wsc.wslot);
-      this.slots.removeWorldSlot(wsc.wslot);
+      this.worldSlots.unbind(wsc.wslot);
+      this.worldSlots.remove(wsc.wslot);
     }
     this._wsConnections = [];
   }
 
-  /**
-   * Détruit tout y compris les ressources THREE.js du gestionnaire de world slots.
-   * À appeler lors du stop() de l'Assembler.
-   */
+  /** Détruit tout (y compris les ressources THREE.js des world slots). */
   dispose() {
     this.clear();
-    this.slots.dispose();
+    this.worldSlots.dispose();
   }
 }
