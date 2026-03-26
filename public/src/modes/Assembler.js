@@ -3,6 +3,7 @@ import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 import { getManifold, buildCache, manifoldToGeometry } from '../csg-utils.js';
 import { BrickDock } from './BrickDock.js';
 import { expandSlots } from '../slot-utils.js';
+import { AsmHandlers } from './AsmDofHandler.js';
 
 // ─── Couleurs thème Industrial ────────────────────────────────────────────────
 const C = {
@@ -15,14 +16,14 @@ const C = {
   worldSlot:    0x7aafc8,
   snapRing:     0x00ff88,
   jointExplicit: 0x00ccff,
-  jointImplicit: 0xffaa00,
 };
 
 // Hauteur de la barre de titre — rogne le viewport rendu et le dock
 const BAR_H = 32;
 
 // Persistance de la configuration de l'Assembler
-const CFG_KEY = 'rbang_asm_cfg';
+const CFG_KEY   = 'rbang_asm_cfg';
+const SCENE_KEY = 'rbang_asm_scene';
 const CFG_DEFAULTS = {
   dockEdge             : 'bottom',
   dockAlign            : 'center',
@@ -32,6 +33,8 @@ const CFG_DEFAULTS = {
   planVisible          : true,
   accent               : '#7aafc8',
   stackPersist         : false,
+  asmHelperStepsRot    : 16,   // nombre de divisions sur 360°
+  asmHelperStepsTrans  : 20,   // nombre de divisions sur la plage
 };
 
 // ─── Spirale phyllotaxique ────────────────────────────────────────────────────
@@ -309,6 +312,7 @@ export class Assembler {
     this._wsConnections = []; // { wslot, inst, slotA } pour world slots
     this._jointMarkers  = []; // { mesh, conn } marqueurs visuels des liaisons
     this._stackCandidate = null; // { inst, startX, startY } — brique saisie en cours de drag
+    this._asmHandlers   = null; // AsmHandlers actifs (DOF d'assemblage)
   }
 
   // ─── Cycle de vie ──────────────────────────────────────────────────────────
@@ -320,6 +324,7 @@ export class Assembler {
     this._setupUI();
     this._setupEvents();
     this.engine.start();
+    await this._restoreScene();
   }
 
   _loadConfig() {
@@ -342,7 +347,105 @@ export class Assembler {
     if (this._wsm._planeMesh) this._wsm._planeMesh.visible = cfg.planVisible;
   }
 
+  // ─── Persistance de la scène ───────────────────────────────────────────────
+
+  _saveScene() {
+    const instances = [...this._instances.values()].map(inst => ({
+      id          : inst.id,
+      brickTypeId : inst.brickTypeId,
+      px: inst.mesh.position.x, py: inst.mesh.position.y, pz: inst.mesh.position.z,
+      qx: inst.mesh.quaternion.x, qy: inst.mesh.quaternion.y,
+      qz: inst.mesh.quaternion.z, qw: inst.mesh.quaternion.w,
+    }));
+    const connections = this._connections.map(c => ({
+      instAId   : c.instA.id,
+      instBId   : c.instB.id,
+      slotAId   : c.slotA.id,
+      slotBId   : c.slotB.id,
+      liaisonId : c.liaison?.id ?? null,
+      implicit  : c.implicit ?? false,
+    }));
+    try {
+      localStorage.setItem(SCENE_KEY, JSON.stringify({ version: 1, instances, connections }));
+    } catch { /* quota exceeded */ }
+  }
+
+  async _restoreScene() {
+    let saved;
+    try { saved = JSON.parse(localStorage.getItem(SCENE_KEY) || 'null'); } catch { return; }
+    if (!saved?.instances?.length) return;
+
+    // 1. Recréer les instances à la pose sauvegardée
+    const idMap = new Map(); // ancien id → nouvelle BrickInstance
+    for (const s of saved.instances) {
+      const inst = await this._spawnBrick(s.brickTypeId, new THREE.Vector3(s.px, s.py, s.pz));
+      if (!inst) continue;
+      inst.mesh.position.set(s.px, s.py, s.pz);
+      inst.mesh.quaternion.set(s.qx, s.qy, s.qz, s.qw);
+      inst.origPos  = inst.mesh.position.clone();
+      inst.origQuat = inst.mesh.quaternion.clone();
+      idMap.set(s.id, inst);
+    }
+
+    // 2. Recréer les connexions
+    for (const c of (saved.connections || [])) {
+      const instA = idMap.get(c.instAId);
+      const instB = idMap.get(c.instBId);
+      if (!instA || !instB) continue;
+      const slotA = instA.slots.find(s => s.id === c.slotAId || s._defId === c.slotAId);
+      const slotB = instB.slots.find(s => s.id === c.slotBId || s._defId === c.slotBId);
+      if (!slotA || !slotB) continue;
+      const liaisons = this._loadStore('rbang_liaisons');
+      const liaison  = c.liaisonId ? (liaisons[c.liaisonId] ?? null) : null;
+      const conn = { instA, instB, slotA, slotB, liaison, implicit: c.implicit };
+      this._connections.push(conn);
+      this._addJointMarker(conn);
+    }
+  }
+
+  _serializeSceneJSON() {
+    const instances = [...this._instances.values()].map(inst => ({
+      id: inst.id, brickTypeId: inst.brickTypeId,
+      px: inst.mesh.position.x, py: inst.mesh.position.y, pz: inst.mesh.position.z,
+      qx: inst.mesh.quaternion.x, qy: inst.mesh.quaternion.y,
+      qz: inst.mesh.quaternion.z, qw: inst.mesh.quaternion.w,
+    }));
+    const connections = this._connections.map(c => ({
+      instAId: c.instA.id, instBId: c.instB.id,
+      slotAId: c.slotA.id, slotBId: c.slotB.id,
+      liaisonId: c.liaison?.id ?? null, implicit: c.implicit ?? false,
+    }));
+    return JSON.stringify({ version: 1, instances, connections }, null, 2);
+  }
+
+  _exportScene() {
+    const blob = new Blob([this._serializeSceneJSON()], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'rbang-scene.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  _importScene() {
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = '.json,application/json';
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        localStorage.setItem(SCENE_KEY, text);
+        this._clearScene();
+        await this._restoreScene();
+      } catch (e) { console.error('[Assembler] import', e); }
+    });
+    input.click();
+  }
+
   stop() {
+    this._asmHandlers?.detach();
+    this._asmHandlers = null;
     this.engine.resizeViewport(0, 0, 0);
     this._wsm.dispose();
     this._dock?.destroy();
@@ -650,8 +753,9 @@ export class Assembler {
       const { inst, startX, startY } = this._stackCandidate;
       const dx = e.clientX - startX, dy = e.clientY - startY;
       if (Math.sqrt(dx * dx + dy * dy) >= 12) {
-        inst.mesh.material.transparent = true;
+        inst.mesh.material.transparent  = true;
         inst.mesh.material.opacity      = 0.4;
+        inst.mesh.material.needsUpdate  = true;
       }
     };
 
@@ -679,8 +783,9 @@ export class Assembler {
           if (target) this._connectDrag(inst, startX, startY, target, e.clientX, e.clientY);
         }
         // Restaurer opacité dans tous les cas (assemblage ou abandon)
-        inst.mesh.material.transparent = false;
+        inst.mesh.material.transparent  = false;
         inst.mesh.material.opacity      = 1;
+        inst.mesh.material.needsUpdate  = true;
       }
 
       this.engine.controls.enabled = true;
@@ -690,7 +795,7 @@ export class Assembler {
     window.addEventListener('pointercancel', () => {
       if (this._stackCandidate) {
         const m = this._stackCandidate.inst?.mesh;
-        if (m) { m.material.transparent = false; m.material.opacity = 1; }
+        if (m) { m.material.transparent = false; m.material.opacity = 1; m.material.needsUpdate = true; }
         this._stackCandidate = null;
       }
       this.engine.controls.enabled = true;
@@ -705,8 +810,19 @@ export class Assembler {
 
   // Ajoute un marqueur disque à la position monde du slot de la connexion
   _addJointMarker(conn) {
-    const { instA, slotA, implicit } = conn;
-    const color = implicit ? C.jointImplicit : C.jointExplicit;
+    if (conn.implicit) return; // liaisons implicites : pas de marqueur visuel
+
+    // Masquer tous les marqueurs des liaisons explicites précédentes
+    for (const jm of this._jointMarkers) jm.mesh.visible = false;
+
+    // Remplacer les handlers de DOF d'assemblage par ceux de cette connexion
+    this._activateAsmHandlers(conn);
+
+    // Si des helpers d'assemblage sont actifs, ils remplacent le disque de marqueur
+    if (this._asmHandlers?.active) return;
+
+    const { instA, slotA } = conn;
+    const color = C.jointExplicit;
     const geo = new THREE.CylinderGeometry(0.75, 0.75, 0.06, 32);
     const mat = new THREE.MeshBasicMaterial({
       color, transparent: true, opacity: 0.55,
@@ -739,6 +855,21 @@ export class Assembler {
     }
     this.engine.scene.add(marker);
     this._jointMarkers.push({ mesh: marker, conn });
+  }
+
+  // ─── DOF assemblage ───────────────────────────────────────────────────────────
+
+  _activateAsmHandlers(conn) {
+    this._asmHandlers?.detach();
+    this._asmHandlers = null;
+    const cfg        = this._loadConfig();
+    const stepsRot   = cfg.asmHelperStepsRot   ?? 16;
+    const stepsTrans = cfg.asmHelperStepsTrans  ?? 20;
+    const handlers = new AsmHandlers({ conn, engine: this.engine, topOffset: BAR_H, stepsRot, stepsTrans });
+    if (handlers.active) {
+      handlers.attach();
+      this._asmHandlers = handlers;
+    }
   }
 
   // ─── Helpers visuels ─────────────────────────────────────────────────────────
@@ -885,6 +1016,8 @@ export class Assembler {
       'align-items:flex-start',
     ].join(';');
 
+    const cfg = this._loadConfig();
+
     // Helpers locaux
     const makeCard = label => {
       const card = document.createElement('div');
@@ -1016,6 +1149,53 @@ export class Assembler {
     );
     body.append(wsCard);
 
+    // ── Carte : Asm Helpers ───────────────────────────────────────────────────
+    const helpersCard = makeCard('Asm Helpers');
+
+    const makeStepsInput = (label, hint, initSteps, onHint, onChange) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:10px;';
+      const lbl = document.createElement('span');
+      lbl.textContent = label;
+      lbl.style.cssText = `color:${C.dim};font-size:10px;flex:1;`;
+      const hintEl = document.createElement('span');
+      hintEl.textContent = onHint(initSteps);
+      hintEl.style.cssText = `color:${C.dim};font-size:9px;min-width:44px;text-align:right;font-variant-numeric:tabular-nums;`;
+      const inp = document.createElement('input');
+      inp.type = 'number'; inp.min = '1'; inp.step = '1';
+      inp.value = String(initSteps);
+      inp.style.cssText = [
+        'width:52px', `background:${C.bgDark}`, `color:${C.fg}`,
+        `border:1px solid ${C.border}`, 'border-radius:2px',
+        'padding:3px 6px', 'font-size:11px', 'text-align:right',
+        'font-variant-numeric:tabular-nums',
+      ].join(';');
+      inp.addEventListener('change', () => {
+        const v = Math.max(1, parseInt(inp.value) || 1);
+        inp.value = String(v);
+        hintEl.textContent = onHint(v);
+        onChange(v);
+      });
+      row.append(lbl, hintEl, inp);
+      return row;
+    };
+
+    helpersCard.append(
+      makeStepsInput(
+        'Rotation (étapes)', '',
+        cfg.asmHelperStepsRot ?? 16,
+        n => `${(360 / n).toFixed(2)}°`,
+        v => this._saveConfig({ asmHelperStepsRot: v }),
+      ),
+      makeStepsInput(
+        'Translation (étapes)', '',
+        cfg.asmHelperStepsTrans ?? 20,
+        n => `÷ ${n}`,
+        v => this._saveConfig({ asmHelperStepsTrans: v }),
+      ),
+    );
+    body.append(helpersCard);
+
     // ── Carte : Thème ────────────────────────────────────────────────────────
     const themeCard = makeCard('Thème');
     const themeStyle = document.createElement('style');
@@ -1054,6 +1234,33 @@ export class Assembler {
     themeCard.append(swatchRow);
     body.append(themeCard);
 
+    // ── Carte : Scène ─────────────────────────────────────────────────────────
+    const sceneCard = makeCard('Scène');
+    const makeActionBtn = (label, onClick) => {
+      const btn = document.createElement('button');
+      btn.textContent = label;
+      btn.style.cssText = [
+        'width:100%', 'padding:6px 10px', 'margin-bottom:6px',
+        `background:${C.bgDark}`, `border:1px solid ${C.border}`,
+        `color:${C.fg}`, 'border-radius:2px', 'font-size:10px',
+        'cursor:pointer', 'text-align:left',
+      ].join(';');
+      btn.addEventListener('click', onClick);
+      return btn;
+    };
+    const resetBtn = makeActionBtn('Réinitialiser la scène', () => {
+      this._closeConfigModal();
+      this._clearScene();
+    });
+    resetBtn.style.color = '#e07070';
+    resetBtn.style.borderColor = '#884444';
+    sceneCard.append(
+      makeActionBtn('Exporter (.json)', () => { this._closeConfigModal(); this._exportScene(); }),
+      makeActionBtn('Importer (.json)', () => { this._closeConfigModal(); this._importScene(); }),
+      resetBtn,
+    );
+    body.append(sceneCard);
+
     modal.append(header, body);
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
@@ -1078,6 +1285,8 @@ export class Assembler {
   }
 
   _clearAll() {
+    this._asmHandlers?.detach();
+    this._asmHandlers = null;
     for (const { mesh } of this._jointMarkers) {
       this.engine.scene.remove(mesh);
       mesh.geometry.dispose(); mesh.material.dispose();
@@ -1231,6 +1440,7 @@ export class Assembler {
       this._addJointMarker(conn);
       this._registerImplicitConnectionsFor(instA);
       this._showSnapHelper(instA.mesh.position.clone());
+      this._saveScene();
     } else {
       this._solver.diagnose(nearSlotsA, nearSlotsB);
     }
@@ -1240,6 +1450,15 @@ export class Assembler {
     this.engine.scene.remove(inst.mesh);
     inst.mesh.geometry.dispose();
     inst.mesh.material.dispose();
+
+    // Nettoyer les helpers de DOF si la brique retirée est impliquée
+    if (this._asmHandlers) {
+      const conn = this._asmHandlers._handlers[0]?._conn;
+      if (conn && (conn.instA === inst || conn.instB === inst)) {
+        this._asmHandlers.detach();
+        this._asmHandlers = null;
+      }
+    }
 
     // Supprimer les connexions impliquant cette instance + leurs marqueurs
     const connToRemove = this._connections.filter(c => c.instA === inst || c.instB === inst);
@@ -1278,6 +1497,7 @@ export class Assembler {
 
   _updateCount() {
     if (this._countEl) this._countEl.textContent = `Briques : ${this._instances.size}`;
+    this._saveScene();
   }
 
   _loadStore(key) {
