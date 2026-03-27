@@ -71,6 +71,12 @@ export class Assembler {
     this._snapHelpers = [];
     this._stackCandidate = null; // { inst, startX, startY } — brique saisie en cours de drag
     this._asmHandlers   = null; // AsmHandlers actifs (DOF d'assemblage)
+
+    // ── État global des modes ──────────────────────────────────────────────────
+    this._mode               = 'brick';  // 'brick' | 'component'
+    this._process            = 'idle';   // 'idle' | 'dragging' | 'trackball' | 'assembling'
+    this._selectedBrick      = null;     // AsmBrick | null
+    this._selectedComponent  = null;     // AsmEquivalenceClass | null
   }
 
   // ─── Cycle de vie ──────────────────────────────────────────────────────────
@@ -293,7 +299,9 @@ export class Assembler {
     const onUp = () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup',   onUp);
+      this._setProcess('idle');
     };
+    this._setProcess('trackball');
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup',   onUp);
   }
@@ -316,11 +324,15 @@ export class Assembler {
         const hitMesh = hits[0].object;
         const hitInst = [...this._asmVerse.bricks.values()].find(i => i.mesh === hitMesh);
         if (hitInst) {
+          this._selectBrick(hitInst);
           this._stackCandidate = { inst: hitInst, startX: e.clientX, startY: e.clientY };
           this.engine.controls.enabled = false;
         }
         return;
       }
+
+      // Clic dans le vide → désélectionner
+      this._selectBrick(null);
 
       // Priorité 2 : world slot proche
       const pt = this._asmVerse.worldSlots.raycastPlane(this._raycaster);
@@ -343,11 +355,13 @@ export class Assembler {
         inst.mesh.material.transparent  = true;
         inst.mesh.material.opacity      = 0.4;
         inst.mesh.material.needsUpdate  = true;
+        this._setProcess('dragging');
       }
     };
 
     this._onPointerUpStack = (e) => {
       if (!this._stackCandidate) return;
+      this._setProcess('idle');
       const { inst, startX, startY } = this._stackCandidate;
 
       const under  = document.elementFromPoint(e.clientX, e.clientY);
@@ -384,6 +398,7 @@ export class Assembler {
         const m = this._stackCandidate.inst?.mesh;
         if (m) { m.material.transparent = false; m.material.opacity = 1; m.material.needsUpdate = true; }
         this._stackCandidate = null;
+        this._setProcess('idle');
       }
       this.engine.controls.enabled = true;
     }, { capture: true });
@@ -481,6 +496,37 @@ export class Assembler {
       location.reload();
     });
 
+    // ── Sélecteur de mode ────────────────────────────────────────────────────────
+    const modeStrip = document.createElement('div');
+    modeStrip.style.cssText = [
+      'display:flex', `border:1px solid ${C.border}`, 'border-radius:3px',
+      'overflow:hidden', 'flex-shrink:0', 'margin:0 4px',
+    ].join(';');
+    const _modeBtn = (icon, title, key) => {
+      const btn = document.createElement('button');
+      btn.dataset.modeKey = key;
+      btn.title = title;
+      btn.textContent = icon;
+      btn.style.cssText = [
+        'background:transparent', 'border:none', `color:${C.dim}`,
+        'font-size:13px', 'cursor:pointer', 'padding:0 7px', 'height:100%', 'line-height:1',
+      ].join(';');
+      btn.addEventListener('click', () => this._setMode(key));
+      return btn;
+    };
+    const _brickModeBtn = _modeBtn('▦', 'Mode Brique',      'brick');
+    const _compModeBtn  = _modeBtn('⬡', 'Mode Composante',  'component');
+    modeStrip.append(_brickModeBtn, _compModeBtn);
+
+    this._updateModeBtns = () => {
+      for (const btn of modeStrip.querySelectorAll('button')) {
+        const active = btn.dataset.modeKey === this._mode;
+        btn.style.color      = active ? C.accent : C.dim;
+        btn.style.background = active ? `${C.bg}` : 'transparent';
+      }
+    };
+    this._updateModeBtns();
+
     this._countEl = document.createElement('span');
     this._countEl.style.cssText = 'flex:1;text-align:center;pointer-events:none;';
 
@@ -496,13 +542,19 @@ export class Assembler {
     compBtn.textContent = '⬡';
     compBtn.addEventListener('click', () => this._togglePanel('components'));
 
+    const stateBtn = document.createElement('button');
+    stateBtn.className = 'asm-bar-btn';
+    stateBtn.title = 'État interne';
+    stateBtn.textContent = '◉';
+    stateBtn.addEventListener('click', () => this._togglePanel('state'));
+
     const cfgBtn = document.createElement('button');
     cfgBtn.className = 'asm-bar-btn';
     cfgBtn.title = 'Configuration';
     cfgBtn.textContent = '⚙';
     cfgBtn.addEventListener('click', () => this._openConfigModal());
 
-    bar.append(fsBtn, reloadBtn, this._countEl, bricksBtn, compBtn, cfgBtn);
+    bar.append(fsBtn, reloadBtn, modeStrip, this._countEl, bricksBtn, compBtn, stateBtn, cfgBtn);
     document.body.appendChild(bar);
     this._ui.push(bar);
 
@@ -965,7 +1017,7 @@ export class Assembler {
   _updateCount() {
     if (this._countEl) this._countEl.textContent = `Briques : ${this._asmVerse.bricks.size}`;
     this._saveScene();
-    for (const name of ['bricks', 'components']) {
+    for (const name of ['bricks', 'components', 'state']) {
       const p = this._panels?.[name];
       if (p?.style.display === 'flex') this._refreshPanel(name);
     }
@@ -987,12 +1039,13 @@ export class Assembler {
   }
 
   _createPanel(name) {
+    const widths = { state: 'min(240px,85vw)', bricks: 'min(320px,90vw)', components: 'min(320px,90vw)' };
     const panel = document.createElement('div');
     panel.className = 'asm-panel';
     panel.style.cssText = [
       'position:fixed',
       `top:${BAR_H}px`, 'right:0',
-      'width:min(320px,90vw)', 'max-height:calc(100dvh - ' + BAR_H + 'px)',
+      `width:${widths[name] || 'min(320px,90vw)'}`, 'max-height:calc(100dvh - ' + BAR_H + 'px)',
       `background:${C.bgDark}ee`,
       `border-left:1px solid ${C.border}`,
       `border-bottom:1px solid ${C.border}`,
@@ -1010,7 +1063,8 @@ export class Assembler {
     ].join(';');
     const title = document.createElement('span');
     title.style.cssText = `color:${C.dim};font-size:9px;text-transform:uppercase;letter-spacing:.1em;`;
-    title.textContent = name === 'bricks' ? 'Briques' : 'Composantes';
+    const panelTitles = { bricks: 'Briques', components: 'Composantes', state: 'État interne' };
+    title.textContent = panelTitles[name] ?? name;
     const closeBtn = document.createElement('button');
     closeBtn.textContent = '✕';
     closeBtn.style.cssText = `background:transparent;border:none;color:${C.dim};font-size:14px;cursor:pointer;padding:0 2px;line-height:1;`;
@@ -1034,11 +1088,9 @@ export class Assembler {
     const body = panel._body;
     body.innerHTML = '';
 
-    if (name === 'bricks') {
-      this._fillBricksPanel(body);
-    } else {
-      this._fillComponentsPanel(body);
-    }
+    if (name === 'bricks')      this._fillBricksPanel(body);
+    else if (name === 'state') this._fillStatePanel(body);
+    else                        this._fillComponentsPanel(body);
   }
 
   _fillBricksPanel(body) {
@@ -1112,6 +1164,99 @@ export class Assembler {
       }
       body.appendChild(section);
     });
+  }
+
+  // ─── Gestion des modes et de l'état interne ──────────────────────────────────
+
+  /** Bascule entre 'brick' et 'component'. Réinitialise processus et sélection. */
+  _setMode(mode) {
+    this._mode              = mode;
+    this._process           = 'idle';
+    this._selectedBrick     = null;
+    this._selectedComponent = null;
+    this._updateModeBtns?.();
+    // Rafraîchir le panel état s'il est ouvert
+    const p = this._panels?.state;
+    if (p?.style.display === 'flex') this._refreshPanel('state');
+  }
+
+  /** Met à jour le processus en cours et rafraîchit le panel état. */
+  _setProcess(proc) {
+    this._process = proc;
+    const p = this._panels?.state;
+    if (p?.style.display === 'flex') this._refreshPanel('state');
+  }
+
+  /** Sélectionne une brique (mode brick). null = désélection. */
+  _selectBrick(brick) {
+    this._selectedBrick = brick;
+    const p = this._panels?.state;
+    if (p?.style.display === 'flex') this._refreshPanel('state');
+  }
+
+  /** Sélectionne une composante (mode component). */
+  _selectComponent(comp) {
+    this._selectedComponent = comp;
+    const p = this._panels?.state;
+    if (p?.style.display === 'flex') this._refreshPanel('state');
+  }
+
+  _fillStatePanel(body) {
+    const MODE_LABELS = { brick: 'Brique', component: 'Composante' };
+    const PROC_LABELS = {
+      idle:       'Repos',
+      dragging:   'Déplacement',
+      trackball:  'Rotation (world slot)',
+      assembling: 'Assemblage',
+    };
+
+    const rows = [
+      ['MODE',      MODE_LABELS[this._mode]   || this._mode],
+      ['PROCESSUS', PROC_LABELS[this._process] || this._process],
+    ];
+
+    if (this._mode === 'brick') {
+      const sel = this._selectedBrick;
+      rows.push(['SÉLECTION', sel ? (sel.brickData.name || sel.brickTypeId) : '—']);
+      if (this._stackCandidate) {
+        const b = this._stackCandidate.inst;
+        rows.push(['EN COURS', b.brickData.name || b.brickTypeId]);
+      }
+    } else {
+      const comp = this._selectedComponent;
+      rows.push(['SÉLECTION', comp ? `Composante (${comp.size} briques)` : '—']);
+    }
+
+    // Séparateur
+    rows.push(null);
+
+    // Contexte AsmVerse
+    const nExpl = this._asmVerse.joints.connections.filter(c => !c.implicit).length;
+    const nImpl = this._asmVerse.joints.connections.length - nExpl;
+    rows.push(['BRIQUES',     String(this._asmVerse.bricks.size)]);
+    rows.push(['LIAISONS',    `${nExpl} explicites  +  ${nImpl} implicites`]);
+    rows.push(['COMPOSANTES', String(this._asmVerse.componentCount())]);
+
+    for (const row of rows) {
+      if (!row) {
+        // Séparateur
+        const sep = document.createElement('div');
+        sep.style.cssText = `height:1px;background:${C.border};margin:4px 0;`;
+        body.appendChild(sep);
+        continue;
+      }
+      const [key, val] = row;
+      const el = document.createElement('div');
+      el.style.cssText = `display:flex;justify-content:space-between;align-items:baseline;padding:5px 12px;border-bottom:1px solid ${C.border}22;`;
+      const k = document.createElement('span');
+      k.style.cssText = `color:${C.dim};font-size:9px;text-transform:uppercase;letter-spacing:.1em;flex-shrink:0;`;
+      k.textContent = key;
+      const v = document.createElement('span');
+      v.style.cssText = `color:${C.fg};font-size:11px;text-align:right;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`;
+      v.textContent = val;
+      el.append(k, v);
+      body.appendChild(el);
+    }
   }
 
   _panelEmpty(msg) {
