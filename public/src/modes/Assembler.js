@@ -967,13 +967,25 @@ export class Assembler {
     this._countEl = document.createElement('span');
     this._countEl.style.cssText = 'flex:1;text-align:center;pointer-events:none;';
 
+    const bricksBtn = document.createElement('button');
+    bricksBtn.className = 'asm-bar-btn';
+    bricksBtn.title = 'Liste des briques';
+    bricksBtn.textContent = '⊞';
+    bricksBtn.addEventListener('click', () => this._togglePanel('bricks'));
+
+    const compBtn = document.createElement('button');
+    compBtn.className = 'asm-bar-btn';
+    compBtn.title = 'Classes d\'équivalence';
+    compBtn.textContent = '⬡';
+    compBtn.addEventListener('click', () => this._togglePanel('components'));
+
     const cfgBtn = document.createElement('button');
     cfgBtn.className = 'asm-bar-btn';
     cfgBtn.title = 'Configuration';
     cfgBtn.textContent = '⚙';
     cfgBtn.addEventListener('click', () => this._openConfigModal());
 
-    bar.append(fsBtn, reloadBtn, this._countEl, cfgBtn);
+    bar.append(fsBtn, reloadBtn, this._countEl, bricksBtn, compBtn, cfgBtn);
     document.body.appendChild(bar);
     this._ui.push(bar);
 
@@ -1594,15 +1606,200 @@ export class Assembler {
   }
 
   _isOverUI(target) {
-    return target.closest?.('.brick-dock, .asm-bar, .asm-modal-overlay');
+    return target.closest?.('.brick-dock, .asm-bar, .asm-modal-overlay, .asm-panel');
   }
 
   _updateCount() {
     if (this._countEl) this._countEl.textContent = `Briques : ${this._instances.size}`;
     this._saveScene();
+    // Actualiser les panels ouverts
+    for (const name of ['bricks', 'components']) {
+      const p = this._panels?.[name];
+      if (p?.style.display === 'flex') this._refreshPanel(name);
+    }
   }
 
   _loadStore(key) {
     try { return JSON.parse(localStorage.getItem(key) || '{}'); } catch { return {}; }
+  }
+
+  // ─── Panels flottants (briques / composantes) ─────────────────────────────
+
+  _togglePanel(name) {
+    if (!this._panels) this._panels = {};
+    if (!this._panels[name]) this._panels[name] = this._createPanel(name);
+    const p = this._panels[name];
+    const open = p.style.display === 'none' || !p.style.display;
+    p.style.display = open ? 'flex' : 'none';
+    if (open) this._refreshPanel(name);
+  }
+
+  _createPanel(name) {
+    const panel = document.createElement('div');
+    panel.className = 'asm-panel';
+    panel.style.cssText = [
+      'position:fixed',
+      `top:${BAR_H}px`, 'right:0',
+      'width:min(320px,90vw)', 'max-height:calc(100dvh - ' + BAR_H + 'px)',
+      `background:${C.bgDark}ee`,
+      `border-left:1px solid ${C.border}`,
+      `border-bottom:1px solid ${C.border}`,
+      'display:none', 'flex-direction:column',
+      'z-index:52', 'pointer-events:auto',
+      'font:11px sans-serif',
+    ].join(';');
+
+    // En-tête
+    const header = document.createElement('div');
+    header.style.cssText = [
+      'display:flex', 'align-items:center', 'justify-content:space-between',
+      'padding:6px 10px', 'flex-shrink:0',
+      `border-bottom:1px solid ${C.border}`,
+    ].join(';');
+    const title = document.createElement('span');
+    title.style.cssText = `color:${C.dim};font-size:9px;text-transform:uppercase;letter-spacing:.1em;`;
+    title.textContent = name === 'bricks' ? 'Briques' : 'Composantes';
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '✕';
+    closeBtn.style.cssText = `background:transparent;border:none;color:${C.dim};font-size:14px;cursor:pointer;padding:0 2px;line-height:1;`;
+    closeBtn.addEventListener('click', () => { panel.style.display = 'none'; });
+    header.append(title, closeBtn);
+
+    // Corps scrollable
+    const body = document.createElement('div');
+    body.style.cssText = 'overflow-y:auto;flex:1;padding:8px 0;';
+    panel._body = body;
+
+    panel.append(header, body);
+    document.body.appendChild(panel);
+    this._ui.push(panel);
+    return panel;
+  }
+
+  _refreshPanel(name) {
+    const panel = this._panels?.[name];
+    if (!panel) return;
+    const body = panel._body;
+    body.innerHTML = '';
+
+    if (name === 'bricks') {
+      this._fillBricksPanel(body);
+    } else {
+      this._fillComponentsPanel(body);
+    }
+  }
+
+  _fillBricksPanel(body) {
+    if (!this._instances.size) {
+      body.appendChild(this._panelEmpty('Aucune brique dans la scène'));
+      return;
+    }
+    for (const inst of this._instances.values()) {
+      const conns = this._connections.filter(
+        c => c.instA === inst || c.instB === inst
+      ).length;
+      const row = document.createElement('div');
+      row.style.cssText = [
+        'display:flex', 'align-items:center', 'gap:8px',
+        'padding:5px 12px',
+        `border-bottom:1px solid ${C.border}22`,
+      ].join(';');
+
+      // Pastille couleur brique
+      const swatch = document.createElement('span');
+      swatch.style.cssText = [
+        'width:10px', 'height:10px', 'border-radius:2px', 'flex-shrink:0',
+        `background:${inst.brickData.color || '#888'}`,
+        `border:1px solid ${C.border}`,
+      ].join(';');
+
+      // Nom + id
+      const info = document.createElement('span');
+      info.style.cssText = `flex:1;color:${C.fg};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`;
+      info.textContent = inst.brickData.name || inst.brickTypeId;
+
+      // Compteur de connexions
+      const badge = document.createElement('span');
+      badge.style.cssText = `color:${conns ? C.accent : C.dim};flex-shrink:0;`;
+      badge.textContent = conns ? `${conns} ⇄` : '—';
+
+      row.append(swatch, info, badge);
+      body.appendChild(row);
+    }
+  }
+
+  _fillComponentsPanel(body) {
+    const isRigid = c => c.implicit || !(c.liaison?.dof?.length);
+    const seen = new Set();
+    let compIdx = 0;
+
+    for (const startInst of this._instances.values()) {
+      if (seen.has(startInst.id)) continue;
+
+      // BFS rigide
+      const compIds = new Set([startInst.id]);
+      const queue   = [startInst];
+      while (queue.length) {
+        const inst = queue.shift();
+        for (const conn of this._connections) {
+          if (!isRigid(conn)) continue;
+          let nb = null;
+          if (conn.instA === inst && !compIds.has(conn.instB.id)) nb = conn.instB;
+          if (conn.instB === inst && !compIds.has(conn.instA.id)) nb = conn.instA;
+          if (nb) { compIds.add(nb.id); queue.push(nb); }
+        }
+      }
+      for (const id of compIds) seen.add(id);
+
+      const members = [...this._instances.values()].filter(i => compIds.has(i.id));
+
+      // Liens DOF sortants
+      const dofLinks = this._connections.filter(c =>
+        !isRigid(c) && (compIds.has(c.instA.id) !== compIds.has(c.instB.id))
+      );
+
+      compIdx++;
+      const section = document.createElement('div');
+      section.style.cssText = `padding:6px 12px;border-bottom:1px solid ${C.border}44;`;
+
+      const heading = document.createElement('div');
+      heading.style.cssText = [
+        `color:${C.accent}`,
+        'font-size:10px', 'font-weight:bold',
+        'margin-bottom:4px',
+      ].join(';');
+      heading.textContent = `Composante ${compIdx}  (${members.length} brique${members.length > 1 ? 's' : ''})`;
+      section.appendChild(heading);
+
+      for (const inst of members) {
+        const row = document.createElement('div');
+        row.style.cssText = `display:flex;align-items:center;gap:6px;padding:2px 0;`;
+        const swatch = document.createElement('span');
+        swatch.style.cssText = `width:8px;height:8px;border-radius:1px;flex-shrink:0;background:${inst.brickData.color || '#888'};border:1px solid ${C.border};`;
+        const name = document.createElement('span');
+        name.style.cssText = `color:${C.fg};`;
+        name.textContent = inst.brickData.name || inst.brickTypeId;
+        row.append(swatch, name);
+        section.appendChild(row);
+      }
+
+      if (dofLinks.length) {
+        const links = document.createElement('div');
+        links.style.cssText = `margin-top:4px;color:${C.dim};font-size:10px;`;
+        links.textContent = `⇌ ${dofLinks.length} lien(s) DOF vers d'autres composantes`;
+        section.appendChild(links);
+      }
+
+      body.appendChild(section);
+    }
+
+    if (!compIdx) body.appendChild(this._panelEmpty('Aucune composante'));
+  }
+
+  _panelEmpty(msg) {
+    const el = document.createElement('div');
+    el.style.cssText = `color:${C.dim};padding:16px 12px;text-align:center;font-size:10px;`;
+    el.textContent = msg;
+    return el;
   }
 }
