@@ -373,7 +373,7 @@ export class BrickDock {
     const canvas = document.createElement('canvas');
     canvas.width  = pxSize;
     canvas.height = pxSize;
-    canvas.style.cssText = `width:${CELL}px;height:${CELL}px;display:block;transition:width 0.18s ease, height 0.18s ease;`;
+    canvas.style.cssText = `width:${CELL}px;height:${CELL}px;display:block;touch-action:none;transition:width 0.18s ease, height 0.18s ease;`;
     el.appendChild(canvas);
     const ctx2d = canvas.getContext('2d');
 
@@ -407,8 +407,9 @@ export class BrickDock {
     );
     camera.lookAt(0, 0, 0);
 
-    // TrackballControls attaché à l'élément de la cellule (même config que la Forge)
-    const tb = new TrackballControls(camera, el);
+    // TrackballControls attaché au canvas — les events arrivent directement dessus
+    // sans passer par le bubbling de cell.el (même config que la Forge)
+    const tb = new TrackballControls(camera, canvas);
     tb.rotateSpeed          = 3.5;
     tb.noZoom               = true;
     tb.noPan                = true;
@@ -487,7 +488,8 @@ export class BrickDock {
   // ── Gestes sur cellule ─────────────────────────────────────────────────────
 
   _bindCellGestures(cell) {
-    const el = cell.el;
+    // TB est sur cell.canvas — nos listeners aussi pour recevoir les events à la source
+    const cv = cell.canvas;
     let startX = 0, startY = 0;
     let mode = null; // 'assemble' | 'trackball' | null
 
@@ -500,7 +502,7 @@ export class BrickDock {
       }
     };
 
-    el.addEventListener('pointerdown', (e) => {
+    cv.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       startX = e.clientX; startY = e.clientY;
       mode = null;
@@ -518,31 +520,31 @@ export class BrickDock {
       }
 
       if (onBrick) {
-        // Mode assemblage : on capture et on suspend TrackballControls
+        // Mode assemblage : capturer sur cv, suspendre TB
         mode = 'assemble';
-        el.setPointerCapture(e.pointerId);
+        cv.setPointerCapture(e.pointerId);
         cell.tb.enabled = false;
       } else {
-        // Mode trackball : on s'assure que TrackballControls est actif
+        // Mode trackball : TB est sur cv, il reçoit le même event
         mode = 'trackball';
         cell.tb.enabled = true;
       }
     }, { passive: false });
 
-    el.addEventListener('pointermove', (e) => {
+    cv.addEventListener('pointermove', (e) => {
       if (mode !== 'assemble') return;
       const dx = e.clientX - startX, dy = e.clientY - startY;
       if (Math.sqrt(dx * dx + dy * dy) >= 15 && isTowardEdge(dx, dy)) {
-        el.releasePointerCapture(e.pointerId);
+        cv.releasePointerCapture(e.pointerId);
         cell.tb.enabled = true;
         mode = null;
         this._showFamily(this._famIdx + 1);
       }
     }, { passive: false });
 
-    el.addEventListener('pointerup', (e) => {
+    cv.addEventListener('pointerup', (e) => {
       if (mode === 'assemble') {
-        if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+        if (cv.hasPointerCapture(e.pointerId)) cv.releasePointerCapture(e.pointerId);
         cell.tb.enabled = true;
         if (this._onPickBrick) {
           const dx = e.clientX - startX, dy = e.clientY - startY;
@@ -558,8 +560,8 @@ export class BrickDock {
       mode = null;
     });
 
-    el.addEventListener('pointercancel', (e) => {
-      if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+    cv.addEventListener('pointercancel', (e) => {
+      if (cv.hasPointerCapture(e.pointerId)) cv.releasePointerCapture(e.pointerId);
       cell.tb.enabled = true;
       mode = null;
     });
