@@ -511,20 +511,22 @@ export class BrickDock {
       if (!isActive) {
         if (onBrick || this._activateOnOutsideTap) {
           this._activateCell(cell);
-          // TrackballControls prend en charge la rotation — rien à faire ici
         } else {
           this._forwardToEngine(e);
+          return;
         }
-        return;
       }
 
       if (onBrick) {
-        // Mode assemblage : capturer pour détecter la direction du geste
+        // Mode assemblage : on capture et on suspend TrackballControls
         mode = 'assemble';
         el.setPointerCapture(e.pointerId);
-        cell.tb.enabled = false; // TrackballControls suspendu pendant l'assemblage
+        cell.tb.enabled = false;
+      } else {
+        // Mode trackball : on s'assure que TrackballControls est actif
+        mode = 'trackball';
+        cell.tb.enabled = true;
       }
-      // Sinon : mode rotation géré entièrement par TrackballControls
     }, { passive: false });
 
     el.addEventListener('pointermove', (e) => {
