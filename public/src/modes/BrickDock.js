@@ -502,6 +502,8 @@ export class BrickDock {
       }
     };
 
+    const tag = `[Dock:${cell.brickId}]`;
+
     cv.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       startX = e.clientX; startY = e.clientY;
@@ -510,24 +512,28 @@ export class BrickDock {
       const onBrick  = cell.mesh && this._hitsBrick(cell, e.clientX, e.clientY);
       const isActive = this._activeCell === cell;
 
+      console.log(`${tag} pointerdown — isActive:${isActive} onBrick:${onBrick} tb.enabled:${cell.tb.enabled}`);
+
       if (!isActive) {
         if (onBrick || this._activateOnOutsideTap) {
+          console.log(`${tag} → activation cellule`);
           this._activateCell(cell);
         } else {
+          console.log(`${tag} → forward engine (cellule inactive, hors brique)`);
           this._forwardToEngine(e);
           return;
         }
       }
 
       if (onBrick) {
-        // Mode assemblage : capturer sur cv, suspendre TB
         mode = 'assemble';
         cv.setPointerCapture(e.pointerId);
         cell.tb.enabled = false;
+        console.log(`${tag} → mode ASSEMBLE (tb suspendu, capture posée)`);
       } else {
-        // Mode trackball : TB est sur cv, il reçoit le même event
         mode = 'trackball';
         cell.tb.enabled = true;
+        console.log(`${tag} → mode TRACKBALL (tb.enabled:${cell.tb.enabled})`);
       }
     }, { passive: false });
 
@@ -538,22 +544,27 @@ export class BrickDock {
         cv.releasePointerCapture(e.pointerId);
         cell.tb.enabled = true;
         mode = null;
+        console.log(`${tag} → geste vers bord → famille suivante`);
         this._showFamily(this._famIdx + 1);
       }
     }, { passive: false });
 
     cv.addEventListener('pointerup', (e) => {
+      const dx = e.clientX - startX, dy = e.clientY - startY;
+      const moved = Math.sqrt(dx * dx + dy * dy) >= 15;
+      console.log(`${tag} pointerup — mode:${mode} moved:${moved}`);
+
       if (mode === 'assemble') {
         if (cv.hasPointerCapture(e.pointerId)) cv.releasePointerCapture(e.pointerId);
         cell.tb.enabled = true;
         if (this._onPickBrick) {
-          const dx = e.clientX - startX, dy = e.clientY - startY;
           const nearSlots = this._nearSlotsForBrick(cell, startX, startY);
+          console.log(`${tag} → onPickBrick (moved:${moved} nearSlots:${nearSlots.length})`);
           this._onPickBrick(cell.brickId, {
             brickId: cell.brickId, nearSlots,
             startX, startY,
             endX: e.clientX, endY: e.clientY,
-            moved: Math.sqrt(dx * dx + dy * dy) >= 15,
+            moved,
           });
         }
       }
@@ -561,6 +572,7 @@ export class BrickDock {
     });
 
     cv.addEventListener('pointercancel', (e) => {
+      console.log(`${tag} pointercancel — mode:${mode}`);
       if (cv.hasPointerCapture(e.pointerId)) cv.releasePointerCapture(e.pointerId);
       cell.tb.enabled = true;
       mode = null;
