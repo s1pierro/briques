@@ -131,7 +131,9 @@ pointermove  → dx = clientX − lastX
                   ├─ clamp rawTotal dans [min, max]
                   ├─ _moveDelta(effective)  ← physique pure
                   └─ _updateCursor()
-             → valEl.textContent = _formatVal(rawTotal)
+             → displayed = step actif ? round(rawTotal/step)×step : rawTotal
+             → displayed = clamp(displayed, min, max)
+             → valEl.textContent = _formatVal(displayed)   ← position effective
 pointerup    → fond strip rétabli
 ```
 
@@ -146,7 +148,7 @@ pointerup    → fond strip rétabli
   proche : `snapped = round(rawTotal/step)×step`, `diff = snapped − rawTotal`,
   appel `_moveDelta(diff)`.
 - **Limites** : affichées uniquement si `dof.min` ou `dof.max` est défini.
-- **Valeur courante** : met à jour `_rawTotal` affiché (non la position engagée).
+- **Valeur courante** : affiche la **position effective** — snappée si step actif, clampée dans `[min, max]`. Pas `_rawTotal` brut, qui diverge de la position réelle dès que le seuil du premier pas n'est pas atteint.
 
 ---
 
@@ -173,10 +175,43 @@ avait des `asmDof`).
 
 ## 5. Intégration dans l'Assembler
 
+### Déclenchement automatique via `onConnect`
+
+Les handlers sont activés automatiquement à chaque nouvelle liaison, sans appel
+explicite après un assemblage. Le câblage est fait une seule fois dans `_setupManagers` :
+
+```js
+this._asmVerse.joints.onConnect = (conn) => this._activateAsmHandlers(conn);
+```
+
+`onConnect` retourne `true` si les handlers sont actifs (liaison avec DOF) → le disque
+marqueur n'est **pas** créé. Retourne `false` (liaison rigide) → disque créé normalement.
+
+La restauration d'une scène (`observe` sans `notify`) ne déclenche jamais `onConnect`.
+
+### Orientation de `conn` selon `lastInitiator`
+
+`coincidentPairs()` retourne les briques dans l'ordre d'insertion, sans distinguer
+mobile/fixe. `AsmDofHandler` suppose `instA` = mobile, `instB` = pivot fixe.
+
+`_activateAsmHandlers` réoriente la connexion si nécessaire :
+
+```js
+const initiator = this._asmVerse.joints.lastInitiator;
+const oriented = (initiator && conn.instB === initiator)
+  ? { ...conn, instA: conn.instB, slotA: conn.slotB, instB: conn.instA, slotB: conn.slotA }
+  : conn;
+```
+
+`lastInitiator` est disponible au moment de l'appel de `onConnect` car `_lastEntry`
+est mis à jour par `observe()` juste avant de déclencher le callback.
+
+### Tableau récapitulatif
+
 | Point d'intégration | Méthode | Comportement |
 |---------------------|---------|--------------|
-| Création | `_activateAsmHandlers(conn)` | Détache les handlers précédents, crée un `AsmHandlers`, appelle `attach()` |
-| Marqueur de liaison | `_addJointMarker(conn)` | Retour anticipé si `this._asmHandlers?.active` — le helper visuel remplace le disque bleu |
+| Câblage initial | `_setupManagers` | `joints.onConnect = (conn) => _activateAsmHandlers(conn)` |
+| Création | `_activateAsmHandlers(conn)` | Réoriente selon `lastInitiator`, détache les précédents, crée `AsmHandlers`, appelle `attach()`, retourne `bool` |
 | Retrait de brique | `_removeFromScene(inst)` | Vérifie `_handlers[0]?._conn` ; si la brique retirée est `instA` ou `instB`, détache et annule les handlers |
 | Config | `_activateAsmHandlers` | Lit `cfg.asmHelperStepsRot` et `cfg.asmHelperStepsTrans` depuis la config persistée |
 
@@ -198,8 +233,10 @@ avait des `asmDof`).
 
 - **`_rawTotal` ≠ position engagée** : `_rawTotal` est l'accumulateur brut du
   bandeau. Quand le step est actif, la position réellement appliquée est
-  `round(rawTotal / stepSize) × stepSize`. `_updateCursor` doit utiliser cette
-  valeur snappée, pas `_rawTotal` directement.
+  `round(rawTotal / stepSize) × stepSize`. `_updateCursor` et l'affichage
+  `valEl` utilisent cette valeur snappée+clampée, pas `_rawTotal` directement.
+  Afficher `_rawTotal` brut produirait une valeur erronée dès que le seuil du
+  premier pas n'est pas encore atteint.
 
 - **Repère dégénéré** : si `worldAxis ∥ X`, la projection de l'axe X du slot B
   dans le plan perpendiculaire à `worldAxis` donne un vecteur nul. `_buildRefFrame`

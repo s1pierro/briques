@@ -124,7 +124,7 @@ WorldSlots
 
 **Responsabilité :** Source de vérité unique sur les connexions de la scène.
 Remplace le trio `add / addImplicitsFor / removeFor` par un observateur de scène.
-Gère les marqueurs visuels (disques 3D).
+Gère les marqueurs visuels (disques 3D) et mémorise la dernière connexion créée.
 
 ```
 AsmJoints
@@ -132,24 +132,37 @@ AsmJoints
   _markers       : Array<{ mesh: THREE.Mesh, conn: Object }>
   markersVisible : boolean    // état global
   onConnect      : ((conn) => bool) | null   // callback activation handlers
+  _lastEntry     : { conn, timestamp: number, initiator: AsmBrick|null } | null
 ```
 
 **Méthodes :**
-- `observe(asmSlots, notify?)` — **méthode principale**
+- `observe(asmSlots, notify?, initiator?)` — **méthode principale**
   1. Calcule `coincidentPairs()` depuis AsmSlots
   2. Réconcilie avec les connexions existantes (garde, ajoute, supprime)
   3. Nettoie les marqueurs des connexions obsolètes
   4. Met à jour `brick.connections` pour toutes les briques touchées
   5. Appelle `syncOccupied()` sur AsmSlots
-  6. Pour chaque nouvelle connexion : déclenche `onConnect` si `notify=true`, sinon crée un marqueur (masqué par défaut)
+  6. Pour chaque nouvelle connexion : stocke `_lastEntry { conn, timestamp, initiator }`,
+     déclenche `onConnect(conn)` si `notify=true` (retour `true` → pas de marqueur),
+     sinon crée un marqueur disque
 - `has(brickA, brickB)` → `bool`
-- `dispose()` — retire tous les marqueurs, vide les connexions
+- `dispose()` — retire tous les marqueurs, vide les connexions, remet `_lastEntry = null`
 - `get allMarkersVisible` / `setAllMarkersVisible(visible)` — toggle global
 - `isMarkerVisible(conn)` → `bool` / `setMarkerVisible(conn, visible)`
+
+**Accesseurs dernière liaison :**
+- `get lastConn` → connexion la plus récente, ou `null`
+- `get lastInitiator` → brique initiatrice (ajoutée ou déplacée), ou `null`
+- `get lastTimestamp` → `Date.now()` au moment de la création, ou `null`
 
 **Comportement marqueurs :** les nouveaux marqueurs démarrent `visible=false`
 (pas d'affichage automatique au dernier assemblage). L'utilisateur active via
 le toggle du panneau liaisons.
+
+**Appelants de `observe` avec `initiator` :**
+- `AsmVerse.connectDrag(brickA, …)` → `observe(slots, true, brickA)`
+- `Assembler._assembleTo` → `observe(slots, true, brick)` (brique fraîchement spawnée)
+- `AsmVerse.restore()` → `observe(slots)` sans `notify` ni `initiator` (restauration silencieuse)
 
 ---
 
@@ -238,10 +251,10 @@ localStorage. Reçoit les liaisons (`rbang_liaisons`) une fois à la constructio
 | Fichier | État |
 |---------|------|
 | `public/src/modes/Assembler.js` | Allégé : UI, events, config — délègue à AsmVerse |
-| `public/src/modes/AsmVerse.js` | ✓ Contient les 6 classes |
+| `public/src/modes/AsmVerse.js` | ✓ Contient les 6 classes + `lastConn/lastInitiator/lastTimestamp` |
 | `public/src/modes/AssemblySolver.js` | ✓ Module dédié, logique pure |
-| `public/src/modes/AsmDofHandler.js` | Inchangé |
-| `public/src/modes/BrickDock.js` | Inchangé |
+| `public/src/modes/AsmDofHandler.js` | Fix affichage valeur (position effective, pas `_rawTotal`) |
+| `public/src/modes/BrickDock.js` | Handle ↻ caméra cellule active ; TrackballControls via dispatch synthétique |
 | `public/src/slot-utils.js` | Inchangé |
 
 ---
@@ -263,3 +276,10 @@ localStorage. Reçoit les liaisons (`rbang_liaisons`) une fois à la constructio
   mesh, dispose, world slots, slots, connexions (via observe), bricks Map.
 - **Compat localStorage** : `serialize()` / `restore()` produisent le même
   format que `_saveScene()` / `_restoreScene()` de l'Assembler v1.
+- **Orientation conn pour AsmHandlers** : `coincidentPairs()` retourne les briques
+  dans l'ordre d'insertion, pas initiateur/cible. `_activateAsmHandlers` lit
+  `joints.lastInitiator` et swape `instA↔instB / slotA↔slotB` si nécessaire pour
+  que `AsmDofHandler` opère toujours sur la brique mobile.
+- **onConnect → retour booléen** : `true` = AsmHandlers pris en charge, pas de
+  disque marqueur. `false` (liaison rigide, `handlers.active = false`) = disque créé
+  normalement. La restauration (`observe` sans `notify`) ne déclenche jamais `onConnect`.
