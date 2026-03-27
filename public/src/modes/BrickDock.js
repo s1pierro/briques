@@ -74,7 +74,7 @@ export class BrickDock {
     this._sharedCanvas   = document.createElement('canvas');
     this._sharedRenderer = new THREE.WebGLRenderer({
       canvas: this._sharedCanvas, antialias: true, alpha: true,
-      preserveDrawingBuffer: true,          // nécessaire pour drawImage après render
+      // preserveDrawingBuffer non nécessaire : render + drawImage sont synchrones dans le même rAF
     });
     this._sharedRenderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this._sharedRenderer.setSize(CELL_ACTIVE, CELL_ACTIVE);
@@ -404,6 +404,7 @@ export class BrickDock {
       _camTheta : 0.4,   // azimut initial (rad)
       _camPhi   : 1.1,   // angle polaire depuis +Y (rad)
       _camRadius: 3,     // distance initiale (ajustée après chargement géométrie)
+      _dirty    : true,  // déclenche un re-render au prochain frame
     };
     this._applyCamOrbit(cell);
     await this._loadCellGeometry(cell);
@@ -432,6 +433,7 @@ export class BrickDock {
       this._applyCamOrbit(cell);
       cell.scene.add(mesh);
       cell.mesh = mesh;
+      cell._dirty = true;
     } catch (e) { console.warn('[BrickDock] geometry', e); }
   }
 
@@ -453,6 +455,7 @@ export class BrickDock {
     cell._camTheta -= dx * 0.012;
     cell._camPhi    = Math.max(0.05, Math.min(Math.PI - 0.05, cell._camPhi + dy * 0.012));
     this._applyCamOrbit(cell);
+    cell._dirty = true;
   }
 
   // ── Activation de cellule ──────────────────────────────────────────────────
@@ -466,6 +469,7 @@ export class BrickDock {
     cell.el.style.width      = CELL_ACTIVE + 'px';
     cell.el.style.height     = CELL_ACTIVE + 'px';
     this._applyCellStyle(cell, true);
+    cell._dirty = true;
   }
 
   _deactivateCell() {
@@ -477,6 +481,7 @@ export class BrickDock {
     cell.el.style.width      = CELL + 'px';
     cell.el.style.height     = CELL + 'px';
     this._applyCellStyle(cell, false);
+    cell._dirty = true;
   }
 
   // ── Gestes sur cellule ─────────────────────────────────────────────────────
@@ -644,10 +649,19 @@ export class BrickDock {
   // ── Boucle de rendu ────────────────────────────────────────────────────────
 
   _startLoop() {
+    let _rendererSize = CELL_ACTIVE; // taille CSS courante du renderer partagé
     const step = () => {
       this._animId = requestAnimationFrame(step);
       const r = this._sharedRenderer;
       for (const cell of this._cells) {
+        if (!cell._dirty) continue;
+        cell._dirty = false;
+        // Redimensionner le renderer seulement si nécessaire
+        const size = cell === this._activeCell ? CELL_ACTIVE : CELL;
+        if (_rendererSize !== size) {
+          r.setSize(size, size);
+          _rendererSize = size;
+        }
         r.render(cell.scene, cell.camera);
         cell.ctx2d.clearRect(0, 0, cell.canvas.width, cell.canvas.height);
         cell.ctx2d.drawImage(this._sharedCanvas, 0, 0, cell.canvas.width, cell.canvas.height);
