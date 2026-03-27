@@ -828,6 +828,19 @@ export class AsmVerse {
     ) ?? null;
   }
 
+  /**
+   * Calcule la position snappée de brickA vers brickB SANS modifier la scène.
+   * Utilisé pour le preview en temps réel pendant le drag.
+   * @returns {{ position, quaternion } | null}
+   */
+  previewSnap(brickA, grabX, grabY, brickB, dropX, dropY, camera) {
+    const nearA  = this.slots.nearSlotsOf(brickA, grabX, grabY, camera);
+    const nearB  = this.slots.nearSlotsOf(brickB, dropX, dropY, camera, true, brickA);
+    const result = this.worldSlots.resolve(nearA, nearB);
+    if (!result) return null;
+    return this.worldSlots.computeSnap(result.slotA, result.slotB, brickB);
+  }
+
   // ── World slot helpers ───────────────────────────────────────────────────────
 
   /** Attache un world slot à une brique (mémorise la liaison pour removeBrick). */

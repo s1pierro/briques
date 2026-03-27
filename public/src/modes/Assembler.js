@@ -77,6 +77,7 @@ export class Assembler {
     this._process            = 'idle';   // 'idle' | 'dragging' | 'trackball' | 'assembling'
     this._selectedBrick      = null;     // AsmBrick | null
     this._selectedComponent  = null;     // AsmEquivalenceClass | null
+    this._previewHelper      = null;     // THREE.Mesh — anneau de preview snap
   }
 
   // ─── Cycle de vie ──────────────────────────────────────────────────────────
@@ -166,6 +167,12 @@ export class Assembler {
     this.engine.resizeViewport(0, 0, 0);
     this._asmVerse.dispose();
     this._dock?.destroy();
+    if (this._previewHelper) {
+      this.engine.scene.remove(this._previewHelper);
+      this._previewHelper.geometry.dispose();
+      this._previewHelper.material.dispose();
+      this._previewHelper = null;
+    }
     this._clearSnapHelpers();
     this._ui.forEach(el => el.remove());
     this._ui = [];
@@ -350,10 +357,13 @@ export class Assembler {
       const { inst, startX, startY } = this._stackCandidate;
       const dx = e.clientX - startX, dy = e.clientY - startY;
       if (Math.sqrt(dx * dx + dy * dy) >= 12) {
-        inst.mesh.material.transparent  = true;
-        inst.mesh.material.opacity      = 0.4;
-        inst.mesh.material.needsUpdate  = true;
-        this._setProcess('dragging');
+        if (this._process !== 'dragging') {
+          inst.mesh.material.transparent = true;
+          inst.mesh.material.opacity     = 0.4;
+          inst.mesh.material.needsUpdate = true;
+          this._setProcess('dragging');
+        }
+        this._updateSnapPreview(inst, startX, startY, e.clientX, e.clientY);
       }
     };
 
@@ -365,6 +375,8 @@ export class Assembler {
 
       const under  = document.elementFromPoint(e.clientX, e.clientY);
       const onDock = under?.closest?.('.brick-dock');
+
+      this._hidePreviewHelper();
 
       if (onDock) {
         // ── Drop sur le dock → empiler
@@ -378,14 +390,20 @@ export class Assembler {
         this._raycaster.setFromCamera(this._mouse, this.engine.camera);
         const others = [...this._asmVerse.bricks.values()].filter(i => i !== inst);
         const hits   = this._raycaster.intersectObjects(others.map(i => i.mesh), false);
+        let connected = false;
         if (hits.length > 0 && wasDragging) {
           const target = others.find(i => i.mesh === hits[0].object);
-          if (target) this._connectDrag(inst, startX, startY, target, e.clientX, e.clientY);
+          if (target) connected = this._connectDrag(inst, startX, startY, target, e.clientX, e.clientY);
         }
-        // Restaurer opacité dans tous les cas (assemblage ou abandon)
-        inst.mesh.material.transparent  = false;
-        inst.mesh.material.opacity      = 1;
-        inst.mesh.material.needsUpdate  = true;
+        // Si pas de connexion → remettre la brique à sa position d'origine
+        if (!connected) {
+          inst.mesh.position.copy(inst.origPos);
+          inst.mesh.quaternion.copy(inst.origQuat);
+        }
+        // Restaurer opacité dans tous les cas
+        inst.mesh.material.transparent = false;
+        inst.mesh.material.opacity     = 1;
+        inst.mesh.material.needsUpdate = true;
       }
 
       this.engine.controls.enabled = true;
@@ -394,11 +412,18 @@ export class Assembler {
 
     window.addEventListener('pointercancel', () => {
       if (this._stackCandidate) {
-        const m = this._stackCandidate.inst?.mesh;
-        if (m) { m.material.transparent = false; m.material.opacity = 1; m.material.needsUpdate = true; }
+        const inst = this._stackCandidate.inst;
+        if (inst?.mesh) {
+          inst.mesh.position.copy(inst.origPos);
+          inst.mesh.quaternion.copy(inst.origQuat);
+          inst.mesh.material.transparent = false;
+          inst.mesh.material.opacity     = 1;
+          inst.mesh.material.needsUpdate = true;
+        }
         this._stackCandidate = null;
         this._setProcess('idle');
       }
+      this._hidePreviewHelper();
       this.engine.controls.enabled = true;
     }, { capture: true });
 
@@ -409,15 +434,15 @@ export class Assembler {
 
   // ─── DOF assemblage ───────────────────────────────────────────────────────────
 
-  _activateAsmHandlers(conn) {
+  _activateAsmHandlers(conn, mobileInst = null) {
     this._asmHandlers?.detach();
     this._asmHandlers = null;
 
-    // instA doit être la brique initiatrice (celle qui bouge).
+    // instA doit être la brique mobile (initiatrice ou sélectionnée).
     // coincidentPairs() retourne les briques dans l'ordre d'insertion,
-    // pas forcément dans l'ordre initiateur/cible — on réoriente si besoin.
-    const initiator = this._asmVerse.joints.lastInitiator;
-    const oriented = (initiator && conn.instB === initiator)
+    // pas forcément dans l'ordre mobile/pivot — on réoriente si besoin.
+    const mobile = mobileInst ?? this._asmVerse.joints.lastInitiator;
+    const oriented = (mobile && conn.instB === mobile)
       ? { ...conn, instA: conn.instB, slotA: conn.slotB, instB: conn.instA, slotB: conn.slotA }
       : conn;
 
@@ -431,6 +456,58 @@ export class Assembler {
       return true; // AsmHandlers remplace le disque marqueur
     }
     return false; // liaison rigide → le disque marqueur sera créé
+  }
+
+  // ─── Preview de snap ─────────────────────────────────────────────────────────
+
+  /**
+   * Met à jour le preview en temps réel pendant le drag d'une brique.
+   * Déplace inst.mesh vers la position snappée si une cible est trouvée,
+   * sinon la rétablit à origPos.
+   */
+  _updateSnapPreview(inst, grabX, grabY, cx, cy) {
+    this._mouse.x =  (cx / innerWidth)  * 2 - 1;
+    this._mouse.y = -(cy / innerHeight) * 2 + 1;
+    this._raycaster.setFromCamera(this._mouse, this.engine.camera);
+
+    const others = [...this._asmVerse.bricks.values()].filter(i => i !== inst);
+    const hits   = this._raycaster.intersectObjects(others.map(i => i.mesh), false);
+
+    if (hits.length > 0) {
+      const target = others.find(i => i.mesh === hits[0].object);
+      if (target) {
+        const snap = this._asmVerse.previewSnap(inst, grabX, grabY, target, cx, cy, this.engine.camera);
+        if (snap) {
+          inst.mesh.position.copy(snap.position);
+          inst.mesh.quaternion.copy(snap.quaternion);
+          this._showPreviewHelper(snap.position);
+          return;
+        }
+      }
+    }
+    // Pas de snap candidat → brique revient à sa position d'origine
+    inst.mesh.position.copy(inst.origPos);
+    inst.mesh.quaternion.copy(inst.origQuat);
+    this._hidePreviewHelper();
+  }
+
+  _showPreviewHelper(pos) {
+    if (!this._previewHelper) {
+      const mesh = new THREE.Mesh(
+        new THREE.RingGeometry(0.18, 0.28, 32),
+        new THREE.MeshBasicMaterial({ color: C.snapRing, side: THREE.DoubleSide, depthWrite: false })
+      );
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.renderOrder = 999;
+      this.engine.scene.add(mesh);
+      this._previewHelper = mesh;
+    }
+    this._previewHelper.position.copy(pos);
+    this._previewHelper.visible = true;
+  }
+
+  _hidePreviewHelper() {
+    if (this._previewHelper) this._previewHelper.visible = false;
   }
 
   // ─── Helpers visuels ─────────────────────────────────────────────────────────
@@ -998,13 +1075,14 @@ export class Assembler {
     if (conn) {
       this._showSnapHelper(instA.mesh.position.clone());
       this._updateCount();
-    } else {
-      this._asmVerse._solver.diagnose(
-        this._asmVerse.slots.nearSlotsOf(instA, grabX, grabY, this.engine.camera),
-        this._asmVerse.slots.nearSlotsOf(instB, dropX, dropY, this.engine.camera),
-        this._asmVerse.slots.typeIds
-      );
+      return true;
     }
+    this._asmVerse._solver.diagnose(
+      this._asmVerse.slots.nearSlotsOf(instA, grabX, grabY, this.engine.camera),
+      this._asmVerse.slots.nearSlotsOf(instB, dropX, dropY, this.engine.camera),
+      this._asmVerse.slots.typeIds
+    );
+    return false;
   }
 
   _removeFromScene(inst) {
@@ -1329,6 +1407,19 @@ export class Assembler {
       const m = brick.mesh.material;
       m.emissive.setHex(C.worldSlot);
       m.emissiveIntensity = 0.3;
+    }
+    // Activer les handlers DOF pour la première connexion avec DOF de cette brique
+    if (brick) {
+      const conn = brick.connections.find(c => c.liaison?.asmDof?.length > 0);
+      if (conn) {
+        this._activateAsmHandlers(conn, brick);
+      } else {
+        this._asmHandlers?.detach();
+        this._asmHandlers = null;
+      }
+    } else {
+      this._asmHandlers?.detach();
+      this._asmHandlers = null;
     }
     if (this._panels?.bricks?.style.display  === 'flex') this._refreshPanel('bricks');
     if (this._panels?.joints?.style.display  === 'flex') this._refreshPanel('joints');
