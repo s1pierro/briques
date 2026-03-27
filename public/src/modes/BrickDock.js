@@ -2,6 +2,19 @@ import * as THREE from 'three';
 import { getManifold, buildCache, manifoldToGeometry } from '../csg-utils.js';
 import { expandSlots } from '../slot-utils.js';
 
+// ─── Arcball ──────────────────────────────────────────────────────────────────
+// Projette un point écran sur la sphère virtuelle de l'arcball.
+// Retourne un vecteur unitaire.  Hors du cercle → feuille hyperbolique.
+function _arcballPoint(cx, cy, rect) {
+  const w = rect.width, h = rect.height;
+  const r = Math.min(w, h) * 0.5;
+  const x =  (cx - rect.left - w * 0.5) / r;
+  const y = -(cy - rect.top  - h * 0.5) / r;
+  const d2 = x * x + y * y;
+  const z  = d2 <= 1 ? Math.sqrt(1 - d2) : 0.5 / Math.sqrt(d2);
+  return new THREE.Vector3(x, y, z).normalize();
+}
+
 // ─── Constantes ───────────────────────────────────────────────────────────────
 const CELL        = 110;  // px — cellule inactive
 const CELL_ACTIVE = 190;  // px — cellule active
@@ -398,13 +411,19 @@ export class BrickDock {
     scene.add(sun);
 
     // État sphérique de la caméra — orbite autour du centre de la brique
+    // Quaternion initial identique à l'ancienne vue theta=0.4, phi=1.1
+    const _initDir = new THREE.Vector3(
+      Math.sin(1.1) * Math.sin(0.4),
+      Math.cos(1.1),
+      Math.sin(1.1) * Math.cos(0.4),
+    ).normalize();
     const cell = {
       el, canvas, ctx2d, label, scene, camera,
       brickId, brickData, mesh: null,
-      _camTheta : 0.4,   // azimut initial (rad)
-      _camPhi   : 1.1,   // angle polaire depuis +Y (rad)
-      _camRadius: 3,     // distance initiale (ajustée après chargement géométrie)
-      _dirty    : true,  // déclenche un re-render au prochain frame
+      _camRadius : 3,    // distance initiale (ajustée après chargement géométrie)
+      _camQuat   : new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), _initDir),
+      _arcStart  : null, // dernier point arcball enregistré (pointerdown / move)
+      _dirty     : true, // déclenche un re-render au prochain frame
     };
     this._applyCamOrbit(cell);
     await this._loadCellGeometry(cell);
@@ -437,23 +456,31 @@ export class BrickDock {
     } catch (e) { console.warn('[BrickDock] geometry', e); }
   }
 
-  // ── Caméra orbite ─────────────────────────────────────────────────────────
+  // ── Caméra arcball ────────────────────────────────────────────────────────
 
-  /** Repositionne la caméra selon les coordonnées sphériques stockées dans cell. */
+  /**
+   * Repositionne la caméra depuis le quaternion d'orbite.
+   * Le vecteur "up" est corotant avec la caméra → pas de gimbal lock.
+   */
   _applyCamOrbit(cell) {
-    const { _camRadius: r, _camTheta: t, _camPhi: p } = cell;
-    cell.camera.position.set(
-      r * Math.sin(p) * Math.sin(t),
-      r * Math.cos(p),
-      r * Math.sin(p) * Math.cos(t),
-    );
+    const pos = new THREE.Vector3(0, 0, cell._camRadius).applyQuaternion(cell._camQuat);
+    const up  = new THREE.Vector3(0, 1, 0).applyQuaternion(cell._camQuat);
+    cell.camera.position.copy(pos);
+    cell.camera.up.copy(up);
     cell.camera.lookAt(0, 0, 0);
   }
 
-  /** Applique un delta de drag en coordonnées sphériques. */
-  _orbitCell(cell, dx, dy) {
-    cell._camTheta -= dx * 0.012;
-    cell._camPhi    = Math.max(0.05, Math.min(Math.PI - 0.05, cell._camPhi + dy * 0.012));
+  /**
+   * Met à jour le quaternion d'orbite depuis deux points successifs de l'arcball.
+   * Appelé depuis pointermove avec le point courant (cx, cy) et le rect du canvas.
+   */
+  _orbitCell(cell, cx, cy, rect) {
+    const arcEnd = _arcballPoint(cx, cy, rect);
+    if (cell._arcStart) {
+      const q = new THREE.Quaternion().setFromUnitVectors(cell._arcStart, arcEnd);
+      cell._camQuat.premultiply(q); // rotation dans le repère monde
+    }
+    cell._arcStart = arcEnd;
     this._applyCamOrbit(cell);
     cell._dirty = true;
   }
@@ -488,7 +515,7 @@ export class BrickDock {
 
   _bindCellGestures(cell) {
     const el = cell.el;
-    let startX = 0, startY = 0, lastX = 0, lastY = 0;
+    let startX = 0, startY = 0;
     let mode = null; // 'trackball' | 'assemble' | null
 
     const isTowardEdge = (dx, dy) => {
@@ -502,8 +529,8 @@ export class BrickDock {
 
     el.addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      startX = lastX = e.clientX;
-      startY = lastY = e.clientY;
+      startX = e.clientX;
+      startY = e.clientY;
       mode = null;
 
       const onBrick = cell.mesh && this._hitsBrick(cell, e.clientX, e.clientY);
@@ -520,18 +547,19 @@ export class BrickDock {
         return;
       }
 
-      // Cellule active
+      // Cellule active — initialiser l'arcball au point de contact
       el.setPointerCapture(e.pointerId);
       mode = onBrick ? 'assemble' : 'trackball';
+      if (mode === 'trackball') {
+        cell._arcStart = _arcballPoint(e.clientX, e.clientY, cell.canvas.getBoundingClientRect());
+      }
     }, { passive: false });
 
     el.addEventListener('pointermove', (e) => {
       if (!el.hasPointerCapture(e.pointerId)) return;
 
       if (mode === 'trackball') {
-        const dx = e.clientX - lastX, dy = e.clientY - lastY;
-        lastX = e.clientX; lastY = e.clientY;
-        this._orbitCell(cell, dx, dy);
+        this._orbitCell(cell, e.clientX, e.clientY, cell.canvas.getBoundingClientRect());
         return;
       }
 
@@ -548,6 +576,7 @@ export class BrickDock {
     el.addEventListener('pointerup', (e) => {
       if (!el.hasPointerCapture(e.pointerId)) return;
       el.releasePointerCapture(e.pointerId);
+      cell._arcStart = null;
 
       if (mode === 'assemble' && this._onPickBrick) {
         const dx = e.clientX - startX, dy = e.clientY - startY;
@@ -564,6 +593,7 @@ export class BrickDock {
 
     el.addEventListener('pointercancel', (e) => {
       if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+      cell._arcStart = null;
       mode = null;
     });
   }
