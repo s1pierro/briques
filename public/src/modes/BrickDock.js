@@ -542,6 +542,7 @@ export class BrickDock {
     }, { passive: false });
 
     cv.addEventListener('pointermove', (e) => {
+      console.log(`[Dock:${cell.brickId}] pointermove mode:${mode} tb.enabled:${cell.tb.enabled}`);
       if (mode !== 'assemble') return;
       const dx = e.clientX - startX, dy = e.clientY - startY;
       if (Math.sqrt(dx * dx + dy * dy) >= 15 && isTowardEdge(dx, dy)) {
