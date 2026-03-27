@@ -351,6 +351,9 @@ export class BrickDock {
       const cell = await this._createCell(id, data);
       this._cells.push(cell);
       this._cellsEl.appendChild(cell.el);
+      // handleResize() doit être appelé après insertion dans le DOM
+      // → getBoundingClientRect() retourne des valeurs valides (screen.width ≠ 0)
+      cell.tb.handleResize();
     }
   }
 
@@ -474,6 +477,7 @@ export class BrickDock {
     cell.el.style.width      = CELL_ACTIVE + 'px';
     cell.el.style.height     = CELL_ACTIVE + 'px';
     this._applyCellStyle(cell, true);
+    cell.tb.handleResize();
     cell._dirty = true;
   }
 
@@ -486,6 +490,7 @@ export class BrickDock {
     cell.el.style.width      = CELL + 'px';
     cell.el.style.height     = CELL + 'px';
     this._applyCellStyle(cell, false);
+    cell.tb.handleResize();
     cell._dirty = true;
   }
 
