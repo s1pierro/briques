@@ -384,7 +384,15 @@ export class AsmDofHandler {
       lastX       = e.clientX;
       const delta = this._pxToRaw(dx);
       this._applyDelta(delta);
-      valEl.textContent = this._formatVal(this._rawTotal);
+      // Afficher la position effective (snappée + clampée), pas le brut
+      let displayed = this._rawTotal;
+      if (this._stepActive && this._stepSize > 0) {
+        displayed = Math.round(displayed / this._stepSize) * this._stepSize;
+      }
+      const dof = this._dof;
+      if (dof.min != null) displayed = Math.max(dof.min, displayed);
+      if (dof.max != null) displayed = Math.min(dof.max, displayed);
+      valEl.textContent = this._formatVal(displayed);
     }, { passive: false });
 
     const onRelease = () => { strip.style.background = 'rgba(18,18,24,0.92)'; };
