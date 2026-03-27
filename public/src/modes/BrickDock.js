@@ -1,19 +1,7 @@
 import * as THREE from 'three';
+import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 import { getManifold, buildCache, manifoldToGeometry } from '../csg-utils.js';
 import { expandSlots } from '../slot-utils.js';
-
-// ─── Arcball ──────────────────────────────────────────────────────────────────
-// Projette un point écran sur la sphère virtuelle de l'arcball.
-// Retourne un vecteur unitaire.  Hors du cercle → feuille hyperbolique.
-function _arcballPoint(cx, cy, rect) {
-  const w = rect.width, h = rect.height;
-  const r = Math.min(w, h) * 0.5;
-  const x =  (cx - rect.left - w * 0.5) / r;
-  const y = -(cy - rect.top  - h * 0.5) / r;
-  const d2 = x * x + y * y;
-  const z  = d2 <= 1 ? Math.sqrt(1 - d2) : 0.5 / Math.sqrt(d2);
-  return new THREE.Vector3(x, y, z).normalize();
-}
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 const CELL        = 110;  // px — cellule inactive
@@ -411,21 +399,31 @@ export class BrickDock {
     scene.add(sun);
 
     // État sphérique de la caméra — orbite autour du centre de la brique
-    // Quaternion initial identique à l'ancienne vue theta=0.4, phi=1.1
-    const _initDir = new THREE.Vector3(
-      Math.sin(1.1) * Math.sin(0.4),
-      Math.cos(1.1),
-      Math.sin(1.1) * Math.cos(0.4),
-    ).normalize();
+    // Position initiale (vue 3/4 identique à l'ancienne theta=0.4, phi=1.1)
+    camera.position.set(
+      3 * Math.sin(1.1) * Math.sin(0.4),
+      3 * Math.cos(1.1),
+      3 * Math.sin(1.1) * Math.cos(0.4),
+    );
+    camera.lookAt(0, 0, 0);
+
+    // TrackballControls attaché à l'élément de la cellule (même config que la Forge)
+    const tb = new TrackballControls(camera, el);
+    tb.rotateSpeed          = 3.5;
+    tb.noZoom               = true;
+    tb.noPan                = true;
+    tb.dynamicDampingFactor = 0.18;
+    tb.target.set(0, 0, 0);
+    tb.update();
+
     const cell = {
-      el, canvas, ctx2d, label, scene, camera,
+      el, canvas, ctx2d, label, scene, camera, tb,
       brickId, brickData, mesh: null,
-      _camRadius : 3,    // distance initiale (ajustée après chargement géométrie)
-      _camQuat   : new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), _initDir),
-      _arcStart  : null, // dernier point arcball enregistré (pointerdown / move)
+      _camRadius : 3,    // ajusté après chargement géométrie
       _dirty     : true, // déclenche un re-render au prochain frame
     };
-    this._applyCamOrbit(cell);
+
+    tb.addEventListener('change', () => { cell._dirty = true; });
     await this._loadCellGeometry(cell);
     this._bindCellGestures(cell);
     return cell;
@@ -448,41 +446,16 @@ export class BrickDock {
       const center = box.getCenter(new THREE.Vector3());
       mesh.position.sub(center);         // brique centrée à l'origine = pivot d'orbite
       const size = box.getSize(new THREE.Vector3()).length();
-      cell._camRadius = size * 1.5;      // distance adaptée à la taille réelle
-      this._applyCamOrbit(cell);
+      const dist = size * 1.5;
+      cell._camRadius = dist;
+      // Repositionner la caméra à la bonne distance, TrackballControls prend le relais
+      const dir = cell.camera.position.clone().normalize();
+      cell.camera.position.copy(dir.multiplyScalar(dist));
+      cell.tb.update();
       cell.scene.add(mesh);
       cell.mesh = mesh;
       cell._dirty = true;
     } catch (e) { console.warn('[BrickDock] geometry', e); }
-  }
-
-  // ── Caméra arcball ────────────────────────────────────────────────────────
-
-  /**
-   * Repositionne la caméra depuis le quaternion d'orbite.
-   * Le vecteur "up" est corotant avec la caméra → pas de gimbal lock.
-   */
-  _applyCamOrbit(cell) {
-    const pos = new THREE.Vector3(0, 0, cell._camRadius).applyQuaternion(cell._camQuat);
-    const up  = new THREE.Vector3(0, 1, 0).applyQuaternion(cell._camQuat);
-    cell.camera.position.copy(pos);
-    cell.camera.up.copy(up);
-    cell.camera.lookAt(0, 0, 0);
-  }
-
-  /**
-   * Met à jour le quaternion d'orbite depuis deux points successifs de l'arcball.
-   * Appelé depuis pointermove avec le point courant (cx, cy) et le rect du canvas.
-   */
-  _orbitCell(cell, cx, cy, rect) {
-    const arcEnd = _arcballPoint(cx, cy, rect);
-    if (cell._arcStart) {
-      const q = new THREE.Quaternion().setFromUnitVectors(cell._arcStart, arcEnd);
-      cell._camQuat.premultiply(q); // rotation dans le repère monde
-    }
-    cell._arcStart = arcEnd;
-    this._applyCamOrbit(cell);
-    cell._dirty = true;
   }
 
   // ── Activation de cellule ──────────────────────────────────────────────────
@@ -516,7 +489,7 @@ export class BrickDock {
   _bindCellGestures(cell) {
     const el = cell.el;
     let startX = 0, startY = 0;
-    let mode = null; // 'trackball' | 'assemble' | null
+    let mode = null; // 'assemble' | 'trackball' | null
 
     const isTowardEdge = (dx, dy) => {
       switch (this._edge) {
@@ -529,71 +502,63 @@ export class BrickDock {
 
     el.addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      startX = e.clientX;
-      startY = e.clientY;
+      startX = e.clientX; startY = e.clientY;
       mode = null;
 
-      const onBrick = cell.mesh && this._hitsBrick(cell, e.clientX, e.clientY);
+      const onBrick  = cell.mesh && this._hitsBrick(cell, e.clientX, e.clientY);
       const isActive = this._activeCell === cell;
 
       if (!isActive) {
         if (onBrick || this._activateOnOutsideTap) {
           this._activateCell(cell);
-          el.setPointerCapture(e.pointerId);
-          mode = 'trackball';
+          // TrackballControls prend en charge la rotation — rien à faire ici
         } else {
           this._forwardToEngine(e);
         }
         return;
       }
 
-      // Cellule active — initialiser l'arcball au point de contact
-      el.setPointerCapture(e.pointerId);
-      mode = onBrick ? 'assemble' : 'trackball';
-      if (mode === 'trackball') {
-        cell._arcStart = _arcballPoint(e.clientX, e.clientY, cell.canvas.getBoundingClientRect());
+      if (onBrick) {
+        // Mode assemblage : capturer pour détecter la direction du geste
+        mode = 'assemble';
+        el.setPointerCapture(e.pointerId);
+        cell.tb.enabled = false; // TrackballControls suspendu pendant l'assemblage
       }
+      // Sinon : mode rotation géré entièrement par TrackballControls
     }, { passive: false });
 
     el.addEventListener('pointermove', (e) => {
-      if (!el.hasPointerCapture(e.pointerId)) return;
-
-      if (mode === 'trackball') {
-        this._orbitCell(cell, e.clientX, e.clientY, cell.canvas.getBoundingClientRect());
-        return;
-      }
-
-      if (mode === 'assemble') {
-        const dx = e.clientX - startX, dy = e.clientY - startY;
-        if (Math.sqrt(dx * dx + dy * dy) >= 15 && isTowardEdge(dx, dy)) {
-          el.releasePointerCapture(e.pointerId);
-          mode = null;
-          this._showFamily(this._famIdx + 1);
-        }
+      if (mode !== 'assemble') return;
+      const dx = e.clientX - startX, dy = e.clientY - startY;
+      if (Math.sqrt(dx * dx + dy * dy) >= 15 && isTowardEdge(dx, dy)) {
+        el.releasePointerCapture(e.pointerId);
+        cell.tb.enabled = true;
+        mode = null;
+        this._showFamily(this._famIdx + 1);
       }
     }, { passive: false });
 
     el.addEventListener('pointerup', (e) => {
-      if (!el.hasPointerCapture(e.pointerId)) return;
-      el.releasePointerCapture(e.pointerId);
-      cell._arcStart = null;
-
-      if (mode === 'assemble' && this._onPickBrick) {
-        const dx = e.clientX - startX, dy = e.clientY - startY;
-        const nearSlots = this._nearSlotsForBrick(cell, startX, startY);
-        this._onPickBrick(cell.brickId, {
-          brickId: cell.brickId, nearSlots,
-          startX, startY,
-          endX: e.clientX, endY: e.clientY,
-          moved: Math.sqrt(dx * dx + dy * dy) >= 15,
-        });
+      if (mode === 'assemble') {
+        if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+        cell.tb.enabled = true;
+        if (this._onPickBrick) {
+          const dx = e.clientX - startX, dy = e.clientY - startY;
+          const nearSlots = this._nearSlotsForBrick(cell, startX, startY);
+          this._onPickBrick(cell.brickId, {
+            brickId: cell.brickId, nearSlots,
+            startX, startY,
+            endX: e.clientX, endY: e.clientY,
+            moved: Math.sqrt(dx * dx + dy * dy) >= 15,
+          });
+        }
       }
       mode = null;
     });
 
     el.addEventListener('pointercancel', (e) => {
       if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
-      cell._arcStart = null;
+      cell.tb.enabled = true;
       mode = null;
     });
   }
@@ -684,14 +649,11 @@ export class BrickDock {
       this._animId = requestAnimationFrame(step);
       const r = this._sharedRenderer;
       for (const cell of this._cells) {
+        cell.tb.update(); // nécessaire pour l'amortissement dynamique
         if (!cell._dirty) continue;
         cell._dirty = false;
-        // Redimensionner le renderer seulement si nécessaire
         const size = cell === this._activeCell ? CELL_ACTIVE : CELL;
-        if (_rendererSize !== size) {
-          r.setSize(size, size);
-          _rendererSize = size;
-        }
+        if (_rendererSize !== size) { r.setSize(size, size); _rendererSize = size; }
         r.render(cell.scene, cell.camera);
         cell.ctx2d.clearRect(0, 0, cell.canvas.width, cell.canvas.height);
         cell.ctx2d.drawImage(this._sharedCanvas, 0, 0, cell.canvas.width, cell.canvas.height);
@@ -705,6 +667,7 @@ export class BrickDock {
   _disposeCells() {
     this._activeCell = null;
     for (const cell of this._cells) {
+      cell.tb.dispose();
       if (cell.mesh) { cell.mesh.geometry.dispose(); cell.mesh.material.dispose(); }
       cell.el.remove();
     }
