@@ -424,7 +424,11 @@ export class BrickDock {
       _dirty     : true, // déclenche un re-render au prochain frame
     };
 
-    tb.addEventListener('change', () => { cell._dirty = true; });
+    tb.addEventListener('change', () => {
+      const p = cell.camera.position;
+      console.log(`[Dock:${cell.brickId}] TB change → dirty  cam:(${p.x.toFixed(2)},${p.y.toFixed(2)},${p.z.toFixed(2)})`);
+      cell._dirty = true;
+    });
     await this._loadCellGeometry(cell);
     this._bindCellGestures(cell);
     return cell;
@@ -670,6 +674,8 @@ export class BrickDock {
         cell._dirty = false;
         const size = cell === this._activeCell ? CELL_ACTIVE : CELL;
         if (_rendererSize !== size) { r.setSize(size, size); _rendererSize = size; }
+        const p = cell.camera.position;
+        console.log(`[Dock:${cell.brickId}] render @${size}px  cam:(${p.x.toFixed(2)},${p.y.toFixed(2)},${p.z.toFixed(2)})  tb.enabled:${cell.tb.enabled}`);
         r.render(cell.scene, cell.camera);
         cell.ctx2d.clearRect(0, 0, cell.canvas.width, cell.canvas.height);
         cell.ctx2d.drawImage(this._sharedCanvas, 0, 0, cell.canvas.width, cell.canvas.height);
