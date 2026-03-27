@@ -412,10 +412,19 @@ export class Assembler {
   _activateAsmHandlers(conn) {
     this._asmHandlers?.detach();
     this._asmHandlers = null;
+
+    // instA doit être la brique initiatrice (celle qui bouge).
+    // coincidentPairs() retourne les briques dans l'ordre d'insertion,
+    // pas forcément dans l'ordre initiateur/cible — on réoriente si besoin.
+    const initiator = this._asmVerse.joints.lastInitiator;
+    const oriented = (initiator && conn.instB === initiator)
+      ? { ...conn, instA: conn.instB, slotA: conn.slotB, instB: conn.instA, slotB: conn.slotA }
+      : conn;
+
     const cfg        = this._loadConfig();
     const stepsRot   = cfg.asmHelperStepsRot   ?? 16;
     const stepsTrans = cfg.asmHelperStepsTrans  ?? 20;
-    const handlers = new AsmHandlers({ conn, engine: this.engine, topOffset: BAR_H, stepsRot, stepsTrans });
+    const handlers = new AsmHandlers({ conn: oriented, engine: this.engine, topOffset: BAR_H, stepsRot, stepsTrans });
     if (handlers.active) {
       handlers.attach();
       this._asmHandlers = handlers;
