@@ -1,8 +1,6 @@
 import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
-import { getManifold, buildCache, manifoldToGeometry } from '../csg-utils.js';
 import { BrickDock } from './BrickDock.js';
-import { expandSlots } from '../slot-utils.js';
 import { AsmHandlers } from './AsmDofHandler.js';
 import { AsmVerse } from './AsmVerse.js';
 
