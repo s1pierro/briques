@@ -192,8 +192,10 @@ export class Assembler {
 
   _setupManagers() {
     this._asmVerse = new AsmVerse(this.engine.scene);
-    // onConnect laissé à null : le disque marqueur est créé par AsmJoints.observe()
-    // Les AsmHandlers seront activés explicitement (pas à la formation de la liaison)
+    // Lors d'un ajout ou déplacement de brique, si une nouvelle liaison est créée,
+    // activer les AsmHandlers DOF. Retourner true empêche la création du disque marqueur
+    // (les handlers le remplacent). Retourner false (liaison rigide) → disque créé.
+    this._asmVerse.joints.onConnect = (conn) => this._activateAsmHandlers(conn);
     this._dock = new BrickDock(this.engine, { edge: 'bottom', align: 'center' });
     this._dock.onPickBrick((brickId, gesture) => {
       this._activeGesture = null;
@@ -417,7 +419,9 @@ export class Assembler {
     if (handlers.active) {
       handlers.attach();
       this._asmHandlers = handlers;
+      return true; // AsmHandlers remplace le disque marqueur
     }
+    return false; // liaison rigide → le disque marqueur sera créé
   }
 
   // ─── Helpers visuels ─────────────────────────────────────────────────────────
