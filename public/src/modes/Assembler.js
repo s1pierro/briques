@@ -192,11 +192,8 @@ export class Assembler {
 
   _setupManagers() {
     this._asmVerse = new AsmVerse(this.engine.scene);
-    // Brancher _activateAsmHandlers sur le callback AsmJoints
-    this._asmVerse.joints.onConnect = (conn) => {
-      this._activateAsmHandlers(conn);
-      return this._asmHandlers?.active ?? false;
-    };
+    // onConnect laissé à null : le disque marqueur est créé par AsmJoints.observe()
+    // Les AsmHandlers seront activés explicitement (pas à la formation de la liaison)
     this._dock = new BrickDock(this.engine, { edge: 'bottom', align: 'center' });
     this._dock.onPickBrick((brickId, gesture) => {
       this._activeGesture = null;
@@ -245,7 +242,7 @@ export class Assembler {
   // ─── Assembler une brique sur une instance existante ────────────────────────
 
   async _assembleTo(brickId, nearSlotsA, targetInst, endX, endY) {
-    const nearSlotsB = this._asmVerse.slots.nearSlotsOf(targetInst, endX, endY, this.engine.camera);
+    const nearSlotsB = this._asmVerse.slots.nearSlotsOf(targetInst, endX, endY, this.engine.camera, true);
     const result = this._asmVerse.worldSlots.resolve(nearSlotsA, nearSlotsB);
     const brickData = this._loadStore('rbang_bricks')[brickId];
     if (!brickData) return;
@@ -254,13 +251,12 @@ export class Assembler {
       const snap = this._asmVerse.worldSlots.computeSnap(result.slotA, result.slotB, targetInst);
       const brick = await this._asmVerse.spawnBrick(brickId, brickData, null, snap);
       if (brick) {
-        this._asmVerse.connect(brick, result.slotA, targetInst, result.slotB, result.liaison);
-        this._asmVerse.joints.addImplicitsFor(brick, this._asmVerse.bricks);
+        this._asmVerse.joints.observe(this._asmVerse.slots, true);
         this._showSnapHelper(brick.mesh.position.clone());
         this._updateCount();
       }
     } else {
-      this._asmVerse._solver.diagnose(nearSlotsA, nearSlotsB);
+      this._asmVerse._solver.diagnose(nearSlotsA, nearSlotsB, this._asmVerse.slots.typeIds);
       const pos = targetInst.mesh.position.clone().add(new THREE.Vector3(2, 0, 0));
       await this._spawnBrick(brickId, pos);
     }
@@ -361,6 +357,7 @@ export class Assembler {
 
     this._onPointerUpStack = (e) => {
       if (!this._stackCandidate) return;
+      const wasDragging = this._process === 'dragging';
       this._setProcess('idle');
       const { inst, startX, startY } = this._stackCandidate;
 
@@ -379,7 +376,7 @@ export class Assembler {
         this._raycaster.setFromCamera(this._mouse, this.engine.camera);
         const others = [...this._asmVerse.bricks.values()].filter(i => i !== inst);
         const hits   = this._raycaster.intersectObjects(others.map(i => i.mesh), false);
-        if (hits.length > 0) {
+        if (hits.length > 0 && wasDragging) {
           const target = others.find(i => i.mesh === hits[0].object);
           if (target) this._connectDrag(inst, startX, startY, target, e.clientX, e.clientY);
         }
@@ -542,6 +539,12 @@ export class Assembler {
     compBtn.textContent = '⬡';
     compBtn.addEventListener('click', () => this._togglePanel('components'));
 
+    const jointsBtn = document.createElement('button');
+    jointsBtn.className = 'asm-bar-btn';
+    jointsBtn.title = 'Liaisons';
+    jointsBtn.textContent = '⇄';
+    jointsBtn.addEventListener('click', () => this._togglePanel('joints'));
+
     const stateBtn = document.createElement('button');
     stateBtn.className = 'asm-bar-btn';
     stateBtn.title = 'État interne';
@@ -554,7 +557,7 @@ export class Assembler {
     cfgBtn.textContent = '⚙';
     cfgBtn.addEventListener('click', () => this._openConfigModal());
 
-    bar.append(fsBtn, reloadBtn, modeStrip, this._countEl, bricksBtn, compBtn, stateBtn, cfgBtn);
+    bar.append(fsBtn, reloadBtn, modeStrip, this._countEl, bricksBtn, compBtn, jointsBtn, stateBtn, cfgBtn);
     document.body.appendChild(bar);
     this._ui.push(bar);
 
@@ -980,13 +983,13 @@ export class Assembler {
   _connectDrag(instA, grabX, grabY, instB, dropX, dropY) {
     const conn = this._asmVerse.connectDrag(instA, grabX, grabY, instB, dropX, dropY, this.engine.camera);
     if (conn) {
-      this._asmVerse.joints.addImplicitsFor(instA, this._asmVerse.bricks);
       this._showSnapHelper(instA.mesh.position.clone());
-      this._saveScene();
+      this._updateCount();
     } else {
       this._asmVerse._solver.diagnose(
         this._asmVerse.slots.nearSlotsOf(instA, grabX, grabY, this.engine.camera),
-        this._asmVerse.slots.nearSlotsOf(instB, dropX, dropY, this.engine.camera)
+        this._asmVerse.slots.nearSlotsOf(instB, dropX, dropY, this.engine.camera),
+        this._asmVerse.slots.typeIds
       );
     }
   }
@@ -1000,6 +1003,7 @@ export class Assembler {
         this._asmHandlers = null;
       }
     }
+    if (this._selectedBrick === inst) this._selectBrick(null);
     this._asmVerse.removeBrick(inst);
     this._updateCount();
   }
@@ -1017,7 +1021,7 @@ export class Assembler {
   _updateCount() {
     if (this._countEl) this._countEl.textContent = `Briques : ${this._asmVerse.bricks.size}`;
     this._saveScene();
-    for (const name of ['bricks', 'components', 'state']) {
+    for (const name of ['bricks', 'components', 'joints', 'state']) {
       const p = this._panels?.[name];
       if (p?.style.display === 'flex') this._refreshPanel(name);
     }
@@ -1031,7 +1035,10 @@ export class Assembler {
 
   _togglePanel(name) {
     if (!this._panels) this._panels = {};
-    if (!this._panels[name]) this._panels[name] = this._createPanel(name);
+    if (!this._panels[name]) {
+      this._panels[name] = this._createPanel(name);
+      if (name === 'joints') this._initJointsHeaderToggle(this._panels[name]);
+    }
     const p = this._panels[name];
     const open = p.style.display === 'none' || !p.style.display;
     p.style.display = open ? 'flex' : 'none';
@@ -1063,13 +1070,14 @@ export class Assembler {
     ].join(';');
     const title = document.createElement('span');
     title.style.cssText = `color:${C.dim};font-size:9px;text-transform:uppercase;letter-spacing:.1em;`;
-    const panelTitles = { bricks: 'Briques', components: 'Composantes', state: 'État interne' };
+    const panelTitles = { bricks: 'Briques', components: 'Composantes', joints: 'Liaisons', state: 'État interne' };
     title.textContent = panelTitles[name] ?? name;
     const closeBtn = document.createElement('button');
     closeBtn.textContent = '✕';
     closeBtn.style.cssText = `background:transparent;border:none;color:${C.dim};font-size:14px;cursor:pointer;padding:0 2px;line-height:1;`;
     closeBtn.addEventListener('click', () => { panel.style.display = 'none'; });
     header.append(title, closeBtn);
+    panel._header = header;
 
     // Corps scrollable
     const body = document.createElement('div');
@@ -1088,9 +1096,10 @@ export class Assembler {
     const body = panel._body;
     body.innerHTML = '';
 
-    if (name === 'bricks')      this._fillBricksPanel(body);
-    else if (name === 'state') this._fillStatePanel(body);
-    else                        this._fillComponentsPanel(body);
+    if (name === 'bricks')           this._fillBricksPanel(body);
+    else if (name === 'joints')    { this._syncJointsHeaderToggle(panel); this._fillJointsPanel(body); }
+    else if (name === 'state')       this._fillStatePanel(body);
+    else                             this._fillComponentsPanel(body);
   }
 
   _fillBricksPanel(body) {
@@ -1099,14 +1108,15 @@ export class Assembler {
       return;
     }
     for (const inst of this._asmVerse.bricks.values()) {
-      const conns = this._asmVerse.joints.connections.filter(
-        c => c.instA === inst || c.instB === inst
-      ).length;
+      const conns = inst.connections.length;
+      const isSelected = inst === this._selectedBrick;
       const row = document.createElement('div');
       row.style.cssText = [
         'display:flex', 'align-items:center', 'gap:8px',
         'padding:5px 12px',
         `border-bottom:1px solid ${C.border}22`,
+        `background:${isSelected ? C.accent + '22' : 'transparent'}`,
+        `border-left:2px solid ${isSelected ? C.accent : 'transparent'}`,
       ].join(';');
 
       // Pastille couleur brique
@@ -1128,6 +1138,111 @@ export class Assembler {
       badge.textContent = conns ? `${conns} ⇄` : '—';
 
       row.append(swatch, info, badge);
+      body.appendChild(row);
+    }
+  }
+
+  _initJointsHeaderToggle(panel) {
+    const btn = document.createElement('button');
+    btn.style.cssText = [
+      'background:transparent', 'border:none', 'cursor:pointer',
+      'font-size:13px', 'padding:0 4px', 'line-height:1',
+    ].join(';');
+    // Insérer avant le bouton ✕ (dernier enfant du header)
+    panel._header.insertBefore(btn, panel._header.lastChild);
+    panel._globalToggleBtn = btn;
+    this._syncJointsHeaderToggle(panel);
+  }
+
+  _syncJointsHeaderToggle(panel) {
+    const btn = panel._globalToggleBtn;
+    if (!btn) return;
+    const visible = this._asmVerse?.joints.allMarkersVisible ?? true;
+    btn.textContent = '◉';
+    btn.title = visible ? 'Masquer tous les helpers' : 'Afficher tous les helpers';
+    btn.style.color = visible ? C.accent : C.dim;
+    btn.onclick = () => {
+      this._asmVerse.joints.setAllMarkersVisible(!this._asmVerse.joints.allMarkersVisible);
+      this._refreshPanel('joints');
+    };
+  }
+
+  _fillJointsPanel(body) {
+    const conns = this._asmVerse.joints.connections;
+    if (!conns.length) {
+      body.appendChild(this._panelEmpty('Aucune liaison'));
+      return;
+    }
+    for (const conn of conns) {
+      const { instA, instB, liaison } = conn;
+      const involvesSel = instA === this._selectedBrick || instB === this._selectedBrick;
+      const dofs  = liaison?.dof ?? [];
+      const label = liaison?.name || liaison?.id || '—';
+
+      const row = document.createElement('div');
+      row.style.cssText = [
+        'display:flex', 'flex-direction:column', 'gap:3px',
+        'padding:5px 12px',
+        `border-bottom:1px solid ${C.border}22`,
+        `background:${involvesSel ? C.accent + '22' : 'transparent'}`,
+        `border-left:2px solid ${involvesSel ? C.accent : 'transparent'}`,
+      ].join(';');
+
+      // Ligne brique A → brique B
+      const bricks = document.createElement('div');
+      bricks.style.cssText = 'display:flex;align-items:center;gap:6px;';
+
+      const mkDot = (inst) => {
+        const dot = document.createElement('span');
+        dot.style.cssText = [
+          'display:inline-block', 'width:8px', 'height:8px',
+          'border-radius:2px', 'flex-shrink:0',
+          `background:${inst.brickData.color || '#888'}`,
+        ].join(';');
+        return dot;
+      };
+      const nameA = document.createElement('span');
+      nameA.style.color = C.fg;
+      nameA.textContent = instA.brickData.name || instA.brickTypeId;
+      const arrow = document.createElement('span');
+      arrow.style.cssText = `color:${C.dim};flex-shrink:0;`;
+      arrow.textContent = '⇄';
+      const nameB = document.createElement('span');
+      nameB.style.cssText = `color:${C.fg};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`;
+      nameB.textContent = instB.brickData.name || instB.brickTypeId;
+      bricks.append(mkDot(instA), nameA, arrow, mkDot(instB), nameB);
+
+      // Ligne liaison + DOF + toggle marqueur
+      const meta = document.createElement('div');
+      meta.style.cssText = `display:flex;align-items:center;gap:6px;padding-left:14px;`;
+      const liaisonLabel = document.createElement('span');
+      liaisonLabel.style.cssText = `color:${dofs.length ? C.accent : C.dim};font-size:10px;flex:1;`;
+      liaisonLabel.textContent = label;
+      meta.appendChild(liaisonLabel);
+      if (dofs.length) {
+        const dofBadge = document.createElement('span');
+        dofBadge.style.cssText = `color:${C.dim};font-size:10px;`;
+        dofBadge.textContent = dofs.map(d => d.type).join(' · ');
+        meta.appendChild(dofBadge);
+      }
+
+      // Bouton toggle rendu 3D
+      const visible = this._asmVerse.joints.isMarkerVisible(conn);
+      const toggleBtn = document.createElement('button');
+      toggleBtn.textContent = '◉';
+      toggleBtn.title = visible ? 'Masquer le helper' : 'Afficher le helper';
+      toggleBtn.style.cssText = [
+        'background:transparent', 'border:none', 'cursor:pointer',
+        'font-size:12px', 'padding:0 2px', 'flex-shrink:0', 'line-height:1',
+        `color:${visible ? C.accent : C.dim}`,
+      ].join(';');
+      toggleBtn.addEventListener('click', () => {
+        this._asmVerse.joints.setMarkerVisible(conn, !this._asmVerse.joints.isMarkerVisible(conn));
+        this._refreshPanel('joints');
+      });
+      meta.appendChild(toggleBtn);
+
+      row.append(bricks, meta);
       body.appendChild(row);
     }
   }
@@ -1170,9 +1285,9 @@ export class Assembler {
 
   /** Bascule entre 'brick' et 'component'. Réinitialise processus et sélection. */
   _setMode(mode) {
-    this._mode              = mode;
-    this._process           = 'idle';
-    this._selectedBrick     = null;
+    this._mode = mode;
+    this._process = 'idle';
+    this._selectBrick(null);
     this._selectedComponent = null;
     this._updateModeBtns?.();
     // Rafraîchir le panel état s'il est ouvert
@@ -1189,9 +1304,22 @@ export class Assembler {
 
   /** Sélectionne une brique (mode brick). null = désélection. */
   _selectBrick(brick) {
+    // Effacer le highlight de la sélection précédente
+    if (this._selectedBrick) {
+      const m = this._selectedBrick.mesh.material;
+      m.emissive.setHex(0x000000);
+      m.emissiveIntensity = 0;
+    }
     this._selectedBrick = brick;
-    const p = this._panels?.state;
-    if (p?.style.display === 'flex') this._refreshPanel('state');
+    // Appliquer le highlight à la nouvelle sélection
+    if (brick) {
+      const m = brick.mesh.material;
+      m.emissive.setHex(C.worldSlot);
+      m.emissiveIntensity = 0.3;
+    }
+    if (this._panels?.bricks?.style.display  === 'flex') this._refreshPanel('bricks');
+    if (this._panels?.joints?.style.display  === 'flex') this._refreshPanel('joints');
+    if (this._panels?.state?.style.display   === 'flex') this._refreshPanel('state');
   }
 
   /** Sélectionne une composante (mode component). */
@@ -1231,10 +1359,8 @@ export class Assembler {
     rows.push(null);
 
     // Contexte AsmVerse
-    const nExpl = this._asmVerse.joints.connections.filter(c => !c.implicit).length;
-    const nImpl = this._asmVerse.joints.connections.length - nExpl;
     rows.push(['BRIQUES',     String(this._asmVerse.bricks.size)]);
-    rows.push(['LIAISONS',    `${nExpl} explicites  +  ${nImpl} implicites`]);
+    rows.push(['LIAISONS',    String(this._asmVerse.joints.connections.length)]);
     rows.push(['COMPOSANTES', String(this._asmVerse.componentCount())]);
 
     for (const row of rows) {

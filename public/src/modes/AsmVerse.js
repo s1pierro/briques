@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { expandSlots } from '../slot-utils.js';
 import { getManifold, buildCache, manifoldToGeometry } from '../csg-utils.js';
+import { AssemblySolver } from './AssemblySolver.js';
 
 // ─── Constantes visuelles ─────────────────────────────────────────────────────
 const WS_COLOR    = 0x7aafc8;   // world slot / plan
@@ -37,6 +38,8 @@ export class AsmBrick {
     this.geoCenter   = geoCenter;
     this.origPos     = mesh.position.clone();
     this.origQuat    = mesh.quaternion.clone();
+    /** @type {Object[]}  connexions impliquant cette brique */
+    this.connections = [];
   }
 
   /** Position monde d'un slot (calculée dynamiquement depuis la pose courante du mesh). */
@@ -65,69 +68,6 @@ export class AsmBrick {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// _AssemblySolver  —  résolution de liaisons (interne, partagé par WorldSlots + AsmJoints)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-class _AssemblySolver {
-  constructor() { this._liaisons = {}; }
-
-  refresh() {
-    try { this._liaisons = JSON.parse(localStorage.getItem('rbang_liaisons') || '{}'); }
-    catch { this._liaisons = {}; }
-  }
-
-  solve(nearA, nearB) {
-    this.refresh();
-    for (const sa of nearA) {
-      for (const sb of nearB) {
-        const li = this._findLiaison(sa.typeId, sb.typeId);
-        if (li) return { slotA: sa, slotB: sb, liaison: li };
-      }
-    }
-    return null;
-  }
-
-  ballJoint() {
-    return { id: '__ball__', name: 'Rotule', dof: [{ type: 'ball', axis: [0,1,0] }] };
-  }
-
-  compatible(typeA, typeB) { return this._findLiaison(typeA, typeB); }
-
-  diagnose(nearA, nearB) {
-    console.group('[AsmVerse/solver] solve() → null');
-    if (!nearA.length) { console.warn('Source : aucun slot défini'); console.groupEnd(); return; }
-    if (!nearB.length) { console.warn('Cible  : aucun slot défini'); console.groupEnd(); return; }
-    const nullA = nearA.filter(s => !s.typeId);
-    const nullB = nearB.filter(s => !s.typeId);
-    if (nullA.length) console.warn(`Source : ${nullA.length} slot(s) sans typeId`);
-    if (nullB.length) console.warn(`Cible  : ${nullB.length} slot(s) sans typeId`);
-    const allTypes = new Set(
-      Object.values(this._liaisons).flatMap(l => (l.pairs || []).flatMap(p => [p.typeA, p.typeB]))
-    );
-    if (!allTypes.size) {
-      console.warn('rbang_liaisons vide — aucune liaison définie dans la Forge');
-    } else {
-      const misA = nearA.filter(s => s.typeId && !allTypes.has(s.typeId)).map(s => s.typeId);
-      const misB = nearB.filter(s => s.typeId && !allTypes.has(s.typeId)).map(s => s.typeId);
-      if (misA.length) console.warn('typeId(s) source absents :', misA);
-      if (misB.length) console.warn('typeId(s) cible  absents :', misB);
-    }
-    console.warn('typeIds source :', nearA.map(s => s.typeId));
-    console.warn('typeIds cible  :', nearB.map(s => s.typeId));
-    console.groupEnd();
-  }
-
-  _findLiaison(typeA, typeB) {
-    for (const li of Object.values(this._liaisons)) {
-      for (const pair of (li.pairs || [])) {
-        if ((pair.typeA === typeA && pair.typeB === typeB) ||
-            (pair.typeA === typeB && pair.typeB === typeA)) return li;
-      }
-    }
-    return null;
-  }
-}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // AsmSlots  —  registre de tous les slots présents dans la scène
@@ -147,6 +87,8 @@ export class AsmSlots {
   constructor() {
     /** @type {Array<{ brick: AsmBrick, slot: Object }>} */
     this._entries = [];
+    /** @type {Set<Object>}  slots actuellement engagés dans une connexion */
+    this._occupied = new Set();
   }
 
   // ── Points d'entrée ──────────────────────────────────────────────────────────
@@ -175,17 +117,27 @@ export class AsmSlots {
 
   /**
    * Slots d'une brique triés par proximité au point écran (cx, cy).
-   * @param {AsmBrick}     brick
-   * @param {number}       cx, cy  — coordonnées écran
-   * @param {THREE.Camera} camera
+   * @param {AsmBrick}       brick
+   * @param {number}         cx, cy               — coordonnées écran
+   * @param {THREE.Camera}   camera
+   * @param {boolean}        [freeOnly=false]      — si true, exclut les slots occupés…
+   * @param {AsmBrick|null}  [exceptConnectedTo]   — …sauf ceux déjà liés à cette brique
    * @returns {Object[]}  slots triés (dist croissante)
    */
-  nearSlotsOf(brick, cx, cy, camera) {
+  nearSlotsOf(brick, cx, cy, camera, freeOnly = false, exceptConnectedTo = null) {
     const ndcX =  (cx / innerWidth)  * 2 - 1;
     const ndcY = -(cy / innerHeight) * 2 + 1;
     const touch = new THREE.Vector2(ndcX, ndcY);
     return this._entries
-      .filter(e => e.brick === brick)
+      .filter(e => {
+        if (e.brick !== brick) return false;
+        if (!freeOnly || !this._occupied.has(e.slot)) return true;
+        // Exception : slot occupé mais lié à la brique source → repositionnement autorisé
+        return exceptConnectedTo != null && brick.connections.some(c =>
+          (c.slotA === e.slot || c.slotB === e.slot) &&
+          (c.instA === exceptConnectedTo || c.instB === exceptConnectedTo)
+        );
+      })
       .map(e => {
         const wp = e.brick.worldSlotPos(e.slot).clone();
         wp.project(camera);
@@ -220,8 +172,60 @@ export class AsmSlots {
       .sort((a, b) => a.dist - b.dist);
   }
 
+  /** Ensemble des typeIds de slots présents dans la scène. */
+  get typeIds() {
+    return new Set(this._entries.map(e => e.slot.typeId).filter(Boolean));
+  }
+
+  // ── État occupé ──────────────────────────────────────────────────────────────
+
+  /**
+   * Reconstruit l'ensemble des slots occupés depuis la liste courante des connexions.
+   * Appelé par AsmJoints.observe() après chaque mise à jour des connexions.
+   * @param {Object[]} connections
+   */
+  syncOccupied(connections) {
+    this._occupied = new Set(connections.flatMap(c => [c.slotA, c.slotB]));
+  }
+
+  /** Retourne true si le slot est engagé dans au moins une connexion. */
+  isOccupied(slot) { return this._occupied.has(slot); }
+
+  /** Slots libres (non occupés) d'une brique donnée. */
+  freeSlots(brick) {
+    return this._entries
+      .filter(e => e.brick === brick && !this._occupied.has(e.slot))
+      .map(e => e.slot);
+  }
+
   /** Vide le registre (lors d'un clear() global). */
-  clear() { this._entries = []; }
+  clear() { this._entries = []; this._occupied = new Set(); }
+
+  /** Distance max pour considérer deux slots comme coïncidents (unités scène). */
+  static CLIP_DIST = 0.12;
+
+  /**
+   * Retourne toutes les paires de slots coïncidents entre des briques différentes.
+   * Utilisé par AsmJoints.observe() pour détecter les connexions.
+   * @param {number} [clipDist]
+   * @returns {Array<{ brickA: AsmBrick, slotA: Object, brickB: AsmBrick, slotB: Object }>}
+   */
+  coincidentPairs(clipDist = AsmSlots.CLIP_DIST) {
+    const pairs = [];
+    for (let i = 0; i < this._entries.length; i++) {
+      const { brick: bA, slot: sA } = this._entries[i];
+      if (!sA.typeId) continue;
+      const posA = bA.worldSlotPos(sA);
+      for (let j = i + 1; j < this._entries.length; j++) {
+        const { brick: bB, slot: sB } = this._entries[j];
+        if (bA === bB || !sB.typeId) continue;
+        if (posA.distanceTo(bB.worldSlotPos(sB)) < clipDist) {
+          pairs.push({ brickA: bA, slotA: sA, brickB: bB, slotB: sB });
+        }
+      }
+    }
+    return pairs;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -236,7 +240,7 @@ export class WorldSlots {
 
   /**
    * @param {THREE.Scene}      scene
-   * @param {_AssemblySolver}  solver
+   * @param {AssemblySolver}  solver
    */
   constructor(scene, solver) {
     this._scene     = scene;
@@ -422,35 +426,35 @@ export class WorldSlots {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// AsmJoints  —  connexions, liaisons de la scène, marqueurs, implicites
+// AsmJoints  —  connexions et liaisons de la scène, marqueurs
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
  * Décrit l'ensemble des liaisons existant dans la scène d'assemblage :
- * connexions explicites (snap), implicites (clipping spatial), et leurs
- * représentations visuelles (marqueurs disque).
+ * Décrit l'ensemble des liaisons existant dans la scène d'assemblage
+ * et leurs représentations visuelles (marqueurs disque).
  *
- * Une connexion = { instA, instB, slotA, slotB, liaison, implicit? }
+ * Une connexion = { instA, instB, slotA, slotB, liaison }
  * où liaison est un objet du store rbang_liaisons (ou null).
  */
 export class AsmJoints {
 
-  /** Distance max pour considérer deux slots comme coïncidents (unités scène). */
-  static CLIP_DIST = 0.12;
-
   /**
    * @param {THREE.Scene}      scene
-   * @param {_AssemblySolver}  solver
+   * @param {AssemblySolver}  solver
    */
   constructor(scene, solver) {
     this._scene  = scene;
     this._solver = solver;
 
-    /** @type {Object[]}  toutes les connexions (explicites + implicites) */
+    /** @type {Object[]}  toutes les connexions de la scène */
     this.connections = [];
 
     /** @type {Array<{ mesh: THREE.Mesh, conn: Object }>} */
     this._markers = [];
+
+    /** Visibilité globale de tous les marqueurs de liaisons. */
+    this.markersVisible = true;
 
     /**
      * Callback déclenché lors de l'ajout d'une connexion EXPLICITE.
@@ -465,49 +469,39 @@ export class AsmJoints {
   // ── API publique ─────────────────────────────────────────────────────────────
 
   /**
-   * Enregistre une connexion explicite, masque les précédents marqueurs,
-   * délègue l'activation des AsmHandlers via onConnect, et crée le disque
-   * si aucun handler n'est actif.
+   * Met à jour les connexions depuis l'état courant des slots.
+   * Détecte les nouvelles paires coïncidentes, supprime les obsolètes.
+   * Source de vérité unique — remplace add() / addImplicitsFor() / removeFor().
+   *
+   * @param {AsmSlots}  asmSlots
+   * @param {boolean}   [notify=false]  — si true, déclenche onConnect pour les nouvelles connexions
    */
-  add(conn) {
-    this.connections.push(conn);
-    if (conn.implicit) return;
+  observe(asmSlots, notify = false) {
+    const pairs = asmSlots.coincidentPairs();
 
-    for (const jm of this._markers) jm.mesh.visible = false;
-
-    const handlersActive = this.onConnect?.(conn) ?? false;
-    if (!handlersActive) this._createMarker(conn);
-  }
-
-  /**
-   * Détecte et enregistre les connexions implicites induites par newBrick
-   * avec toutes les autres briques de la scène.
-   * @param {AsmBrick}              newBrick
-   * @param {Map<string,AsmBrick>}  allBricks
-   */
-  addImplicitsFor(newBrick, allBricks) {
-    this._solver.refresh();
-    for (const other of allBricks.values()) {
-      if (other === newBrick) continue;
-      if (this.has(newBrick, other)) continue;
-      const clip = this._isClipped(newBrick, other);
-      if (clip) {
-        this.connections.push({
-          instA: newBrick, instB: other,
-          slotA: clip.slotA, slotB: clip.slotB,
-          liaison: clip.liaison, implicit: true,
-        });
+    // Construire la liste cible des connexions
+    const next  = [];
+    const added = [];
+    for (const { brickA, slotA, brickB, slotB } of pairs) {
+      const existing = this.connections.find(c =>
+        (c.instA === brickA && c.slotA === slotA && c.instB === brickB && c.slotB === slotB) ||
+        (c.instA === brickB && c.slotA === slotB && c.instB === brickA && c.slotB === slotA)
+      );
+      if (existing) {
+        next.push(existing);
+      } else {
+        const liaison = this._solver.compatible(slotA.typeId, slotB.typeId);
+        if (liaison) {
+          const conn = { instA: brickA, instB: brickB, slotA, slotB, liaison };
+          next.push(conn);
+          added.push(conn);
+        }
       }
     }
-  }
 
-  /**
-   * Supprime toutes les connexions impliquant brick (explicites + implicites)
-   * et nettoie les marqueurs associés.
-   */
-  removeFor(brick) {
-    const toRemove = this.connections.filter(c => c.instA === brick || c.instB === brick);
-    for (const conn of toRemove) {
+    // Connexions obsolètes → nettoyer les marqueurs
+    const stale = this.connections.filter(c => !next.includes(c));
+    for (const conn of stale) {
       const mi = this._markers.findIndex(jm => jm.conn === conn);
       if (mi !== -1) {
         const { mesh } = this._markers[mi];
@@ -517,24 +511,39 @@ export class AsmJoints {
         this._markers.splice(mi, 1);
       }
     }
-    this.connections = this.connections.filter(c => c.instA !== brick && c.instB !== brick);
+
+    this.connections = next;
+
+    // Reconstruire brick.connections pour toutes les briques touchées
+    const touched = new Set([
+      ...next.flatMap(c  => [c.instA, c.instB]),
+      ...stale.flatMap(c => [c.instA, c.instB]),
+    ]);
+    for (const brick of touched) brick.connections = [];
+    for (const conn of this.connections) {
+      conn.instA.connections.push(conn);
+      conn.instB.connections.push(conn);
+    }
+
+    // Synchroniser l'état occupé des slots
+    asmSlots.syncOccupied(this.connections);
+
+    // Nouvelles connexions → marqueur ou activation des handlers
+    for (const conn of added) {
+      const handlersActive = notify ? (this.onConnect?.(conn) ?? false) : false;
+      if (!handlersActive) this._createMarker(conn);
+    }
   }
 
-  /** Retourne true si une connexion existe déjà entre brickA et brickB. */
+  /** Retourne true si une connexion existe entre brickA et brickB. */
   has(brickA, brickB) {
-    return this.connections.some(
-      c => (c.instA === brickA && c.instB === brickB) ||
-           (c.instA === brickB && c.instB === brickA)
-    );
+    return brickA.connections.some(c => c.instA === brickB || c.instB === brickB);
   }
 
-  /** Connexions explicites (implicit !== true). */
-  explicitConnections() {
-    return this.connections.filter(c => !c.implicit);
-  }
-
-  /** Retire tous les marqueurs et vide les connexions. */
+  /** Retire tous les marqueurs, réinitialise les connexions et les listes par brique. */
   dispose() {
+    const touched = new Set(this.connections.flatMap(c => [c.instA, c.instB]));
+    for (const brick of touched) brick.connections = [];
     for (const { mesh } of this._markers) {
       this._scene.remove(mesh);
       mesh.geometry.dispose();
@@ -542,6 +551,27 @@ export class AsmJoints {
     }
     this._markers = [];
     this.connections = [];
+  }
+
+  /** Reflète l'état global markersVisible. */
+  get allMarkersVisible() { return this.markersVisible; }
+
+  /** Bascule la visibilité globale et applique à tous les marqueurs existants. */
+  setAllMarkersVisible(visible) {
+    this.markersVisible = visible;
+    for (const { mesh } of this._markers) mesh.visible = visible;
+  }
+
+  /** Retourne true si le marqueur de cette connexion est visible. */
+  isMarkerVisible(conn) {
+    const jm = this._markers.find(m => m.conn === conn);
+    return jm ? jm.mesh.visible : false;
+  }
+
+  /** Active ou masque le marqueur 3D d'une connexion (contraint par markersVisible). */
+  setMarkerVisible(conn, visible) {
+    const jm = this._markers.find(m => m.conn === conn);
+    if (jm) jm.mesh.visible = visible && this.markersVisible;
   }
 
   // ── Privé ────────────────────────────────────────────────────────────────────
@@ -574,26 +604,12 @@ export class AsmJoints {
       );
     }
 
+    // Nouveau marqueur masqué par défaut — ne s'affiche pas au dernier assemblage
+    marker.visible = false;
     this._scene.add(marker);
     this._markers.push({ mesh: marker, conn });
   }
 
-  _isClipped(brickA, brickB) {
-    const slotsA = brickA.slots;
-    const slotsB = brickB.slots;
-    for (const sA of slotsA) {
-      if (!sA.typeId) continue;
-      const posA = brickA.worldSlotPos(sA);
-      for (const sB of slotsB) {
-        if (!sB.typeId) continue;
-        if (posA.distanceTo(brickB.worldSlotPos(sB)) < AsmJoints.CLIP_DIST) {
-          const li = this._solver.compatible(sA.typeId, sB.typeId);
-          if (li) return { slotA: sA, slotB: sB, liaison: li };
-        }
-      }
-    }
-    return null;
-  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -607,7 +623,7 @@ export class AsmJoints {
  * - `links`   — connexions DOF vers d'autres composantes (liaisons cinématiques)
  *
  * Une connexion est dite "rigide" si sa liaison ne possède aucun DOF
- * (`!liaison.dof?.length`) ou si elle est implicite (clipping).
+ * (`!liaison.dof?.length`).
  * Les connexions DOF (`liaison.dof.length > 0`) forment les arêtes du graphe
  * cinématique entre composantes.
  *
@@ -652,8 +668,10 @@ export class AsmVerse {
   constructor(scene) {
     this.scene = scene;
 
-    // Solveur de liaisons partagé
-    this._solver = new _AssemblySolver();
+    // Solveur de liaisons — données chargées une fois au démarrage
+    let liaisons = {};
+    try { liaisons = JSON.parse(localStorage.getItem('rbang_liaisons') || '{}'); } catch {}
+    this._solver = new AssemblySolver(liaisons);
 
     /** @type {Map<string, AsmBrick>}  toutes les briques de la scène */
     this.bricks = new Map();
@@ -757,34 +775,25 @@ export class AsmVerse {
     }
     this._wsConnections = this._wsConnections.filter(wsc => wsc.brick !== brick);
 
-    this.joints.removeFor(brick);
     this.slots.unregisterBrick(brick);   // ← point d'entrée 2 du registre
+    this.joints.observe(this.slots);     // nettoie les connexions obsolètes
     this.bricks.delete(brick.id);
   }
 
   // ── Connexions ───────────────────────────────────────────────────────────────
 
   /**
-   * Enregistre une connexion explicite entre deux briques.
-   * @returns {Object} conn
-   */
-  connect(brickA, slotA, brickB, slotB, liaison) {
-    const conn = { instA: brickA, instB: brickB, slotA, slotB, liaison };
-    this.joints.add(conn);
-    return conn;
-  }
-
-  /**
    * Assemble brickA sur brickB d'après les points d'accroche écran.
-   * Déplace brickA, enregistre la connexion.
-   * @returns {Object|null} conn, ou null si aucune liaison compatible
+   * Déplace brickA puis déclenche l'observateur de scène.
+   * @returns {Object|null} connexion détectée, ou null si aucune liaison compatible
    */
   connectDrag(brickA, grabX, grabY, brickB, dropX, dropY, camera) {
+    // brickA est en cours de déplacement : tous ses slots sont temporairement libres
     const nearA  = this.slots.nearSlotsOf(brickA, grabX, grabY, camera);
-    const nearB  = this.slots.nearSlotsOf(brickB, dropX, dropY, camera);
+    const nearB  = this.slots.nearSlotsOf(brickB, dropX, dropY, camera, true, brickA);
     const result = this.worldSlots.resolve(nearA, nearB);
     if (!result) {
-      this._solver.diagnose(nearA, nearB);
+      this._solver.diagnose(nearA, nearB, this.slots.typeIds);
       return null;
     }
     const snap = this.worldSlots.computeSnap(result.slotA, result.slotB, brickB);
@@ -792,7 +801,11 @@ export class AsmVerse {
     brickA.mesh.quaternion.copy(snap.quaternion);
     brickA.origPos  = snap.position.clone();
     brickA.origQuat = snap.quaternion.clone();
-    return this.connect(brickA, result.slotA, brickB, result.slotB, result.liaison);
+    this.joints.observe(this.slots, true);
+    return this.joints.connections.find(c =>
+      (c.instA === brickA || c.instB === brickA) &&
+      (c.instA === brickB || c.instB === brickB)
+    ) ?? null;
   }
 
   // ── World slot helpers ───────────────────────────────────────────────────────
@@ -816,34 +829,34 @@ export class AsmVerse {
    * @returns {AsmEquivalenceClass[]}
    */
   computeComponents() {
-    const isRigid = c => c.implicit || !(c.liaison?.dof?.length);
+    const isRigid = c => !(c.liaison?.dof?.length);
     const seen       = new Set();
     const components = [];
 
     for (const brick of this.bricks.values()) {
       if (seen.has(brick.id)) continue;
-
-      // BFS rigide
-      const compIds = new Set([brick.id]);
-      const queue   = [brick];
+      // BFS rigide — utilise brick.connections pour O(V+E)
+      const compBricks = new Set([brick]);
+      const queue      = [brick];
       while (queue.length) {
         const b = queue.shift();
-        for (const conn of this.joints.connections) {
+        for (const conn of b.connections) {
           if (!isRigid(conn)) continue;
-          let neighbor = null;
-          if (conn.instA === b && !compIds.has(conn.instB.id)) neighbor = conn.instB;
-          if (conn.instB === b && !compIds.has(conn.instA.id)) neighbor = conn.instA;
-          if (neighbor) { compIds.add(neighbor.id); queue.push(neighbor); }
+          const neighbor = conn.instA === b ? conn.instB : conn.instA;
+          if (!compBricks.has(neighbor)) {
+            compBricks.add(neighbor);
+            queue.push(neighbor);
+          }
         }
       }
 
-      const compBricks = [...this.bricks.values()].filter(b => compIds.has(b.id));
-      const internalJoints = this.joints.connections.filter(
-        c => isRigid(c) && compIds.has(c.instA.id) && compIds.has(c.instB.id)
-      );
+      const compIds    = new Set([...compBricks].map(b => b.id));
+      const internalJoints = [...compBricks].flatMap(b =>
+        b.connections.filter(c => isRigid(c) && compBricks.has(c.instA) && compBricks.has(c.instB))
+      ).filter((c, i, arr) => arr.indexOf(c) === i); // dédupliquer
       const ec = new AsmEquivalenceClass(compBricks, internalJoints);
       components.push(ec);
-      for (const id of compIds) seen.add(id);
+      for (const b of compBricks) seen.add(b.id);
     }
 
     // Liens cinématiques (DOF) entre composantes
@@ -879,13 +892,12 @@ export class AsmVerse {
       qx: b.mesh.quaternion.x, qy: b.mesh.quaternion.y,
       qz: b.mesh.quaternion.z, qw: b.mesh.quaternion.w,
     }));
-    const connections = this.joints.explicitConnections().map(c => ({
+    const connections = this.joints.connections.map(c => ({
       instAId  : c.instA.id,
       instBId  : c.instB.id,
       slotAId  : c.slotA.id,
       slotBId  : c.slotB.id,
       liaisonId: c.liaison?.id ?? null,
-      implicit : false,
     }));
     return { version: 1, instances, connections };
   }
@@ -921,17 +933,8 @@ export class AsmVerse {
       idMap.set(s.id, brick);
     }
 
-    for (const c of (data.connections || [])) {
-      if (c.implicit) continue;
-      const brickA = idMap.get(c.instAId);
-      const brickB = idMap.get(c.instBId);
-      if (!brickA || !brickB) continue;
-      const slotA = brickA.slots.find(s => s.id === c.slotAId || s._defId === c.slotAId);
-      const slotB = brickB.slots.find(s => s.id === c.slotBId || s._defId === c.slotBId);
-      if (!slotA || !slotB) continue;
-      const liaison = c.liaisonId ? (liaisonsStore[c.liaisonId] ?? null) : null;
-      this.connect(brickA, slotA, brickB, slotB, liaison);
-    }
+    // Toutes les briques sont positionnées — l'observateur détecte les connexions
+    this.joints.observe(this.slots);
 
     return idMap;
   }
