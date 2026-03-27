@@ -464,7 +464,24 @@ export class AsmJoints {
      * @type {((conn: Object) => boolean) | null}
      */
     this.onConnect = null;
+
+    /**
+     * Dernière connexion créée avec métadonnées.
+     * @type {{ conn: Object, timestamp: number, initiator: Object|null } | null}
+     */
+    this._lastEntry = null;
   }
+
+  // ── Accesseurs dernière liaison ───────────────────────────────────────────────
+
+  /** Dernière connexion créée, ou null. */
+  get lastConn()      { return this._lastEntry?.conn       ?? null; }
+
+  /** Brique initiatrice de la dernière connexion (ajoutée ou déplacée), ou null. */
+  get lastInitiator() { return this._lastEntry?.initiator  ?? null; }
+
+  /** Timestamp (ms) de création de la dernière connexion, ou null. */
+  get lastTimestamp() { return this._lastEntry?.timestamp  ?? null; }
 
   // ── API publique ─────────────────────────────────────────────────────────────
 
@@ -474,9 +491,10 @@ export class AsmJoints {
    * Source de vérité unique — remplace add() / addImplicitsFor() / removeFor().
    *
    * @param {AsmSlots}  asmSlots
-   * @param {boolean}   [notify=false]  — si true, déclenche onConnect pour les nouvelles connexions
+   * @param {boolean}   [notify=false]    — si true, déclenche onConnect pour les nouvelles connexions
+   * @param {Object}    [initiator=null]  — brique ajoutée ou déplacée à l'origine de l'observe
    */
-  observe(asmSlots, notify = false) {
+  observe(asmSlots, notify = false, initiator = null) {
     const pairs = asmSlots.coincidentPairs();
 
     // Construire la liste cible des connexions
@@ -528,8 +546,9 @@ export class AsmJoints {
     // Synchroniser l'état occupé des slots
     asmSlots.syncOccupied(this.connections);
 
-    // Nouvelles connexions → marqueur ou activation des handlers
+    // Nouvelles connexions → stocker métadonnées + marqueur ou activation des handlers
     for (const conn of added) {
+      this._lastEntry = { conn, timestamp: Date.now(), initiator };
       const handlersActive = notify ? (this.onConnect?.(conn) ?? false) : false;
       if (!handlersActive) this._createMarker(conn);
     }
@@ -551,6 +570,7 @@ export class AsmJoints {
     }
     this._markers = [];
     this.connections = [];
+    this._lastEntry = null;
   }
 
   /** Reflète l'état global markersVisible. */
@@ -801,7 +821,7 @@ export class AsmVerse {
     brickA.mesh.quaternion.copy(snap.quaternion);
     brickA.origPos  = snap.position.clone();
     brickA.origQuat = snap.quaternion.clone();
-    this.joints.observe(this.slots, true);
+    this.joints.observe(this.slots, true, brickA);
     return this.joints.connections.find(c =>
       (c.instA === brickA || c.instB === brickA) &&
       (c.instA === brickB || c.instB === brickB)

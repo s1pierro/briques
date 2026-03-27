@@ -253,7 +253,7 @@ export class Assembler {
       const snap = this._asmVerse.worldSlots.computeSnap(result.slotA, result.slotB, targetInst);
       const brick = await this._asmVerse.spawnBrick(brickId, brickData, null, snap);
       if (brick) {
-        this._asmVerse.joints.observe(this._asmVerse.slots, true);
+        this._asmVerse.joints.observe(this._asmVerse.slots, true, brick);
         this._showSnapHelper(brick.mesh.position.clone());
         this._updateCount();
       }
