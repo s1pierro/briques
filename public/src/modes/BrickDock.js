@@ -410,8 +410,23 @@ export class BrickDock {
     );
     camera.lookAt(0, 0, 0);
 
-    // TrackballControls attaché au canvas — les events arrivent directement dessus
-    // sans passer par le bubbling de cell.el (même config que la Forge)
+    // Bouton de rotation caméra — affiché uniquement sur la cellule active
+    const camHandle = document.createElement('div');
+    camHandle.textContent = '↻';
+    camHandle.style.cssText = [
+      'position:absolute', 'top:4px', 'right:4px',
+      'width:32px', 'height:32px',
+      'display:none',
+      'pointer-events:auto', 'touch-action:none', 'cursor:grab',
+      'color:#7aafc8', 'font-size:20px', 'line-height:32px', 'text-align:center',
+      'background:rgba(20,20,20,0.65)', 'border-radius:6px',
+      'border:1px solid rgba(120,160,200,0.4)',
+      'user-select:none',
+    ].join(';');
+    el.appendChild(camHandle);
+
+    // TrackballControls attaché au canvas (même config que la Forge)
+    // tb.enabled = false par défaut — activé uniquement depuis le handle
     const tb = new TrackballControls(camera, canvas);
     tb.rotateSpeed          = 3.5;
     tb.noZoom               = true;
@@ -419,15 +434,32 @@ export class BrickDock {
     tb.dynamicDampingFactor = 0.18;
     tb.target.set(0, 0, 0);
     tb.update();
+    tb.enabled = false;
 
     const cell = {
-      el, canvas, ctx2d, label, scene, camera, tb,
+      el, canvas, ctx2d, label, camHandle, scene, camera, tb,
       brickId, brickData, mesh: null,
       _camRadius : 3,    // ajusté après chargement géométrie
       _dirty     : true, // déclenche un re-render au prochain frame
     };
 
     tb.addEventListener('change', () => { cell._dirty = true; });
+
+    // Handle → active TB et dispatch un pointerdown synthétique sur le canvas
+    // pour que TB initialise son état interne (capture + _pointers)
+    camHandle.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      cell.tb.enabled = true;
+      canvas.dispatchEvent(new PointerEvent('pointerdown', {
+        bubbles: false, cancelable: true,
+        clientX: e.clientX, clientY: e.clientY,
+        pointerId: e.pointerId, pointerType: e.pointerType,
+        pressure: e.pressure, button: e.button, buttons: e.buttons,
+        isPrimary: e.isPrimary,
+      }));
+    }, { passive: false });
+
     await this._loadCellGeometry(cell);
     this._bindCellGestures(cell);
     return cell;
@@ -472,6 +504,7 @@ export class BrickDock {
     cell.canvas.style.height = CELL_ACTIVE + 'px';
     cell.el.style.width      = CELL_ACTIVE + 'px';
     cell.el.style.height     = CELL_ACTIVE + 'px';
+    cell.camHandle.style.display = '';
     this._applyCellStyle(cell, true);
     cell.tb.handleResize();
     cell._dirty = true;
@@ -481,6 +514,8 @@ export class BrickDock {
     if (!this._activeCell) return;
     const cell = this._activeCell;
     this._activeCell = null;
+    cell.tb.enabled = false;
+    cell.camHandle.style.display = 'none';
     cell.canvas.style.width  = CELL + 'px';
     cell.canvas.style.height = CELL + 'px';
     cell.el.style.width      = CELL + 'px';
@@ -530,7 +565,7 @@ export class BrickDock {
         cell.tb.enabled = false;
       } else {
         mode = 'trackball';
-        cell.tb.enabled = true;
+        // TB n'est activé que depuis le handle — ici on ne fait rien
       }
     }, { passive: false });
 
@@ -551,7 +586,6 @@ export class BrickDock {
 
       if (mode === 'assemble') {
         if (cv.hasPointerCapture(e.pointerId)) cv.releasePointerCapture(e.pointerId);
-        cell.tb.enabled = true;
         if (this._onPickBrick) {
           const nearSlots = this._nearSlotsForBrick(cell, startX, startY);
           this._onPickBrick(cell.brickId, {
@@ -562,12 +596,14 @@ export class BrickDock {
           });
         }
       }
+      // trackball : TB a relâché sa capture en interne ; on éteint TB
+      cell.tb.enabled = false;
       mode = null;
     });
 
     cv.addEventListener('pointercancel', (e) => {
       if (cv.hasPointerCapture(e.pointerId)) cv.releasePointerCapture(e.pointerId);
-      cell.tb.enabled = true;
+      cell.tb.enabled = false;
       mode = null;
     });
   }
