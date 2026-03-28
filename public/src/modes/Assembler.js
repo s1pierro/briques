@@ -358,6 +358,9 @@ export class Assembler {
       const dx = e.clientX - startX, dy = e.clientY - startY;
       if (Math.sqrt(dx * dx + dy * dy) >= 12) {
         if (this._process !== 'dragging') {
+          // Mémoriser la position courante (peut être post-DOF) comme référence de retour
+          inst.origPos  = inst.mesh.position.clone();
+          inst.origQuat = inst.mesh.quaternion.clone();
           inst.mesh.material.transparent = true;
           inst.mesh.material.opacity     = 0.4;
           inst.mesh.material.needsUpdate = true;
