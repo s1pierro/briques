@@ -505,7 +505,8 @@ export class Assembler {
     const cfg        = this._loadConfig();
     const stepsRot   = cfg.asmHelperStepsRot   ?? 16;
     const stepsTrans = cfg.asmHelperStepsTrans  ?? 20;
-    const handlers = new AsmHandlers({ conn: oriented, engine: this.engine, topOffset: BAR_H, stepsRot, stepsTrans });
+    const connections = this._asmVerse.joints.connections;
+    const handlers = new AsmHandlers({ conn: oriented, engine: this.engine, topOffset: BAR_H, stepsRot, stepsTrans, connections });
     if (handlers.active) {
       handlers.attach();
       this._asmHandlers = handlers;

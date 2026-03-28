@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { InvolvedBricksSolver } from './InvolvedBricksSolver.js';
 
 // ─── Constantes visuelles ──────────────────────────────────────────────────────
 
@@ -37,20 +38,22 @@ const CURSOR_R    = 0.95;  // rayon du curseur (même cercle que les marqueurs)
 
 export class AsmDofHandler {
 
-  constructor({ dof, conn, engine, stripIndex = 0, topOffset = 0, steps = 0 }) {
-    this._dof        = dof;
-    this._conn       = conn;
-    this._engine     = engine;
-    this._stripIndex = stripIndex;
-    this._topOffset  = topOffset;
-    this._helper       = null;
-    this._strip        = null;
-    this._rawTotal     = 0;
-    this._valEl        = null;
-    this._cursorMeshes = []; // 4 sphères pour rotation, 1 pour translation
-    this._refAxis      = null; // axe monde (pour translation)
-    this._refU         = null; // vecteur "zéro" dans le plan du disque
-    this._refV         = null; // vecteur orthogonal dans le plan du disque
+  constructor({ dof, conn, engine, stripIndex = 0, topOffset = 0, steps = 0, connections = [] }) {
+    this._dof         = dof;
+    this._conn        = conn;
+    this._engine      = engine;
+    this._stripIndex  = stripIndex;
+    this._topOffset   = topOffset;
+    this._connections = connections; // toutes les connexions de la scène (pour InvolvedBricksSolver)
+    this._helper        = null;
+    this._strip         = null;
+    this._rawTotal      = 0;
+    this._valEl         = null;
+    this._cursorMeshes  = []; // 4 sphères pour rotation, 1 pour translation
+    this._refAxis       = null; // axe monde du DOF
+    this._refU          = null; // vecteur "zéro" dans le plan du disque
+    this._refV          = null; // vecteur orthogonal dans le plan du disque
+    this._involvedBricks = [conn.instA]; // briques à déplacer (résolu à l'attach)
 
     if (steps > 0) {
       if (dof.type === 'translation') {
@@ -161,6 +164,12 @@ export class AsmDofHandler {
         break;
       }
     }
+
+    // ── Briques embarquées (InvolvedBricksSolver) ─────────────────────────────
+    // null pour ball (pas d'axe unique → fallback instA seule)
+    const solverAxis = (dof.type === 'ball') ? null : this._refAxis;
+    this._involvedBricks = new InvolvedBricksSolver()
+      .solve(this._conn, this._connections, solverAxis);
 
     // ── Offset initial (brique déjà en position post-DOF) ────────────────────
     if (dof.type !== 'ball') this._computeInitialOffset();
@@ -474,17 +483,20 @@ export class AsmDofHandler {
     return (px / innerWidth) * Math.PI * 2;
   }
 
-  /** Applique un déplacement effectif sur instA (sans snap ni clamp). */
+  /** Applique un déplacement effectif à toutes les briques embarquées (sans snap ni clamp). */
   _moveDelta(effective) {
-    const { instA } = this._conn;
     const worldAxis  = this._worldAxis();
     const pivotWorld = this._pivotWorld();
     if (this._dof.type === 'translation') {
-      instA.mesh.position.addScaledVector(worldAxis, effective);
+      for (const brick of this._involvedBricks) {
+        brick.mesh.position.addScaledVector(worldAxis, effective);
+      }
     } else {
       const q = new THREE.Quaternion().setFromAxisAngle(worldAxis, effective);
-      instA.mesh.position.sub(pivotWorld).applyQuaternion(q).add(pivotWorld);
-      instA.mesh.quaternion.premultiply(q);
+      for (const brick of this._involvedBricks) {
+        brick.mesh.position.sub(pivotWorld).applyQuaternion(q).add(pivotWorld);
+        brick.mesh.quaternion.premultiply(q);
+      }
     }
   }
 
@@ -534,10 +546,10 @@ export class AsmDofHandler {
 
 export class AsmHandlers {
 
-  constructor({ conn, engine, topOffset = 0, stepsRot = 0, stepsTrans = 0 }) {
+  constructor({ conn, engine, topOffset = 0, stepsRot = 0, stepsTrans = 0, connections = [] }) {
     this._handlers = (conn.liaison?.asmDof ?? []).map((dof, i) => {
       const steps = dof.type === 'translation' ? stepsTrans : stepsRot;
-      return new AsmDofHandler({ dof, conn, engine, stripIndex: i, topOffset, steps });
+      return new AsmDofHandler({ dof, conn, engine, stripIndex: i, topOffset, steps, connections });
     });
   }
 
