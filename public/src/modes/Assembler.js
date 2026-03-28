@@ -15,6 +15,7 @@ const C = {
   worldSlot:    0x7aafc8,
   snapRing:     0x00ff88,
   jointExplicit: 0x00ccff,
+  liaisonPicker: 0xffcc44,   // sphères de sélection de liaison (état intermédiaire)
 };
 
 // Hauteur de la barre de titre — rogne le viewport rendu et le dock
@@ -69,8 +70,10 @@ export class Assembler {
     this._raycaster   = new THREE.Raycaster();
     this._mouse       = new THREE.Vector2(-9999, -9999);
     this._snapHelpers = [];
-    this._stackCandidate = null; // { inst, startX, startY } — brique saisie en cours de drag
-    this._tapStart       = null; // { x, y } — début de geste en zone vide (pour détecter un tap)
+    this._stackCandidate  = null; // { inst, startX, startY } — brique saisie en cours de drag
+    this._tapStart        = null; // { x, y } — début de geste en zone vide (pour détecter un tap)
+    this._liaisonPickers  = [];   // [{ mesh, conn }] — helpers sélection de liaison
+    this._pickerCandidate = null; // { conn, startX, startY } — picker en cours de tap
     this._asmHandlers   = null; // AsmHandlers actifs (DOF d'assemblage)
 
     // ── État global des modes ──────────────────────────────────────────────────
@@ -163,6 +166,7 @@ export class Assembler {
   }
 
   stop() {
+    this._clearLiaisonPickers();
     this._asmHandlers?.detach();
     this._asmHandlers = null;
     this.engine.resizeViewport(0, 0, 0);
@@ -323,6 +327,20 @@ export class Assembler {
       this._mouse.y = -(e.clientY / innerHeight) * 2 + 1;
       this._raycaster.setFromCamera(this._mouse, this.engine.camera);
 
+      // Priorité 0 : pickers de sélection de liaison (état intermédiaire)
+      if (this._liaisonPickers.length > 0) {
+        const pickerHits = this._raycaster.intersectObjects(
+          this._liaisonPickers.map(p => p.mesh), false);
+        if (pickerHits.length > 0) {
+          const picker = this._liaisonPickers.find(p => p.mesh === pickerHits[0].object);
+          if (picker) {
+            this._pickerCandidate = { conn: picker.conn, startX: e.clientX, startY: e.clientY };
+            this.engine.controls.enabled = false;
+            return;
+          }
+        }
+      }
+
       // Priorité 1 : brique existante
       const meshes = [...this._asmVerse.bricks.values()].map(i => i.mesh);
       const hits   = this._raycaster.intersectObjects(meshes, false);
@@ -372,8 +390,20 @@ export class Assembler {
     };
 
     this._onPointerUpStack = (e) => {
-      // Tap en zone vide → désélection (seulement si peu de mouvement = pas un orbit caméra)
       if (!this._stackCandidate) {
+        // Tap sur un picker → activer la liaison choisie
+        if (this._pickerCandidate) {
+          const { conn, startX, startY } = this._pickerCandidate;
+          this._pickerCandidate = null;
+          this.engine.controls.enabled = true;
+          const dx = e.clientX - startX, dy = e.clientY - startY;
+          if (Math.sqrt(dx * dx + dy * dy) < 12) {
+            this._clearLiaisonPickers();
+            this._activateAsmHandlers(conn, this._selectedBrick);
+          }
+          return;
+        }
+        // Tap en zone vide → désélection (seulement si peu de mouvement = pas un orbit caméra)
         if (this._tapStart) {
           const dx = e.clientX - this._tapStart.x, dy = e.clientY - this._tapStart.y;
           if (Math.sqrt(dx * dx + dy * dy) < 12) this._selectBrick(null);
@@ -413,8 +443,9 @@ export class Assembler {
             if (target) connected = this._connectDrag(inst, startX, startY, target, e.clientX, e.clientY);
           }
           if (connected) {
-            // Connexion créée → sélectionner la brique déplacée (helpers DOF visibles)
-            this._selectBrick(inst);
+            // Connexion créée — handler déjà actif via onConnect.
+            // Appliquer uniquement le highlight (sans pickers ni recalcul handlers).
+            this._setBrickSelected(inst);
           } else if (this._stackCandidate?.restorePos) {
             // Pas de connexion → remettre la brique à sa position de départ du drag
             inst.mesh.position.copy(this._stackCandidate.restorePos);
@@ -432,7 +463,8 @@ export class Assembler {
     };
 
     window.addEventListener('pointercancel', () => {
-      this._tapStart = null;
+      this._tapStart        = null;
+      this._pickerCandidate = null;
       if (this._stackCandidate) {
         const { inst, restorePos, restoreQuat } = this._stackCandidate;
         if (inst?.mesh) {
@@ -535,6 +567,37 @@ export class Assembler {
 
   _hidePreviewHelper() {
     if (this._previewHelper) this._previewHelper.visible = false;
+  }
+
+  // ─── Pickers de sélection de liaison ─────────────────────────────────────────
+
+  /** Affiche une sphère 3D raycastable par connexion DOF — état intermédiaire
+   *  quand la brique sélectionnée possède plusieurs liaisons. */
+  _showLiaisonPickers(dofConns) {
+    for (const conn of dofConns) {
+      const pos = conn.instA.worldSlotPos(conn.slotA);
+      const mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(0.16, 12, 10),
+        new THREE.MeshBasicMaterial({
+          color: C.liaisonPicker, transparent: true, opacity: 0.90,
+          depthTest: false, depthWrite: false,
+        }),
+      );
+      mesh.position.copy(pos);
+      mesh.renderOrder = 999;
+      this.engine.scene.add(mesh);
+      this._liaisonPickers.push({ mesh, conn });
+    }
+  }
+
+  _clearLiaisonPickers() {
+    for (const p of this._liaisonPickers) {
+      this.engine.scene.remove(p.mesh);
+      p.mesh.geometry.dispose();
+      p.mesh.material.dispose();
+    }
+    this._liaisonPickers = [];
+    this._pickerCandidate = null;
   }
 
   // ─── Helpers visuels ─────────────────────────────────────────────────────────
@@ -1420,26 +1483,40 @@ export class Assembler {
     if (p?.style.display === 'flex') this._refreshPanel('state');
   }
 
-  /** Sélectionne une brique (mode brick). null = désélection. */
-  _selectBrick(brick) {
-    // Effacer le highlight de la sélection précédente
+  /** Met à jour le highlight et _selectedBrick sans toucher aux handlers/pickers.
+   *  Utilisé après drag-connect (les handlers sont déjà actifs via onConnect). */
+  _setBrickSelected(brick) {
     if (this._selectedBrick) {
       const m = this._selectedBrick.mesh.material;
       m.emissive.setHex(0x000000);
       m.emissiveIntensity = 0;
     }
     this._selectedBrick = brick;
-    // Appliquer le highlight à la nouvelle sélection
     if (brick) {
       const m = brick.mesh.material;
       m.emissive.setHex(C.worldSlot);
       m.emissiveIntensity = 0.3;
     }
-    // Activer les handlers DOF pour la première connexion avec DOF de cette brique
+    if (this._panels?.bricks?.style.display === 'flex') this._refreshPanel('bricks');
+    if (this._panels?.joints?.style.display === 'flex') this._refreshPanel('joints');
+    if (this._panels?.state?.style.display  === 'flex') this._refreshPanel('state');
+  }
+
+  /** Sélectionne une brique (mode brick). null = désélection.
+   *  Si la brique possède plusieurs liaisons DOF : affiche les pickers de sélection.
+   *  Si une seule : active directement l'AsmDofHandler. */
+  _selectBrick(brick) {
+    this._clearLiaisonPickers();
+    this._setBrickSelected(brick);
     if (brick) {
-      const conn = brick.connections.find(c => c.liaison?.asmDof?.length > 0);
-      if (conn) {
-        this._activateAsmHandlers(conn, brick);
+      const dofConns = brick.connections.filter(c => c.liaison?.asmDof?.length > 0);
+      if (dofConns.length > 1) {
+        // État intermédiaire : plusieurs liaisons → pickers de sélection
+        this._asmHandlers?.detach();
+        this._asmHandlers = null;
+        this._showLiaisonPickers(dofConns);
+      } else if (dofConns.length === 1) {
+        this._activateAsmHandlers(dofConns[0], brick);
       } else {
         this._asmHandlers?.detach();
         this._asmHandlers = null;
@@ -1448,9 +1525,6 @@ export class Assembler {
       this._asmHandlers?.detach();
       this._asmHandlers = null;
     }
-    if (this._panels?.bricks?.style.display  === 'flex') this._refreshPanel('bricks');
-    if (this._panels?.joints?.style.display  === 'flex') this._refreshPanel('joints');
-    if (this._panels?.state?.style.display   === 'flex') this._refreshPanel('state');
   }
 
   /** Sélectionne une composante (mode component). */
