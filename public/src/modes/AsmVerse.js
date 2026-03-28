@@ -36,8 +36,6 @@ export class AsmBrick {
     this.mesh        = mesh;
     this.slots       = slots;
     this.geoCenter   = geoCenter;
-    this.origPos     = mesh.position.clone();
-    this.origQuat    = mesh.quaternion.clone();
     /** @type {Object[]}  connexions impliquant cette brique */
     this.connections = [];
   }
@@ -819,8 +817,6 @@ export class AsmVerse {
     const snap = this.worldSlots.computeSnap(result.slotA, result.slotB, brickB);
     brickA.mesh.position.copy(snap.position);
     brickA.mesh.quaternion.copy(snap.quaternion);
-    brickA.origPos  = snap.position.clone();
-    brickA.origQuat = snap.quaternion.clone();
     this.joints.observe(this.slots, true, brickA);
     return this.joints.connections.find(c =>
       (c.instA === brickA || c.instB === brickA) &&
@@ -961,8 +957,6 @@ export class AsmVerse {
       // Appliquer la pose exacte sauvegardée
       brick.mesh.position.set(s.px, s.py, s.pz);
       brick.mesh.quaternion.set(s.qx, s.qy, s.qz, s.qw);
-      brick.origPos  = brick.mesh.position.clone();
-      brick.origQuat = brick.mesh.quaternion.clone();
       idMap.set(s.id, brick);
     }
 

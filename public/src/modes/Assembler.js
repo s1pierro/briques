@@ -359,8 +359,8 @@ export class Assembler {
       if (Math.sqrt(dx * dx + dy * dy) >= 12) {
         if (this._process !== 'dragging') {
           // Mémoriser la position courante (peut être post-DOF) comme référence de retour
-          inst.origPos  = inst.mesh.position.clone();
-          inst.origQuat = inst.mesh.quaternion.clone();
+          this._stackCandidate.restorePos  = inst.mesh.position.clone();
+          this._stackCandidate.restoreQuat = inst.mesh.quaternion.clone();
           inst.mesh.material.transparent = true;
           inst.mesh.material.opacity     = 0.4;
           inst.mesh.material.needsUpdate = true;
@@ -398,10 +398,10 @@ export class Assembler {
           const target = others.find(i => i.mesh === hits[0].object);
           if (target) connected = this._connectDrag(inst, startX, startY, target, e.clientX, e.clientY);
         }
-        // Si pas de connexion → remettre la brique à sa position d'origine
-        if (!connected) {
-          inst.mesh.position.copy(inst.origPos);
-          inst.mesh.quaternion.copy(inst.origQuat);
+        // Si pas de connexion → remettre la brique à sa position de départ du drag
+        if (!connected && this._stackCandidate?.restorePos) {
+          inst.mesh.position.copy(this._stackCandidate.restorePos);
+          inst.mesh.quaternion.copy(this._stackCandidate.restoreQuat);
         }
         // Restaurer opacité dans tous les cas
         inst.mesh.material.transparent = false;
@@ -415,10 +415,12 @@ export class Assembler {
 
     window.addEventListener('pointercancel', () => {
       if (this._stackCandidate) {
-        const inst = this._stackCandidate.inst;
+        const { inst, restorePos, restoreQuat } = this._stackCandidate;
         if (inst?.mesh) {
-          inst.mesh.position.copy(inst.origPos);
-          inst.mesh.quaternion.copy(inst.origQuat);
+          if (restorePos) {
+            inst.mesh.position.copy(restorePos);
+            inst.mesh.quaternion.copy(restoreQuat);
+          }
           inst.mesh.material.transparent = false;
           inst.mesh.material.opacity     = 1;
           inst.mesh.material.needsUpdate = true;
@@ -466,7 +468,7 @@ export class Assembler {
   /**
    * Met à jour le preview en temps réel pendant le drag d'une brique.
    * Déplace inst.mesh vers la position snappée si une cible est trouvée,
-   * sinon la rétablit à origPos.
+   * sinon la rétablit à la position de départ du drag (_stackCandidate.restorePos).
    */
   _updateSnapPreview(inst, grabX, grabY, cx, cy) {
     this._mouse.x =  (cx / innerWidth)  * 2 - 1;
@@ -488,9 +490,12 @@ export class Assembler {
         }
       }
     }
-    // Pas de snap candidat → brique revient à sa position d'origine
-    inst.mesh.position.copy(inst.origPos);
-    inst.mesh.quaternion.copy(inst.origQuat);
+    // Pas de snap candidat → brique revient à sa position de départ du drag
+    const sc = this._stackCandidate;
+    if (sc?.restorePos) {
+      inst.mesh.position.copy(sc.restorePos);
+      inst.mesh.quaternion.copy(sc.restoreQuat);
+    }
     this._hidePreviewHelper();
   }
 
