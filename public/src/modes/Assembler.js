@@ -70,6 +70,7 @@ export class Assembler {
     this._mouse       = new THREE.Vector2(-9999, -9999);
     this._snapHelpers = [];
     this._stackCandidate = null; // { inst, startX, startY } — brique saisie en cours de drag
+    this._tapStart       = null; // { x, y } — début de geste en zone vide (pour détecter un tap)
     this._asmHandlers   = null; // AsmHandlers actifs (DOF d'assemblage)
 
     // ── État global des modes ──────────────────────────────────────────────────
@@ -329,15 +330,15 @@ export class Assembler {
         const hitMesh = hits[0].object;
         const hitInst = [...this._asmVerse.bricks.values()].find(i => i.mesh === hitMesh);
         if (hitInst) {
-          this._selectBrick(hitInst);
+          // Sélection différée au pointerup (clic confirmé, sans drag)
           this._stackCandidate = { inst: hitInst, startX: e.clientX, startY: e.clientY };
           this.engine.controls.enabled = false;
         }
         return;
       }
 
-      // Clic dans le vide → désélectionner
-      this._selectBrick(null);
+      // Zone vide — enregistrer pour détecter un tap (désélection différée au pointerup)
+      this._tapStart = { x: e.clientX, y: e.clientY };
 
       // Priorité 2 : world slot proche
       const pt = this._asmVerse.worldSlots.raycastPlane(this._raycaster);
@@ -371,7 +372,16 @@ export class Assembler {
     };
 
     this._onPointerUpStack = (e) => {
-      if (!this._stackCandidate) return;
+      // Tap en zone vide → désélection (seulement si peu de mouvement = pas un orbit caméra)
+      if (!this._stackCandidate) {
+        if (this._tapStart) {
+          const dx = e.clientX - this._tapStart.x, dy = e.clientY - this._tapStart.y;
+          if (Math.sqrt(dx * dx + dy * dy) < 12) this._selectBrick(null);
+          this._tapStart = null;
+        }
+        return;
+      }
+
       const wasDragging = this._process === 'dragging';
       this._setProcess('idle');
       const { inst, startX, startY } = this._stackCandidate;
@@ -387,23 +397,28 @@ export class Assembler {
         this._dock.pushToStack(inst.brickTypeId, inst.brickData);
         e.stopPropagation();
       } else {
-        // ── Drop sur une autre brique → assembler
-        this._mouse.x =  (e.clientX / innerWidth)  * 2 - 1;
-        this._mouse.y = -(e.clientY / innerHeight) * 2 + 1;
-        this._raycaster.setFromCamera(this._mouse, this.engine.camera);
-        const others = [...this._asmVerse.bricks.values()].filter(i => i !== inst);
-        const hits   = this._raycaster.intersectObjects(others.map(i => i.mesh), false);
-        let connected = false;
-        if (hits.length > 0 && wasDragging) {
-          const target = others.find(i => i.mesh === hits[0].object);
-          if (target) connected = this._connectDrag(inst, startX, startY, target, e.clientX, e.clientY);
+        // ── Tap sans drag → sélection confirmée
+        if (!wasDragging) {
+          this._selectBrick(inst);
+        } else {
+          // ── Drop sur une autre brique → assembler
+          this._mouse.x =  (e.clientX / innerWidth)  * 2 - 1;
+          this._mouse.y = -(e.clientY / innerHeight) * 2 + 1;
+          this._raycaster.setFromCamera(this._mouse, this.engine.camera);
+          const others = [...this._asmVerse.bricks.values()].filter(i => i !== inst);
+          const hits   = this._raycaster.intersectObjects(others.map(i => i.mesh), false);
+          let connected = false;
+          if (hits.length > 0) {
+            const target = others.find(i => i.mesh === hits[0].object);
+            if (target) connected = this._connectDrag(inst, startX, startY, target, e.clientX, e.clientY);
+          }
+          // Si pas de connexion → remettre la brique à sa position de départ du drag
+          if (!connected && this._stackCandidate?.restorePos) {
+            inst.mesh.position.copy(this._stackCandidate.restorePos);
+            inst.mesh.quaternion.copy(this._stackCandidate.restoreQuat);
+          }
         }
-        // Si pas de connexion → remettre la brique à sa position de départ du drag
-        if (!connected && this._stackCandidate?.restorePos) {
-          inst.mesh.position.copy(this._stackCandidate.restorePos);
-          inst.mesh.quaternion.copy(this._stackCandidate.restoreQuat);
-        }
-        // Restaurer opacité dans tous les cas
+        // Restaurer opacité dans tous les cas (drag ou tap)
         inst.mesh.material.transparent = false;
         inst.mesh.material.opacity     = 1;
         inst.mesh.material.needsUpdate = true;
@@ -414,6 +429,7 @@ export class Assembler {
     };
 
     window.addEventListener('pointercancel', () => {
+      this._tapStart = null;
       if (this._stackCandidate) {
         const { inst, restorePos, restoreQuat } = this._stackCandidate;
         if (inst?.mesh) {
