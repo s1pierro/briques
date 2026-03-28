@@ -622,13 +622,13 @@ export class Assembler {
 
   /** Affiche une sphère 3D raycastable par connexion DOF — état intermédiaire
    *  quand la brique sélectionnée possède plusieurs liaisons. */
-  _showLiaisonPickers(entries) {
+  _showLiaisonPickers(entries, radius = 0.16) {
     for (const entry of entries) {
       const conn       = entry.conn ?? entry;   // accepte {conn,mobileInst} ou conn direct
       const mobileInst = entry.mobileInst ?? null;
       const pos = conn.instA.worldSlotPos(conn.slotA);
       const mesh = new THREE.Mesh(
-        new THREE.SphereGeometry(0.16, 12, 10),
+        new THREE.SphereGeometry(radius, 12, 10),
         new THREE.MeshBasicMaterial({
           color: C.liaisonPicker, transparent: true, opacity: 0.90,
           depthTest: false, depthWrite: false,
@@ -1702,7 +1702,7 @@ export class Assembler {
       this._showLiaisonPickers(comp.links.map(({ connection }) => ({
         conn:       connection,
         mobileInst: comp.contains(connection.instA) ? connection.instA : connection.instB,
-      })));
+      })), 0.32);
     }
 
     if (this._panels?.state?.style.display === 'flex') this._refreshPanel('state');
