@@ -7,7 +7,7 @@ let _M = null; // instance Manifold après init
 
 async function getManifold() {
   if (_M) return _M;
-  const Module = (await import('/manifold/manifold.js')).default;
+  const Module = (await import(window.RBANG_BASE + 'manifold/manifold.js')).default;
   const wasm = await Module();
   wasm.setup();          // initialise les méthodes statiques (cube, sphere…)
   _M = wasm;
