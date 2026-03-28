@@ -10,7 +10,7 @@
 //   • Classification basée sur asmDof (pas dof physique) :
 //     - Sans asmDof (soudure ou dof physique sans handle assemblage)
 //       → "assembly-rigide" : la brique embarque inconditionnellement.
-//     - Avec asmDof → contrôle de colinéarité sur l'axe actif.
+//     - Avec asmDof (colinéaire ou non) → frontière, propagation stoppée.
 //
 //   • Monde fixe simplifié : instB seul (pas la composante rigide de instB).
 //     Les briques soudées à instB ne sont pas automatiquement "fixes".
@@ -55,17 +55,12 @@ export class InvolvedBricksSolverAsm {
           return [instA]; // soudure ou asmDof non colinéaire → seulement instA
         }
 
-        // Brique non-fixe
+        // Seule une connexion sans asmDof (assembly-rigide) propage ;
+        // toute liaison asmDof (même colinéaire) est une frontière.
         if (!hasAsmDof) {
-          // Pas d'asmDof → assembly-rigide : embarquée inconditionnellement
-          mobileSet.add(other);
-          queue.push(other);
-        } else if (this._collinear(c, dofAxis)) {
-          // asmDof colinéaire → mouvement compatible
           mobileSet.add(other);
           queue.push(other);
         }
-        // asmDof non colinéaire → frontière, non traversée
       }
     }
 

@@ -35,6 +35,7 @@ const CFG_DEFAULTS = {
   stackPersist         : false,
   asmHelperStepsRot    : 16,   // nombre de divisions sur 360°
   asmHelperStepsTrans  : 20,   // nombre de divisions sur la plage
+  involvedBricksSolver : 'physics', // 'physics' | 'asm'
   // ── Apparence des cellules dock ───────────────────────────────────────────
   cellBgColor            : '#1e1e1e',
   cellBgOpacity          : 0.82,
@@ -505,8 +506,9 @@ export class Assembler {
     const cfg        = this._loadConfig();
     const stepsRot   = cfg.asmHelperStepsRot   ?? 16;
     const stepsTrans = cfg.asmHelperStepsTrans  ?? 20;
+    const solver     = cfg.involvedBricksSolver ?? 'physics'; // 'physics' | 'asm'
     const connections = this._asmVerse.joints.connections;
-    const handlers = new AsmHandlers({ conn: oriented, engine: this.engine, topOffset: BAR_H, stepsRot, stepsTrans, connections });
+    const handlers = new AsmHandlers({ conn: oriented, engine: this.engine, topOffset: BAR_H, stepsRot, stepsTrans, connections, solver });
     if (handlers.active) {
       handlers.attach();
       this._asmHandlers = handlers;
@@ -1047,6 +1049,28 @@ export class Assembler {
       return row;
     };
 
+    // ── Sélecteur solveur ─────────────────────────────────────────────────────
+    const solverRow = document.createElement('div');
+    solverRow.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:10px;';
+    const solverLbl = document.createElement('span');
+    solverLbl.textContent = 'Solveur briques';
+    solverLbl.style.cssText = `color:${C.dim};font-size:10px;flex:1;`;
+    const solverSel = document.createElement('select');
+    solverSel.style.cssText = [
+      `background:${C.bgDark}`, `color:${C.fg}`,
+      `border:1px solid ${C.border}`, 'border-radius:2px',
+      'padding:3px 6px', 'font-size:11px',
+    ].join(';');
+    [['physics', 'Physique'], ['asm', 'Assemblage']].forEach(([val, txt]) => {
+      const opt = document.createElement('option');
+      opt.value = val; opt.textContent = txt;
+      if ((cfg.involvedBricksSolver ?? 'physics') === val) opt.selected = true;
+      solverSel.appendChild(opt);
+    });
+    solverSel.addEventListener('change', () =>
+      this._saveConfig({ involvedBricksSolver: solverSel.value }));
+    solverRow.append(solverLbl, solverSel);
+
     helpersCard.append(
       makeStepsInput(
         'Rotation (étapes)', '',
@@ -1060,6 +1084,7 @@ export class Assembler {
         n => `÷ ${n}`,
         v => this._saveConfig({ asmHelperStepsTrans: v }),
       ),
+      solverRow,
     );
     body.append(helpersCard);
 

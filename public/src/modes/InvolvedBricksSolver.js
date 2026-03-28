@@ -5,10 +5,12 @@
 //
 // Depuis instA (brique mobile du DOF actif), le solveur collecte :
 //   • toutes les briques liées par des connexions rigides (corps rigide)
-//   • les briques liées par des DOF colinéaires à l'axe actif (compatibles)
+//
+// Toute liaison DOF (colinéaire ou non) est une frontière : les briques de l'autre
+// côté peuvent glisser/tourner indépendamment et ne sont pas emportées.
 //
 // Si la traversée rencontre le côté fixe (composante de instB) via une liaison
-// NON colinéaire, seule instA est renvoyée (la propagation violerait la contrainte).
+// rigide ou DOF non colinéaire, seule instA est renvoyée.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import * as THREE from 'three';
@@ -50,12 +52,12 @@ export class InvolvedBricksSolver {
           return [instA]; // fermeture non colinéaire → seulement instA
         }
 
-        // Brique potentiellement mobile : rigide ou DOF colinéaire → embarquée
-        if (isRigid || this._collinear(c, dofAxis)) {
+        // Seule une connexion rigide propage ; toute liaison DOF (même colinéaire)
+        // est une frontière — les briques liées par un DOF glissent indépendamment.
+        if (isRigid) {
           mobileSet.add(other);
           queue.push(other);
         }
-        // DOF non colinéaire vers brique non-fixe → frontière, on ne traverse pas
       }
     }
 

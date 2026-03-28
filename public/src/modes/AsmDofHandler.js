@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { InvolvedBricksSolver } from './InvolvedBricksSolver.js';
+import { InvolvedBricksSolver }    from './InvolvedBricksSolver.js';
+import { InvolvedBricksSolverAsm } from './InvolvedBricksSolverAsm.js';
 
 // ─── Constantes visuelles ──────────────────────────────────────────────────────
 
@@ -38,13 +39,14 @@ const CURSOR_R    = 0.95;  // rayon du curseur (même cercle que les marqueurs)
 
 export class AsmDofHandler {
 
-  constructor({ dof, conn, engine, stripIndex = 0, topOffset = 0, steps = 0, connections = [] }) {
+  constructor({ dof, conn, engine, stripIndex = 0, topOffset = 0, steps = 0, connections = [], solver = 'physics' }) {
     this._dof         = dof;
     this._conn        = conn;
     this._engine      = engine;
     this._stripIndex  = stripIndex;
     this._topOffset   = topOffset;
     this._connections = connections; // toutes les connexions de la scène (pour InvolvedBricksSolver)
+    this._solver      = solver;      // 'physics' | 'asm'
     this._helper        = null;
     this._strip         = null;
     this._rawTotal      = 0;
@@ -165,11 +167,13 @@ export class AsmDofHandler {
       }
     }
 
-    // ── Briques embarquées (InvolvedBricksSolver) ─────────────────────────────
+    // ── Briques embarquées ────────────────────────────────────────────────────
     // null pour ball (pas d'axe unique → fallback instA seule)
     const solverAxis = (dof.type === 'ball') ? null : this._refAxis;
-    this._involvedBricks = new InvolvedBricksSolver()
-      .solve(this._conn, this._connections, solverAxis);
+    const solverInst = this._solver === 'asm'
+      ? new InvolvedBricksSolverAsm()
+      : new InvolvedBricksSolver();
+    this._involvedBricks = solverInst.solve(this._conn, this._connections, solverAxis);
 
     // ── Offset initial (brique déjà en position post-DOF) ────────────────────
     if (dof.type !== 'ball') this._computeInitialOffset();
@@ -546,10 +550,10 @@ export class AsmDofHandler {
 
 export class AsmHandlers {
 
-  constructor({ conn, engine, topOffset = 0, stepsRot = 0, stepsTrans = 0, connections = [] }) {
+  constructor({ conn, engine, topOffset = 0, stepsRot = 0, stepsTrans = 0, connections = [], solver = 'physics' }) {
     this._handlers = (conn.liaison?.asmDof ?? []).map((dof, i) => {
       const steps = dof.type === 'translation' ? stepsTrans : stepsRot;
-      return new AsmDofHandler({ dof, conn, engine, stripIndex: i, topOffset, steps, connections });
+      return new AsmDofHandler({ dof, conn, engine, stripIndex: i, topOffset, steps, connections, solver });
     });
   }
 
