@@ -64,6 +64,10 @@ const CFG_DEFAULTS = {
   cellLabelColor         : '#888888',
   cellLabelFontSize      : 8,
   cellLabelVisible       : true,
+  // ── Bandeau DOF (strips) ──────────────────────────────────────────────────
+  stripBgColor           : '#121218',
+  stripBgOpacity         : 0.6,
+  stripFontColor         : '#cccccc',
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -811,7 +815,11 @@ export class Assembler {
     const solver = this._mode === 'component' ? 'component' : (this._solverKey ?? 'physics');
     const connections = this._asmVerse.joints.connections;
     const xray    = this._mode === 'component';
-    const handlers = new AsmHandlers({ conn: oriented, engine: this.engine, topOffset: BAR_H, stepsRot, stepsTrans, connections, solver, xray });
+    const sbgHex   = cfg.stripBgColor   ?? '#121218';
+    const sbgAlpha = Math.round((cfg.stripBgOpacity ?? 0.6) * 255).toString(16).padStart(2, '0');
+    const stripBg    = sbgHex + sbgAlpha;
+    const stripFont  = cfg.stripFontColor  ?? '#cccccc';
+    const handlers = new AsmHandlers({ conn: oriented, engine: this.engine, topOffset: BAR_H, stepsRot, stepsTrans, connections, solver, xray, stripBg, stripFont });
     if (handlers.active) {
       handlers.onRelease = () => this._asmVerse.joints.observe(this._asmVerse.slots);
       handlers.attach();
@@ -1471,6 +1479,56 @@ export class Assembler {
     });
     tolRow.append(tolLbl, tolInp, tolUnit);
 
+    // ── Couleur fond bandeau DOF ────────────────────────────────────────────
+    const stripBgRow = document.createElement('div');
+    stripBgRow.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:10px;';
+    const stripBgLbl = document.createElement('span');
+    stripBgLbl.textContent = 'Fond bandeau';
+    stripBgLbl.style.cssText = `color:${C.dim};font-size:10px;flex:1;`;
+    const stripBgInp = document.createElement('input');
+    stripBgInp.type = 'color';
+    stripBgInp.value = cfg.stripBgColor ?? '#121218';
+    stripBgInp.style.cssText = 'width:32px;height:24px;border:none;cursor:pointer;background:transparent;';
+    stripBgInp.addEventListener('input', () => {
+      this._saveConfig({ stripBgColor: stripBgInp.value });
+    });
+    stripBgRow.append(stripBgLbl, stripBgInp);
+
+    // ── Opacité fond bandeau DOF ─────────────────────────────────────────────
+    const stripOpRow = document.createElement('div');
+    stripOpRow.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:10px;';
+    const stripOpLbl = document.createElement('span');
+    stripOpLbl.textContent = 'Opacité fond';
+    stripOpLbl.style.cssText = `color:${C.dim};font-size:10px;flex:1;`;
+    const stripOpVal = document.createElement('span');
+    stripOpVal.style.cssText = `color:${C.dim};font-size:9px;min-width:30px;text-align:right;`;
+    stripOpVal.textContent = Math.round((cfg.stripBgOpacity ?? 0.6) * 100) + '%';
+    const stripOpInp = document.createElement('input');
+    stripOpInp.type = 'range'; stripOpInp.min = '0'; stripOpInp.max = '100'; stripOpInp.step = '5';
+    stripOpInp.value = String(Math.round((cfg.stripBgOpacity ?? 0.6) * 100));
+    stripOpInp.style.cssText = 'width:80px;cursor:pointer;';
+    stripOpInp.addEventListener('input', () => {
+      const v = parseInt(stripOpInp.value) / 100;
+      stripOpVal.textContent = stripOpInp.value + '%';
+      this._saveConfig({ stripBgOpacity: v });
+    });
+    stripOpRow.append(stripOpLbl, stripOpInp, stripOpVal);
+
+    // ── Couleur police bandeau DOF ───────────────────────────────────────────
+    const stripFontRow = document.createElement('div');
+    stripFontRow.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:10px;';
+    const stripFontLbl = document.createElement('span');
+    stripFontLbl.textContent = 'Police bandeau';
+    stripFontLbl.style.cssText = `color:${C.dim};font-size:10px;flex:1;`;
+    const stripFontInp = document.createElement('input');
+    stripFontInp.type = 'color';
+    stripFontInp.value = cfg.stripFontColor ?? '#cccccc';
+    stripFontInp.style.cssText = 'width:32px;height:24px;border:none;cursor:pointer;background:transparent;';
+    stripFontInp.addEventListener('input', () => {
+      this._saveConfig({ stripFontColor: stripFontInp.value });
+    });
+    stripFontRow.append(stripFontLbl, stripFontInp);
+
     helpersCard.append(
       makeStepsInput(
         'Rotation (étapes)', '',
@@ -1486,6 +1544,9 @@ export class Assembler {
       ),
       solverRow,
       tolRow,
+      stripBgRow,
+      stripOpRow,
+      stripFontRow,
     );
     body.append(helpersCard);
 
@@ -1606,7 +1667,7 @@ export class Assembler {
   _removeFromScene(inst) {
     // Nettoyage AsmHandlers (UI, reste dans l'Assembler)
     if (this._asmHandlers) {
-      const conn = this._asmHandlers._handlers[0]?._conn;
+      const conn = this._asmHandlers.conn;
       if (conn && (conn.instA === inst || conn.instB === inst)) {
         this._asmHandlers.detach();
         this._asmHandlers = null;

@@ -40,7 +40,7 @@ const CURSOR_R    = 0.95;  // rayon du curseur (même cercle que les marqueurs)
 
 export class AsmDofHandler {
 
-  constructor({ dof, conn, engine, stripIndex = 0, topOffset = 0, steps = 0, connections = [], solver = 'physics', xray = false }) {
+  constructor({ dof, conn, engine, stripIndex = 0, topOffset = 0, steps = 0, connections = [], solver = 'physics', xray = false, stripBg = '#12121899', stripFont = '#cccccc' }) {
     this._dof         = dof;
     this._conn        = conn;
     this._engine      = engine;
@@ -49,6 +49,8 @@ export class AsmDofHandler {
     this._connections = connections; // toutes les connexions de la scène (pour InvolvedBricksSolver)
     this._solver      = solver;      // 'physics' | 'asm' | 'component'
     this._xray        = xray;        // true → helper visible à travers la géométrie
+    this._stripBg     = stripBg;
+    this._stripFont   = stripFont;
     this._helper        = null;
     this._strip         = null;
     this._rawTotal      = 0;
@@ -75,6 +77,36 @@ export class AsmDofHandler {
   attach() {
     this._buildHelper();
     this._buildStrip();
+  }
+
+  /** Switch vers un DOF colinéaire : aligne l'axe source sur l'axe cible,
+   *  ce qui retourne naturellement la brique autour du pivot. */
+  switchDof(newDof) {
+    const oldWorldAxis = this._worldAxis();
+    const pivotWorld   = this._pivotWorld();
+
+    // Calculer le nouvel axe monde depuis newDof
+    const { instB, slotB } = this._conn;
+    const [ax, ay, az] = newDof.axis ?? [0, 0, 1];
+    const slotBQ = new THREE.Quaternion(...slotB.quaternion);
+    const worldQ = slotBQ.premultiply(instB.mesh.quaternion.clone());
+    const newWorldAxis = new THREE.Vector3(ax, ay, az).normalize().applyQuaternion(worldQ).normalize();
+
+    // Rotation qui amène l'ancien axe sur le nouveau
+    const flip = new THREE.Quaternion().setFromUnitVectors(oldWorldAxis, newWorldAxis);
+    for (const brick of this._involvedBricks) {
+      brick.mesh.position.sub(pivotWorld).applyQuaternion(flip).add(pivotWorld);
+      brick.mesh.quaternion.premultiply(flip);
+    }
+
+    this.detach();
+    this._dof      = newDof;
+    this._rawTotal = 0;
+    if (newDof.step != null && newDof.step > 0) {
+      this._stepSize = newDof.step;
+    }
+    this._stepActive = this._stepSize > 0;
+    this.attach();
   }
 
   detach() {
@@ -351,17 +383,18 @@ export class AsmDofHandler {
     const strip = document.createElement('div');
     strip.className = 'asm-dof-strip';
     strip.style.cssText = [
-      'position:fixed', 'left:25%', 'right:25%',
-      `top:calc(${this._topOffset}px + ${this._stripIndex} * 4vh)`,
-      'height:4vh',
-      'display:flex', 'align-items:center', 'padding:0 10px', 'gap:8px',
-      'background:rgba(18,18,24,0.92)',
-      `border-bottom:2px solid ${color}`,
+      'position:fixed', 'right:12px',
+      `top:calc(${this._topOffset + 8}px + ${this._stripIndex} * 6vh)`,
+      'width:50vw', 'height:5.5vh',
+      'display:flex', 'align-items:center', 'padding:0 10px', 'gap:6px',
+      `background:${this._stripBg}`,
+      `border-left:3px solid ${color}`,
       'z-index:130',
       'touch-action:none', 'cursor:ew-resize',
       'user-select:none', 'pointer-events:auto',
-      'font:11px sans-serif', 'color:#ccc',
-      'border-radius:0 0 4px 4px',
+      `font:11px sans-serif`, `color:${this._stripFont}`,
+      'border-radius:4px',
+      'box-shadow:0 2px 8px rgba(0,0,0,0.4)',
     ].join(';');
 
     // ── Bouton step ────────────────────────────────────────────────────────
@@ -408,7 +441,7 @@ export class AsmDofHandler {
     // Limites si définies
     if (dof.min != null || dof.max != null) {
       const limEl = document.createElement('span');
-      limEl.style.cssText = 'color:#555;font-size:9px;flex-shrink:0;';
+      limEl.style.cssText = `color:${this._stripFont};opacity:0.5;font-size:9px;flex-shrink:0;`;
       const minStr = dof.min != null ? dof.min : '−∞';
       const maxStr = dof.max != null ? dof.max : '+∞';
       const unit   = dof.type === 'rotation' ? '°' : 'm';
@@ -418,7 +451,7 @@ export class AsmDofHandler {
 
     // Valeur courante (position effective à l'attach, peut être post-DOF)
     const valEl = document.createElement('span');
-    valEl.style.cssText = 'flex:1;text-align:right;font-variant-numeric:tabular-nums;font-size:10px;color:#777;';
+    valEl.style.cssText = `flex:1;text-align:right;font-variant-numeric:tabular-nums;font-size:10px;color:${this._stripFont};opacity:0.7;`;
     {
       let displayed = this._rawTotal;
       if (this._stepActive && this._stepSize > 0)
@@ -432,7 +465,7 @@ export class AsmDofHandler {
 
     // Hint
     const hint = document.createElement('span');
-    hint.style.cssText = 'color:#444;font-size:12px;flex-shrink:0;';
+    hint.style.cssText = `color:${this._stripFont};opacity:0.35;font-size:12px;flex-shrink:0;`;
     hint.textContent   = '◀ ▶';
     strip.appendChild(hint);
 
@@ -443,7 +476,7 @@ export class AsmDofHandler {
       e.stopPropagation();
       strip.setPointerCapture(e.pointerId);
       lastX = e.clientX;
-      strip.style.background = 'rgba(28,28,38,0.97)';
+      strip.style.filter = 'brightness(1.3)';
     }, { passive: false });
 
     strip.addEventListener('pointermove', e => {
@@ -464,7 +497,7 @@ export class AsmDofHandler {
     }, { passive: false });
 
     const onRelease = () => {
-      strip.style.background = 'rgba(18,18,24,0.92)';
+      strip.style.filter = '';
       this.onRelease?.();
     };
     strip.addEventListener('pointerup',     onRelease);
@@ -563,25 +596,146 @@ export class AsmDofHandler {
 }
 
 // ─── AsmHandlers ──────────────────────────────────────────────────────────────
+//
+// Orchestre les AsmDofHandler d'une connexion.
+// Détecte les DOFs colinéaires (axes parallèles ou antiparallèles) et les
+// regroupe : un seul handler actif à la fois, avec un bouton ⇅ pour switcher.
+
+/** Deux axes sont colinéaires si |dot| ≈ 1. */
+function _areColinear(axA, axB, eps = 0.99) {
+  const a = new THREE.Vector3(...(axA ?? [0, 0, 1])).normalize();
+  const b = new THREE.Vector3(...(axB ?? [0, 0, 1])).normalize();
+  return Math.abs(a.dot(b)) >= eps;
+}
 
 export class AsmHandlers {
 
-  constructor({ conn, engine, topOffset = 0, stepsRot = 0, stepsTrans = 0, connections = [], solver = 'physics', xray = false }) {
-    this._handlers = (conn.liaison?.asmDof ?? []).map((dof, i) => {
-      const steps = dof.type === 'translation' ? stepsTrans : stepsRot;
-      return new AsmDofHandler({ dof, conn, engine, stripIndex: i, topOffset, steps, connections, solver, xray });
-    });
+  constructor({ conn, engine, topOffset = 0, stepsRot = 0, stepsTrans = 0, connections = [], solver = 'physics', xray = false, stripBg = '#12121899', stripFont = '#cccccc' }) {
+    this._conn        = conn;
+    this._engine      = engine;
+    this._topOffset   = topOffset;
+    this._stepsRot    = stepsRot;
+    this._stepsTrans  = stepsTrans;
+    this._connections = connections;
+    this._solver      = solver;
+    this._xray        = xray;
+    this._stripBg     = stripBg;
+    this._stripFont   = stripFont;
+    this._onReleaseFn = null;
+
+    // Grouper les DOFs : colinéaires ensemble, indépendants seuls
+    const allDofs = conn.liaison?.asmDof ?? [];
+    console.log(`[AsmHandlers] liaison "${conn.liaison?.name}" — ${allDofs.length} DOF(s)`, allDofs.map(d => `${d.type} [${d.axis}]`));
+    this._groups   = this._buildGroups(allDofs);
+    console.log(`[AsmHandlers] → ${this._groups.length} groupe(s)`, this._groups.map(g => `${g.dofs.length} DOF(s)`));
+    this._handlers = [];
   }
 
-  get active() { return this._handlers.length > 0; }
+  get active() { return this._groups.length > 0; }
+  get conn() { return this._conn; }
 
   /** Callback appelé après chaque release du strip (pointerup/cancel). */
-  set onRelease(fn) { this._handlers.forEach(h => h.onRelease = fn); }
+  set onRelease(fn) {
+    this._onReleaseFn = fn;
+    this._handlers.forEach(h => h.onRelease = fn);
+  }
 
-  attach() { this._handlers.forEach(h => h.attach()); }
+  attach() {
+    this._handlers = [];
+    let stripIndex = 0;
+    for (const group of this._groups) {
+      const dof     = group.dofs[group.activeIndex];
+      const steps   = dof.type === 'translation' ? this._stepsTrans : this._stepsRot;
+      const handler = new AsmDofHandler({
+        dof, conn: this._conn, engine: this._engine,
+        stripIndex, topOffset: this._topOffset,
+        steps, connections: this._connections,
+        solver: this._solver, xray: this._xray,
+        stripBg: this._stripBg, stripFont: this._stripFont,
+      });
+      handler.onRelease = this._onReleaseFn;
+      handler.attach();
+
+      // Si le groupe a des alternatives colinéaires → bouton switch dans le strip
+      if (group.dofs.length > 1 && handler._strip) {
+        this._addSwitchBtn(handler._strip, group, stripIndex);
+      }
+
+      this._handlers.push(handler);
+      group.handler = handler;
+      stripIndex++;
+    }
+  }
 
   detach() {
     this._handlers.forEach(h => h.detach());
     this._handlers = [];
+  }
+
+  // ── Groupement colinéaire ──────────────────────────────────────────────────
+
+  _buildGroups(dofs) {
+    const groups = [];   // [{ dofs: [dof, …], activeIndex: 0 }]
+    const used   = new Set();
+
+    for (let i = 0; i < dofs.length; i++) {
+      if (used.has(i)) continue;
+      const group = { dofs: [dofs[i]], activeIndex: 0, handler: null };
+      used.add(i);
+      for (let j = i + 1; j < dofs.length; j++) {
+        if (used.has(j)) continue;
+        if (dofs[i].type === dofs[j].type && _areColinear(dofs[i].axis, dofs[j].axis)) {
+          console.log(`[AsmHandlers] colinéaire détecté : DOF#${i} axis=[${dofs[i].axis}] ↔ DOF#${j} axis=[${dofs[j].axis}]`);
+          group.dofs.push(dofs[j]);
+          used.add(j);
+        }
+      }
+      groups.push(group);
+    }
+    return groups;
+  }
+
+  // ── Bouton switch ──────────────────────────────────────────────────────────
+
+  _addSwitchBtn(strip, group, stripIndex) {
+    const btn = document.createElement('button');
+    btn.textContent = '⇅';
+    btn.title       = `Repère alternatif (${group.dofs.length} alignements)`;
+    btn.style.cssText = [
+      'flex-shrink:0', 'border-radius:3px', 'font-size:12px',
+      'padding:1px 6px', 'cursor:pointer', 'line-height:1.4',
+      'border:1px solid #7aafc8', 'background:transparent',
+      'color:#7aafc8', 'touch-action:auto',
+    ].join(';');
+
+    btn.addEventListener('pointerdown', e => e.stopPropagation());
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const next = (group.activeIndex + 1) % group.dofs.length;
+      console.log(`[AsmHandlers] switch DOF ${group.activeIndex} → ${next}, axis=[${group.dofs[next].axis}]`);
+      this._switchGroup(group, stripIndex);
+    });
+
+    // Insérer après le bouton step (premier enfant)
+    if (strip.children.length > 1) {
+      strip.insertBefore(btn, strip.children[1]);
+    } else {
+      strip.appendChild(btn);
+    }
+  }
+
+  _switchGroup(group, stripIndex) {
+    // Avancer au DOF suivant dans le groupe
+    group.activeIndex = (group.activeIndex + 1) % group.dofs.length;
+    const newDof = group.dofs[group.activeIndex];
+    console.log(`[AsmHandlers] switch effectif → DOF axis=[${newDof.axis}]`);
+
+    // Switcher le DOF sur le handler existant (rebuild helper + strip)
+    group.handler.switchDof(newDof);
+
+    // Ré-injecter le bouton switch dans le nouveau strip
+    if (group.dofs.length > 1 && group.handler._strip) {
+      this._addSwitchBtn(group.handler._strip, group, stripIndex);
+    }
   }
 }
