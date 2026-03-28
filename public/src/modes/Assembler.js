@@ -151,7 +151,15 @@ export class Assembler {
   }
 
   _serializeSceneJSON() {
-    return JSON.stringify(this._asmVerse.serialize(), null, 2);
+    const data = this._asmVerse.serialize();
+    // Embarquer les définitions de briques utilisées → fichier auto-suffisant
+    const bricksStore = this._loadStore('rbang_bricks');
+    const bricks = {};
+    for (const inst of data.instances) {
+      if (bricksStore[inst.brickTypeId])
+        bricks[inst.brickTypeId] = bricksStore[inst.brickTypeId];
+    }
+    return JSON.stringify({ ...data, bricks }, null, 2);
   }
 
   _exportScene() {
@@ -186,6 +194,12 @@ export class Assembler {
         // Valider le JSON et le format avant de toucher à la scène
         const data = JSON.parse(text);
         if (!Array.isArray(data?.instances)) throw new Error('format invalide');
+        // Injecter les définitions de briques embarquées dans le store local
+        if (data.bricks && typeof data.bricks === 'object') {
+          const store = this._loadStore('rbang_bricks');
+          Object.assign(store, data.bricks);
+          localStorage.setItem('rbang_bricks', JSON.stringify(store));
+        }
         // Scène valide — on peut effacer et restaurer
         localStorage.setItem(SCENE_KEY, text);
         this._clearAll();
