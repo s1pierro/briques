@@ -339,7 +339,7 @@ export class Assembler {
         if (pickerHits.length > 0) {
           const picker = this._liaisonPickers.find(p => p.mesh === pickerHits[0].object);
           if (picker) {
-            this._pickerCandidate = { conn: picker.conn, startX: e.clientX, startY: e.clientY };
+            this._pickerCandidate = { conn: picker.conn, mobileInst: picker.mobileInst, startX: e.clientX, startY: e.clientY };
             this.engine.controls.enabled = false;
             return;
           }
@@ -354,7 +354,7 @@ export class Assembler {
         const hitInst = [...this._asmVerse.bricks.values()].find(i => i.mesh === hitMesh);
         if (hitInst) {
           // Sélection différée au pointerup (clic confirmé, sans drag)
-          this._stackCandidate = { inst: hitInst, startX: e.clientX, startY: e.clientY };
+          this._stackCandidate = { inst: hitInst, startX: e.clientX, startY: e.clientY, grabPt: hits[0].point.clone() };
           this.engine.controls.enabled = false;
         }
         return;
@@ -382,15 +382,31 @@ export class Assembler {
       const dx = e.clientX - startX, dy = e.clientY - startY;
       if (Math.sqrt(dx * dx + dy * dy) >= 12) {
         if (this._process !== 'dragging') {
-          // Mémoriser la position courante (peut être post-DOF) comme référence de retour
-          this._stackCandidate.restorePos  = inst.mesh.position.clone();
-          this._stackCandidate.restoreQuat = inst.mesh.quaternion.clone();
-          inst.mesh.material.transparent = true;
-          inst.mesh.material.opacity     = 0.4;
-          inst.mesh.material.needsUpdate = true;
+          if (this._mode === 'component') {
+            const comp = this._findComponent(inst);
+            this._stackCandidate.comp = comp;
+            this._stackCandidate.restoreStates = [...comp.bricks].map(b => ({
+              brick: b, pos: b.mesh.position.clone(), quat: b.mesh.quaternion.clone(),
+            }));
+            for (const b of comp.bricks) {
+              b.mesh.material.transparent = true;
+              b.mesh.material.opacity     = 0.4;
+              b.mesh.material.needsUpdate = true;
+            }
+          } else {
+            this._stackCandidate.restorePos  = inst.mesh.position.clone();
+            this._stackCandidate.restoreQuat = inst.mesh.quaternion.clone();
+            inst.mesh.material.transparent = true;
+            inst.mesh.material.opacity     = 0.4;
+            inst.mesh.material.needsUpdate = true;
+          }
           this._setProcess('dragging');
         }
-        this._updateSnapPreview(inst, startX, startY, e.clientX, e.clientY);
+        if (this._mode === 'component') {
+          this._dragCompTo(e.clientX, e.clientY);
+        } else {
+          this._updateSnapPreview(inst, startX, startY, e.clientX, e.clientY);
+        }
       }
     };
 
@@ -398,20 +414,23 @@ export class Assembler {
       if (!this._stackCandidate) {
         // Tap sur un picker → activer la liaison choisie
         if (this._pickerCandidate) {
-          const { conn, startX, startY } = this._pickerCandidate;
+          const { conn, mobileInst, startX, startY } = this._pickerCandidate;
           this._pickerCandidate = null;
           this.engine.controls.enabled = true;
           const dx = e.clientX - startX, dy = e.clientY - startY;
           if (Math.sqrt(dx * dx + dy * dy) < 12) {
             this._clearLiaisonPickers();
-            this._activateAsmHandlers(conn, this._selectedBrick);
+            this._activateAsmHandlers(conn, mobileInst ?? this._selectedBrick);
           }
           return;
         }
         // Tap en zone vide → désélection (seulement si peu de mouvement = pas un orbit caméra)
         if (this._tapStart) {
           const dx = e.clientX - this._tapStart.x, dy = e.clientY - this._tapStart.y;
-          if (Math.sqrt(dx * dx + dy * dy) < 12) this._selectBrick(null);
+          if (Math.sqrt(dx * dx + dy * dy) < 12) {
+            if (this._mode === 'component') this._selectComponent(null);
+            else this._selectBrick(null);
+          }
           this._tapStart = null;
         }
         return;
@@ -431,6 +450,17 @@ export class Assembler {
         this._removeFromScene(inst);
         this._dock.pushToStack(inst.brickTypeId, inst.brickData);
         e.stopPropagation();
+      } else if (this._mode === 'component') {
+        if (!wasDragging) {
+          this._selectComponent(this._findComponent(inst));
+        } else {
+          for (const { brick } of (this._stackCandidate.restoreStates ?? [])) {
+            brick.mesh.material.transparent = false;
+            brick.mesh.material.opacity     = 1;
+            brick.mesh.material.needsUpdate = true;
+          }
+          this._asmVerse.joints.observe(this._asmVerse.slots);
+        }
       } else {
         // ── Tap sans drag → sélection confirmée
         if (!wasDragging) {
@@ -448,11 +478,8 @@ export class Assembler {
             if (target) connected = this._connectDrag(inst, startX, startY, target, e.clientX, e.clientY);
           }
           if (connected) {
-            // Connexion créée — handler déjà actif via onConnect.
-            // Appliquer uniquement le highlight (sans pickers ni recalcul handlers).
             this._setBrickSelected(inst);
           } else if (this._stackCandidate?.restorePos) {
-            // Pas de connexion → remettre la brique à sa position de départ du drag
             inst.mesh.position.copy(this._stackCandidate.restorePos);
             inst.mesh.quaternion.copy(this._stackCandidate.restoreQuat);
             this._asmVerse.joints.observe(this._asmVerse.slots);
@@ -472,16 +499,28 @@ export class Assembler {
       this._tapStart        = null;
       this._pickerCandidate = null;
       if (this._stackCandidate) {
-        const { inst, restorePos, restoreQuat } = this._stackCandidate;
-        if (inst?.mesh) {
-          if (restorePos) {
-            inst.mesh.position.copy(restorePos);
-            inst.mesh.quaternion.copy(restoreQuat);
-            this._asmVerse.joints.observe(this._asmVerse.slots);
+        if (this._mode === 'component') {
+          for (const { brick, pos, quat } of (this._stackCandidate.restoreStates ?? [])) {
+            brick.mesh.position.copy(pos);
+            brick.mesh.quaternion.copy(quat);
+            brick.mesh.material.transparent = false;
+            brick.mesh.material.opacity     = 1;
+            brick.mesh.material.needsUpdate = true;
           }
-          inst.mesh.material.transparent = false;
-          inst.mesh.material.opacity     = 1;
-          inst.mesh.material.needsUpdate = true;
+          if (this._stackCandidate.restoreStates?.length)
+            this._asmVerse.joints.observe(this._asmVerse.slots);
+        } else {
+          const { inst, restorePos, restoreQuat } = this._stackCandidate;
+          if (inst?.mesh) {
+            if (restorePos) {
+              inst.mesh.position.copy(restorePos);
+              inst.mesh.quaternion.copy(restoreQuat);
+              this._asmVerse.joints.observe(this._asmVerse.slots);
+            }
+            inst.mesh.material.transparent = false;
+            inst.mesh.material.opacity     = 1;
+            inst.mesh.material.needsUpdate = true;
+          }
         }
         this._stackCandidate = null;
         this._setProcess('idle');
@@ -583,8 +622,10 @@ export class Assembler {
 
   /** Affiche une sphère 3D raycastable par connexion DOF — état intermédiaire
    *  quand la brique sélectionnée possède plusieurs liaisons. */
-  _showLiaisonPickers(dofConns) {
-    for (const conn of dofConns) {
+  _showLiaisonPickers(entries) {
+    for (const entry of entries) {
+      const conn       = entry.conn ?? entry;   // accepte {conn,mobileInst} ou conn direct
+      const mobileInst = entry.mobileInst ?? null;
       const pos = conn.instA.worldSlotPos(conn.slotA);
       const mesh = new THREE.Mesh(
         new THREE.SphereGeometry(0.16, 12, 10),
@@ -596,7 +637,7 @@ export class Assembler {
       mesh.position.copy(pos);
       mesh.renderOrder = 999;
       this.engine.scene.add(mesh);
-      this._liaisonPickers.push({ mesh, conn });
+      this._liaisonPickers.push({ mesh, conn, mobileInst });
     }
   }
 
@@ -1564,6 +1605,7 @@ export class Assembler {
   _setMode(mode) {
     this._mode = mode;
     this._process = 'idle';
+    this._clearComponentHighlight();
     this._selectBrick(null);
     this._selectedComponent = null;
     this._updateModeBtns?.();
@@ -1610,7 +1652,7 @@ export class Assembler {
         // État intermédiaire : plusieurs liaisons → pickers de sélection
         this._asmHandlers?.detach();
         this._asmHandlers = null;
-        this._showLiaisonPickers(dofConns);
+        this._showLiaisonPickers(dofConns.map(conn => ({ conn })));
       } else if (dofConns.length === 1) {
         this._activateAsmHandlers(dofConns[0], brick);
       } else {
@@ -1623,11 +1665,77 @@ export class Assembler {
     }
   }
 
-  /** Sélectionne une composante (mode component). */
+  /** Sélectionne une composante (mode component). null = désélection.
+   *  - comp.size === 1 → délègue à _selectBrick (brique unique dans sa classe).
+   *  - comp.size > 1   → highlight groupe + pickers DOF sur les liens entre composantes. */
   _selectComponent(comp) {
+    this._clearComponentHighlight();
+    this._clearLiaisonPickers();
+    this._asmHandlers?.detach();
+    this._asmHandlers = null;
     this._selectedComponent = comp;
-    const p = this._panels?.state;
-    if (p?.style.display === 'flex') this._refreshPanel('state');
+
+    if (!comp) {
+      this._selectedBrick = null;
+      if (this._panels?.state?.style.display === 'flex') this._refreshPanel('state');
+      return;
+    }
+
+    if (comp.size === 1) {
+      // Brique seule dans sa classe → comportement identique au mode brique
+      this._selectBrick([...comp.bricks][0]);
+      return;
+    }
+
+    // Highlight de toutes les briques du groupe
+    for (const b of comp.bricks) {
+      b.mesh.material.emissive.setHex(C.worldSlot);
+      b.mesh.material.emissiveIntensity = 0.3;
+    }
+
+    // Pickers DOF sur les liens avec les composantes voisines
+    if (comp.links.length === 1) {
+      const { connection } = comp.links[0];
+      const mobileInst = comp.contains(connection.instA) ? connection.instA : connection.instB;
+      this._activateAsmHandlers(connection, mobileInst);
+    } else if (comp.links.length > 1) {
+      this._showLiaisonPickers(comp.links.map(({ connection }) => ({
+        conn:       connection,
+        mobileInst: comp.contains(connection.instA) ? connection.instA : connection.instB,
+      })));
+    }
+
+    if (this._panels?.state?.style.display === 'flex') this._refreshPanel('state');
+  }
+
+  /** Retourne la classe d'équivalence contenant brick, ou null. */
+  _findComponent(brick) {
+    return this._asmVerse.computeComponents().find(c => c.contains(brick)) ?? null;
+  }
+
+  /** Retire le highlight de toutes les briques de _selectedComponent. */
+  _clearComponentHighlight() {
+    if (!this._selectedComponent) return;
+    for (const b of this._selectedComponent.bricks) {
+      b.mesh.material.emissive.setHex(0x000000);
+      b.mesh.material.emissiveIntensity = 0;
+    }
+  }
+
+  /** Déplace toutes les briques de _stackCandidate.comp par delta depuis grabPt. */
+  _dragCompTo(cx, cy) {
+    const { comp, restoreStates, grabPt } = this._stackCandidate;
+    if (!comp || !restoreStates || !grabPt) return;
+    this._mouse.x =  (cx / innerWidth)  * 2 - 1;
+    this._mouse.y = -(cy / innerHeight) * 2 + 1;
+    this._raycaster.setFromCamera(this._mouse, this.engine.camera);
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -grabPt.y);
+    const pt = new THREE.Vector3();
+    if (!this._raycaster.ray.intersectPlane(plane, pt)) return;
+    const delta = pt.clone().sub(grabPt);
+    for (const { brick, pos } of restoreStates) {
+      brick.mesh.position.copy(pos).add(delta);
+    }
   }
 
   _fillStatePanel(body) {
