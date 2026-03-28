@@ -6,8 +6,7 @@ let _M = null;
 
 export async function getManifold() {
   if (_M) return _M;
-  const url = new URL('../manifold/manifold.js', import.meta.url).href;
-  const Module = (await import(url)).default;
+  const Module = (await import('manifold-3d')).default;
   const wasm = await Module();
   wasm.setup();
   _M = wasm;
