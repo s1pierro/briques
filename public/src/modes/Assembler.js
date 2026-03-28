@@ -22,8 +22,17 @@ const C = {
 const BAR_H = 32;
 
 // Persistance de la configuration de l'Assembler
-const CFG_KEY   = 'rbang_asm_cfg';
-const SCENE_KEY = 'rbang_asm_scene';
+const CFG_KEY      = 'rbang_asm_cfg';
+const SCENE_KEY    = 'rbang_asm_scene';
+const CATALOGUE_KEY = 'rbang_asm_catalogue'; // { [id]: { id, name, createdAt, data } }
+
+function _catalogueLoad() {
+  try { return JSON.parse(localStorage.getItem(CATALOGUE_KEY) || '{}'); } catch { return {}; }
+}
+function _catalogueSave(store) {
+  localStorage.setItem(CATALOGUE_KEY, JSON.stringify(store));
+}
+function _uid() { return 'sc-' + Math.random().toString(36).slice(2, 9); }
 const CFG_DEFAULTS = {
   dockEdge             : 'bottom',
   dockAlign            : 'center',
@@ -804,6 +813,12 @@ export class Assembler {
     this._countEl = document.createElement('span');
     this._countEl.style.cssText = 'flex:1;text-align:center;pointer-events:none;';
 
+    const catalogueBtn = document.createElement('button');
+    catalogueBtn.className = 'asm-bar-btn';
+    catalogueBtn.title = 'Catalogue de constructions';
+    catalogueBtn.textContent = '⊟';
+    catalogueBtn.addEventListener('click', () => this._togglePanel('catalogue'));
+
     const bricksBtn = document.createElement('button');
     bricksBtn.className = 'asm-bar-btn';
     bricksBtn.title = 'Liste des briques';
@@ -834,7 +849,7 @@ export class Assembler {
     cfgBtn.textContent = '⚙';
     cfgBtn.addEventListener('click', () => this._openConfigModal());
 
-    bar.append(fsBtn, reloadBtn, modeStrip, solverStrip, this._countEl, bricksBtn, compBtn, jointsBtn, stateBtn, cfgBtn);
+    bar.append(fsBtn, reloadBtn, modeStrip, solverStrip, this._countEl, catalogueBtn, bricksBtn, compBtn, jointsBtn, stateBtn, cfgBtn);
     document.body.appendChild(bar);
     this._ui.push(bar);
 
@@ -1398,7 +1413,7 @@ export class Assembler {
     ].join(';');
     const title = document.createElement('span');
     title.style.cssText = `color:${C.dim};font-size:9px;text-transform:uppercase;letter-spacing:.1em;`;
-    const panelTitles = { bricks: 'Briques', components: 'Composantes', joints: 'Liaisons', state: 'État interne' };
+    const panelTitles = { bricks: 'Briques', components: 'Composantes', joints: 'Liaisons', state: 'État interne', catalogue: 'Catalogue' };
     title.textContent = panelTitles[name] ?? name;
     const closeBtn = document.createElement('button');
     closeBtn.textContent = '✕';
@@ -1427,6 +1442,7 @@ export class Assembler {
     if (name === 'bricks')           this._fillBricksPanel(body);
     else if (name === 'joints')    { this._syncJointsHeaderToggle(panel); this._fillJointsPanel(body); }
     else if (name === 'state')       this._fillStatePanel(body);
+    else if (name === 'catalogue')   this._fillCataloguePanel(body);
     else                             this._fillComponentsPanel(body);
   }
 
@@ -1745,6 +1761,101 @@ export class Assembler {
     const delta = pt.clone().sub(grabPt);
     for (const { brick, pos } of restoreStates) {
       brick.mesh.position.copy(pos).add(delta);
+    }
+  }
+
+  _fillCataloguePanel(body) {
+    const store = _catalogueLoad();
+    const entries = Object.values(store).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+    // ── Sauvegarder la scène courante ─────────────────────────────────────────
+    const saveRow = document.createElement('div');
+    saveRow.style.cssText = `display:flex;gap:6px;padding:8px 10px;border-bottom:1px solid ${C.border};flex-shrink:0;`;
+    const nameInp = document.createElement('input');
+    nameInp.type = 'text';
+    nameInp.placeholder = 'Nom de la construction…';
+    nameInp.style.cssText = [
+      'flex:1', 'min-width:0', `background:${C.bgDark}`, `color:${C.fg}`,
+      `border:1px solid ${C.border}`, 'border-radius:2px',
+      'padding:3px 6px', 'font-size:11px',
+    ].join(';');
+    const saveBtn = document.createElement('button');
+    saveBtn.textContent = '＋';
+    saveBtn.title = 'Sauvegarder';
+    saveBtn.style.cssText = [
+      `background:${C.bgDark}`, `color:${C.accent}`,
+      `border:1px solid ${C.accent}`, 'border-radius:2px',
+      'padding:2px 8px', 'font-size:13px', 'cursor:pointer', 'flex-shrink:0',
+    ].join(';');
+    saveBtn.addEventListener('click', () => {
+      const name = nameInp.value.trim() || `Construction ${new Date().toLocaleDateString()}`;
+      if (!this._asmVerse.bricks.size) return;
+      const s = _catalogueLoad();
+      const id = _uid();
+      s[id] = { id, name, createdAt: new Date().toISOString(), data: this._asmVerse.serialize() };
+      _catalogueSave(s);
+      nameInp.value = '';
+      this._refreshPanel('catalogue');
+    });
+    saveRow.append(nameInp, saveBtn);
+    body.appendChild(saveRow);
+
+    // ── Liste des constructions ───────────────────────────────────────────────
+    if (!entries.length) {
+      const empty = document.createElement('div');
+      empty.style.cssText = `padding:16px 10px;color:${C.dim};font-size:10px;text-align:center;`;
+      empty.textContent = 'Aucune construction sauvegardée';
+      body.appendChild(empty);
+      return;
+    }
+
+    for (const entry of entries) {
+      const row = document.createElement('div');
+      row.style.cssText = [
+        'display:flex', 'align-items:center', 'gap:6px',
+        'padding:7px 10px',
+        `border-bottom:1px solid ${C.border}`,
+      ].join(';');
+
+      const info = document.createElement('div');
+      info.style.cssText = 'flex:1;min-width:0;';
+      const nameEl = document.createElement('div');
+      nameEl.textContent = entry.name;
+      nameEl.style.cssText = `color:${C.fg};font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;`;
+      const dateEl = document.createElement('div');
+      const d = new Date(entry.createdAt);
+      dateEl.textContent = `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}  ·  ${entry.data.instances.length} brique${entry.data.instances.length > 1 ? 's' : ''}`;
+      dateEl.style.cssText = `color:${C.dim};font-size:9px;margin-top:2px;`;
+      info.append(nameEl, dateEl);
+
+      const loadBtn = document.createElement('button');
+      loadBtn.textContent = '↓';
+      loadBtn.title = 'Charger';
+      loadBtn.style.cssText = `background:transparent;border:1px solid ${C.border};color:${C.accent};border-radius:2px;padding:2px 7px;font-size:12px;cursor:pointer;flex-shrink:0;`;
+      loadBtn.addEventListener('click', async () => {
+        this._clearAll();
+        const bricksStore   = this._loadStore('rbang_bricks');
+        const shapesStore   = this._loadStore('rbang_shapes');
+        const liaisonsStore = this._loadStore('rbang_liaisons');
+        await this._asmVerse.restore(entry.data, bricksStore, shapesStore, liaisonsStore);
+        this._saveScene();
+        this._updateCount();
+        this._togglePanel('catalogue');
+      });
+
+      const delBtn = document.createElement('button');
+      delBtn.textContent = '✕';
+      delBtn.title = 'Supprimer';
+      delBtn.style.cssText = `background:transparent;border:none;color:${C.dim};font-size:12px;cursor:pointer;padding:0 2px;flex-shrink:0;`;
+      delBtn.addEventListener('click', () => {
+        const s = _catalogueLoad();
+        delete s[entry.id];
+        _catalogueSave(s);
+        this._refreshPanel('catalogue');
+      });
+
+      row.append(info, loadBtn, delBtn);
+      body.appendChild(row);
     }
   }
 
