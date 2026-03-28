@@ -6,7 +6,7 @@ let _M = null;
 
 export async function getManifold() {
   if (_M) return _M;
-  const Module = (await import('manifold-3d')).default;
+  const Module = (await import(window.RBANG_BASE + 'manifold/manifold.js')).default;
   const wasm = await Module();
   wasm.setup();
   _M = wasm;
