@@ -289,6 +289,7 @@ export class AsmDofHandler {
     const axStr = dof.axis ? `[${dof.axis.map(v => v.toFixed(2)).join(', ')}]` : '';
 
     const strip = document.createElement('div');
+    strip.className = 'asm-dof-strip';
     strip.style.cssText = [
       'position:fixed', 'left:25%', 'right:25%',
       `top:calc(${this._topOffset}px + ${this._stripIndex} * 4vh)`,

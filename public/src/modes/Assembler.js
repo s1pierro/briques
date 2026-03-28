@@ -1106,7 +1106,7 @@ export class Assembler {
   }
 
   _isOverUI(target) {
-    return target.closest?.('.brick-dock, .asm-bar, .asm-modal-overlay, .asm-panel');
+    return target.closest?.('.brick-dock, .asm-bar, .asm-modal-overlay, .asm-panel, .asm-dof-strip');
   }
 
   _updateCount() {
