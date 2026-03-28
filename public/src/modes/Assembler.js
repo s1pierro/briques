@@ -118,6 +118,8 @@ export class Assembler {
     this._asmVerse.worldSlots.snapR = cfg.snapR;
     if (this._asmVerse.worldSlots.planMesh) this._asmVerse.worldSlots.planMesh.visible = cfg.planVisible;
     this._asmVerse.slots.clipDist   = cfg.connectionTolerance ?? 0.12;
+    this._solverKey = cfg.involvedBricksSolver ?? 'physics';
+    this._updateSolverBtns?.();
   }
 
   // ─── Persistance de la scène ───────────────────────────────────────────────
@@ -510,7 +512,7 @@ export class Assembler {
     const cfg        = this._loadConfig();
     const stepsRot   = cfg.asmHelperStepsRot   ?? 16;
     const stepsTrans = cfg.asmHelperStepsTrans  ?? 20;
-    const solver     = cfg.involvedBricksSolver ?? 'physics'; // 'physics' | 'asm'
+    const solver     = this._solverKey ?? 'physics'; // 'physics' | 'asm'
     const connections = this._asmVerse.joints.connections;
     const handlers = new AsmHandlers({ conn: oriented, engine: this.engine, topOffset: BAR_H, stepsRot, stepsTrans, connections, solver });
     if (handlers.active) {
@@ -712,6 +714,42 @@ export class Assembler {
     };
     this._updateModeBtns();
 
+    // ── Strip solveur : brique (asm) | classe d'équivalence (physics) ──────────
+    this._solverKey = this._loadConfig().involvedBricksSolver ?? 'physics';
+    const solverStrip = document.createElement('div');
+    solverStrip.style.cssText = [
+      'display:flex', `border:1px solid ${C.border}`, 'border-radius:3px',
+      'overflow:hidden', 'flex-shrink:0', 'margin:0 4px',
+    ].join(';');
+    const _solverBtn = (icon, title, key) => {
+      const btn = document.createElement('button');
+      btn.dataset.solverKey = key;
+      btn.title = title;
+      btn.textContent = icon;
+      btn.style.cssText = [
+        'background:transparent', 'border:none', `color:${C.dim}`,
+        'font-size:13px', 'cursor:pointer', 'padding:0 7px', 'height:100%', 'line-height:1',
+      ].join(';');
+      btn.addEventListener('click', () => {
+        this._solverKey = key;
+        this._saveConfig({ involvedBricksSolver: key });
+        this._updateSolverBtns();
+      });
+      return btn;
+    };
+    solverStrip.append(
+      _solverBtn('◻', 'Solveur : Brique',               'asm'),
+      _solverBtn('⊞', 'Solveur : Classe d\'équivalence', 'physics'),
+    );
+    this._updateSolverBtns = () => {
+      for (const btn of solverStrip.querySelectorAll('button')) {
+        const active = btn.dataset.solverKey === this._solverKey;
+        btn.style.color      = active ? C.accent : C.dim;
+        btn.style.background = active ? `${C.bg}` : 'transparent';
+      }
+    };
+    this._updateSolverBtns();
+
     this._countEl = document.createElement('span');
     this._countEl.style.cssText = 'flex:1;text-align:center;pointer-events:none;';
 
@@ -745,7 +783,7 @@ export class Assembler {
     cfgBtn.textContent = '⚙';
     cfgBtn.addEventListener('click', () => this._openConfigModal());
 
-    bar.append(fsBtn, reloadBtn, modeStrip, this._countEl, bricksBtn, compBtn, jointsBtn, stateBtn, cfgBtn);
+    bar.append(fsBtn, reloadBtn, modeStrip, solverStrip, this._countEl, bricksBtn, compBtn, jointsBtn, stateBtn, cfgBtn);
     document.body.appendChild(bar);
     this._ui.push(bar);
 
