@@ -1,0 +1,207 @@
+{
+  "br-bs4wkv3": {
+    "id": "br-bs4wkv3",
+    "name": "pin v2",
+    "shapeRef": "pin v2",
+    "color": "#1f1f1f",
+    "slots": [
+      {
+        "id": "sl-ehbzrs2",
+        "typeId": "st-kv5ni7k",
+        "position": [
+          0,
+          0,
+          0.5
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ]
+      },
+      {
+        "id": "sl-ff2j3cn",
+        "typeId": "st-kv5ni7k",
+        "position": [
+          0,
+          0,
+          -0.5
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ]
+      }
+    ],
+    "createdAt": "2026-03-24T22:27:05.465Z",
+    "updatedAt": "2026-03-25T08:42:19.993Z"
+  },
+  "br-lfit2fd": {
+    "id": "br-lfit2fd",
+    "name": "brique technic 1x1  v2",
+    "shapeRef": "brique technic 1x1  v2",
+    "color": "#ffff00",
+    "slots": [
+      {
+        "id": "sl-ogkbhay",
+        "typeId": "st-h0fwzps",
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ]
+      },
+      {
+        "id": "sl-jtr93pz",
+        "typeId": "st-muu7dd0",
+        "position": [
+          0,
+          -0.7,
+          0
+        ],
+        "quaternion": [
+          -0.7071067811865475,
+          0,
+          0,
+          0.7071067811865476
+        ]
+      },
+      {
+        "id": "sl-0zqwxc9",
+        "typeId": "st-8durhr3",
+        "position": [
+          0,
+          0.5,
+          0
+        ],
+        "quaternion": [
+          -0.7071067811865475,
+          0,
+          0,
+          0.7071067811865476
+        ]
+      }
+    ],
+    "createdAt": "2026-03-24T22:39:16.655Z",
+    "updatedAt": "2026-03-25T08:53:43.265Z"
+  },
+  "br-obobhuk": {
+    "id": "br-obobhuk",
+    "name": "system brique 1x1 v2",
+    "shapeRef": "system brique 1x1 v2",
+    "color": "#ff0000",
+    "slots": [
+      {
+        "id": "sl-rg2llhs",
+        "typeId": "st-hvq44gj",
+        "position": [
+          0,
+          0.2,
+          0
+        ],
+        "quaternion": [
+          -0.7071067811865475,
+          0,
+          0,
+          0.7071067811865476
+        ]
+      },
+      {
+        "id": "sl-l3j3x0q",
+        "typeId": "st-muu7dd0",
+        "position": [
+          0,
+          -1,
+          0
+        ],
+        "quaternion": [
+          -0.7071067811865475,
+          0,
+          0,
+          0.7071067811865476
+        ]
+      }
+    ],
+    "createdAt": "2026-03-24T23:04:49.930Z",
+    "updatedAt": "2026-03-24T23:06:20.977Z"
+  },
+  "br-gnea8ws": {
+    "id": "br-gnea8ws",
+    "name": "technic bar 4x v1",
+    "shapeRef": "technic bar 4x v1",
+    "color": "#ffffff",
+    "slots": [
+      {
+        "id": "sl-see66wy",
+        "typeId": "st-h0fwzps",
+        "position": [
+          -1.5,
+          0,
+          0
+        ],
+        "quaternion": [
+          0,
+          -2.7755575615628914e-16,
+          0,
+          -1
+        ]
+      },
+      {
+        "id": "sl-1krohzs",
+        "typeId": "st-h0fwzps",
+        "position": [
+          -0.5,
+          0,
+          0
+        ],
+        "quaternion": [
+          0,
+          -2.7755575615628914e-16,
+          0,
+          -1
+        ]
+      },
+      {
+        "id": "sl-uu87klv",
+        "typeId": "st-h0fwzps",
+        "position": [
+          0.5,
+          0,
+          0
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ]
+      },
+      {
+        "id": "sl-for4u1z",
+        "typeId": "st-h0fwzps",
+        "position": [
+          1.5,
+          0,
+          0
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ]
+      }
+    ],
+    "createdAt": "2026-03-25T01:05:38.939Z",
+    "updatedAt": "2026-03-25T08:53:13.890Z"
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "slotTypes": {
+    "st-kv5ni7k": {
+      "id": "st-kv5ni7k",
+      "name": "technic pin a"
+    },
+    "st-h0fwzps": {
+      "id": "st-h0fwzps",
+      "name": "technic hole a"
+    },
+    "st-hvq44gj": {
+      "id": "st-hvq44gj",
+      "name": "system pin top"
+    },
+    "st-muu7dd0": {
+      "id": "st-muu7dd0",
+      "name": "system hole bottom"
+    },
+    "st-8durhr3": {
+      "id": "st-8durhr3",
+      "name": "technic pin top"
+    }
+  },
+  "liaisons": {
+    "li-qdbuh7g": {
+      "id": "li-qdbuh7g",
+      "name": "pivot friction medium",
+      "pairs": [
+        {
+          "typeA": "st-kv5ni7k",
+          "typeB": "st-h0fwzps"
+        }
+      ],
+      "dof": [
+        {
+          "type": "rotation",
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "min": null,
+          "max": null,
+          "step": null,
+          "damping": 0
+        }
+      ]
+    },
+    "li-fvn8n15": {
+      "id": "li-fvn8n15",
+      "name": "Liaison 2",
+      "pairs": [
+        {
+          "typeA": "st-8durhr3",
+          "typeB": "st-muu7dd0"
+        },
+        {
+          "typeA": "st-hvq44gj",
+          "typeB": "st-muu7dd0"
+        }
+      ],
+      "dof": [],
+      "type": "weld"
+    }
+  }
+}
