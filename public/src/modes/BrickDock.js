@@ -63,8 +63,10 @@ export class BrickDock {
     this._talonEl   = null;
     this._cellsEl   = null;
     this._animId    = null;
-    this._onPickBrick = null;
-    this._activeCell  = null;
+    this._onPickBrick    = null;
+    this._onDragBrick    = null;
+    this._onCancelDrag   = null;
+    this._activeCell     = null;
     this._activateOnOutsideTap = true;
     this._stackPersist = false;
     this._stackFamily = { name: '(tmp)Stack', bricks: [] };
@@ -86,7 +88,9 @@ export class BrickDock {
 
   // ── API ────────────────────────────────────────────────────────────────────
 
-  onPickBrick(fn) { this._onPickBrick = fn; }
+  onPickBrick(fn)   { this._onPickBrick  = fn; }
+  onDragBrick(fn)   { this._onDragBrick  = fn; }
+  onCancelDrag(fn)  { this._onCancelDrag = fn; }
 
   async load(bricksData) {
     this._buildFamilies(bricksData);
@@ -572,11 +576,15 @@ export class BrickDock {
     cv.addEventListener('pointermove', (e) => {
       if (mode !== 'assemble') return;
       const dx = e.clientX - startX, dy = e.clientY - startY;
-      if (Math.sqrt(dx * dx + dy * dy) >= 15 && isTowardEdge(dx, dy)) {
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist >= 15 && isTowardEdge(dx, dy)) {
         cv.releasePointerCapture(e.pointerId);
         cell.tb.enabled = true;
         mode = null;
         this._showFamily(this._famIdx + 1);
+      } else if (dist >= 8 && this._onDragBrick) {
+        const nearSlots = this._nearSlotsForBrick(cell, startX, startY);
+        this._onDragBrick(cell.brickId, { x: e.clientX, y: e.clientY, nearSlots });
       }
     }, { passive: false });
 
@@ -604,6 +612,7 @@ export class BrickDock {
     cv.addEventListener('pointercancel', (e) => {
       if (cv.hasPointerCapture(e.pointerId)) cv.releasePointerCapture(e.pointerId);
       cell.tb.enabled = false;
+      if (mode === 'assemble') this._onCancelDrag?.();
       mode = null;
     });
   }

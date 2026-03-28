@@ -866,6 +866,17 @@ export class Modeler {
       .ml-obj-purge { color: var(--ml-dim); cursor: pointer;
         font-size: 11px; padding: 0 2px; }
 
+      /* Drag & drop réordonnancement */
+      .ml-drag-btn {
+        background: none; border: none; cursor: grab; touch-action: none;
+        color: var(--ml-dim); font-size: 15px; padding: 0 8px;
+        line-height: 1; user-select: none; flex-shrink: 0;
+      }
+      .ml-drag-btn:active { cursor: grabbing; }
+      .ml-table tbody tr.ml-dragging { opacity: .35; }
+      .ml-table tbody tr.ml-drop-before td { border-top: 2px solid var(--ml-accent); }
+      .ml-table tbody tr.ml-drop-after  td { border-bottom: 2px solid var(--ml-accent); }
+
       /* ── Barre titre éditeur (séparateur draggable) ── */
       .ml-ed-titlebar {
         flex-shrink: 0; height: 28px;
@@ -1555,8 +1566,20 @@ export class Modeler {
     // ── Corps (pas d'en-tête nécessaire) ──
     const tbody = document.createElement('tbody');
 
+    // État local du drag (réinitialisé à chaque render)
+    let dragId = null; // id de l'étape en cours de drag
+    let beforeId = null; // id de l'étape devant laquelle on va insérer (null = fin)
+
+    const clearDropMarkers = () => {
+      for (const tr of tbody.querySelectorAll('tr')) {
+        tr.classList.remove('ml-drop-before', 'ml-drop-after');
+      }
+    };
+
     steps.forEach((step, idx) => {
       const tr = document.createElement('tr');
+      tr.dataset.stepId = step.id;
+      tr.style.cursor = 'grab';
       if (step.id === this._selId) tr.classList.add('sel');
 
       // Cellule œil
@@ -1582,6 +1605,7 @@ export class Modeler {
         <div class="ml-obj-row">
           <span class="ml-obj-idx">${idx + 1}</span>
           <span class="ml-obj-icon" style="color:${km.color}">${km.icon}</span>
+          <button class="ml-drag-btn" title="Réordonner">⠿</button>
           <span class="ml-obj-label">${step.label}</span>
           ${isLast ? `<span class="ml-obj-purge" title="Purifier l'arbre">⌥</span>` : ''}
           <span class="ml-obj-del" title="Supprimer">✕</span>
@@ -1589,13 +1613,11 @@ export class Modeler {
         ${paramStr ? `<div class="ml-obj-params">${paramStr}</div>` : ''}
       `;
       tdObj.querySelector('.ml-obj-del').addEventListener('click', e => {
-        e.stopPropagation();
-        this._removeStep(step.id);
+        e.stopPropagation(); this._removeStep(step.id);
       });
       if (isLast) {
         tdObj.querySelector('.ml-obj-purge').addEventListener('click', e => {
-          e.stopPropagation();
-          this._purgeTree(step.id);
+          e.stopPropagation(); this._purgeTree(step.id);
         });
       }
       tr.appendChild(tdObj);
@@ -1603,12 +1625,79 @@ export class Modeler {
       tr.addEventListener('click', () => {
         const prev = this._selId;
         this._selId = step.id;
-        // Mise à jour couleur sélection sans reconstruire
         if (prev && this._meshes.has(prev)) this._meshes.get(prev).material.color.setHex(0x3366cc);
         if (this._meshes.has(step.id)) this._meshes.get(step.id).material.color.setHex(0x4488ff);
         this._scheduleRender();
         this._renderGrid();
         this._renderEditor();
+      });
+
+      // ── Drag via le bouton poignée ────────────────────────────────────────
+      const dragBtn = tdObj.querySelector('.ml-drag-btn');
+      dragBtn.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragBtn.setPointerCapture(e.pointerId);
+        dragId   = step.id;
+        beforeId = null;
+        tr.classList.add('ml-dragging');
+
+        const onMove = ev => {
+          clearDropMarkers();
+          const y    = ev.clientY;
+          const rows = [...tbody.querySelectorAll('tr:not(.ml-dragging)')];
+          let found  = false;
+          for (const row of rows) {
+            const rect = row.getBoundingClientRect();
+            if (y < rect.top + rect.height / 2) {
+              row.classList.add('ml-drop-before');
+              beforeId = row.dataset.stepId;
+              found    = true;
+              break;
+            }
+          }
+          if (!found) {
+            rows.at(-1)?.classList.add('ml-drop-after');
+            beforeId = null;
+          }
+        };
+
+        const commit = () => {
+          dragBtn.removeEventListener('pointermove',   onMove);
+          dragBtn.removeEventListener('pointerup',     commit);
+          dragBtn.removeEventListener('pointercancel', cancel);
+          tr.classList.remove('ml-dragging');
+          clearDropMarkers();
+          dragId = null;
+          const target = beforeId;
+          beforeId = null;
+          const arr  = this._data.steps;
+          const from = arr.findIndex(s => s.id === step.id);
+          if (from === -1) return;
+          const [moved] = arr.splice(from, 1);
+          if (target === null) {
+            arr.push(moved);
+          } else {
+            const to = arr.findIndex(s => s.id === target);
+            arr.splice(to === -1 ? arr.length : to, 0, moved);
+          }
+          this._save();
+          this._rebuildAll().then(() => { this._renderGrid(); this._renderEditor(); });
+        };
+
+        const cancel = () => {
+          dragBtn.removeEventListener('pointermove',   onMove);
+          dragBtn.removeEventListener('pointerup',     commit);
+          dragBtn.removeEventListener('pointercancel', cancel);
+          tr.classList.remove('ml-dragging');
+          clearDropMarkers();
+          dragId = null;
+          this._renderGrid();
+        };
+
+        dragBtn.addEventListener('pointermove',   onMove);
+        dragBtn.addEventListener('pointerup',     commit);
+        dragBtn.addEventListener('pointercancel', cancel);
       });
 
       tbody.appendChild(tr);

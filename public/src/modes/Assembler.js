@@ -93,6 +93,11 @@ export class Assembler {
     this._selectedBrick      = null;     // AsmBrick | null
     this._selectedComponent  = null;     // AsmEquivalenceClass | null
     this._previewHelper      = null;     // THREE.Mesh — anneau de preview snap
+    this._dockGhost          = null;     // { brick } — brique fantôme durant drag depuis dock
+    this._dockGhostSpawning  = false;    // verrou anti-double spawn
+    this._linkedMove         = false;    // mode déplacement ensemble lié (type touche L)
+    this._gizmo              = null;     // THREE.Group — gizmo de translation monde
+    this._gizmoDrag          = null;     // { axis, s0, restoreStates } — drag gizmo en cours
   }
 
   // ─── Cycle de vie ──────────────────────────────────────────────────────────
@@ -181,8 +186,23 @@ export class Assembler {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    // Révoquer après un délai pour laisser le navigateur initier le téléchargement
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    this._toast('Export téléchargé');
+  }
+
+  _toast(msg, duration = 2000) {
+    const C = this._cfg;
+    const t = document.createElement('div');
+    t.textContent = msg;
+    t.style.cssText = [
+      'position:fixed', 'bottom:24px', 'left:50%', 'transform:translateX(-50%)',
+      `background:${C.bgDark ?? '#1a1a1a'}cc`, `color:${C.fg ?? '#ccc'}`,
+      'padding:6px 14px', 'border-radius:4px', 'font-size:11px',
+      'pointer-events:none', 'z-index:99999',
+      'transition:opacity 0.4s',
+    ].join(';');
+    document.body.appendChild(t);
+    setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 400); }, duration);
   }
 
   _importScene() {
@@ -208,24 +228,42 @@ export class Assembler {
           '| shapes embarquées:', Object.keys(data.shapes ?? {}).length,
           '| liaisons embarquées:', Object.keys(data.liaisons ?? {}).length);
 
+        // Détecte les conflits (clé présente localement avec données différentes)
+        const conflicts = (storeKey, incoming) => {
+          if (!incoming || typeof incoming !== 'object') return [];
+          const local = this._loadStore(storeKey);
+          return Object.entries(incoming)
+            .filter(([k, v]) => k in local && JSON.stringify(local[k]) !== JSON.stringify(v))
+            .map(([k]) => k);
+        };
+
+        const brickConflicts   = conflicts('rbang_bricks',   data.bricks);
+        const liaisonConflicts = conflicts('rbang_liaisons', data.liaisons);
+        const all = [...brickConflicts, ...liaisonConflicts];
+
+        if (all.length > 0) {
+          const list = all.slice(0, 6).join(', ') + (all.length > 6 ? ` … (+${all.length - 6})` : '');
+          const go = confirm(
+            `Import : ${all.length} entrée(s) locale(s) seraient écrasées :\n${list}\n\nContinuer et écraser ?`
+          );
+          if (!go) return;
+        }
+
         // Injecter les stores embarqués dans le localStorage local
         const inject = (key, field) => {
           if (data[field] && typeof data[field] === 'object') {
             const store = this._loadStore(key);
-            const before = Object.keys(store).length;
             Object.assign(store, data[field]);
             localStorage.setItem(key, JSON.stringify(store));
-            console.log(`[import] ${key} : ${before} → ${Object.keys(store).length} entrées`);
-          } else {
-            console.warn(`[import] champ "${field}" absent du fichier`);
           }
         };
         inject('rbang_bricks',   'bricks');
         inject('rbang_shapes',   'shapes');
         inject('rbang_liaisons', 'liaisons');
-        // Scène valide — on peut effacer et restaurer
-        localStorage.setItem(SCENE_KEY, text);
+        // Effacer d'abord (_clearAll → _saveScene écrase SCENE_KEY avec scène vide)
+        // puis écrire le fichier importé, et seulement alors restaurer
         this._clearAll();
+        localStorage.setItem(SCENE_KEY, text);
         await this._restoreScene();
         const n = this._asmVerse.bricks.size;
         if (n === 0 && data.instances.length > 0)
@@ -243,9 +281,15 @@ export class Assembler {
   }
 
   stop() {
+    this._removeDockGhost();
     this._clearLiaisonPickers();
     this._asmHandlers?.detach();
     this._asmHandlers = null;
+    if (this._gizmo) {
+      this.engine.scene.remove(this._gizmo);
+      this._gizmo.traverse(c => { if (c.isMesh) { c.geometry.dispose(); c.material.dispose(); } });
+      this._gizmo = null;
+    }
     this.engine.resizeViewport(0, 0, 0);
     this._asmVerse.dispose();
     this._dock?.destroy();
@@ -285,11 +329,16 @@ export class Assembler {
     // activer les AsmHandlers DOF. Retourner true empêche la création du disque marqueur
     // (les handlers le remplacent). Retourner false (liaison rigide) → disque créé.
     this._asmVerse.joints.onConnect = (conn) => this._activateAsmHandlers(conn);
+    this._buildGizmo();
     this._dock = new BrickDock(this.engine, { edge: 'bottom', align: 'center' });
     this._dock.onPickBrick((brickId, gesture) => {
       this._activeGesture = null;
+      this._removeDockGhost();
       this._handleScreenSlotDrop(gesture);
     });
+    this._dock.onDragBrick((brickId, { x, y, nearSlots }) =>
+      this._onDockDrag(brickId, x, y, nearSlots));
+    this._dock.onCancelDrag(() => this._removeDockGhost());
     const bricks = this._loadStore('rbang_bricks');
     this._dock.load(bricks);
   }
@@ -363,6 +412,69 @@ export class Assembler {
     return brick;
   }
 
+  // ─── Ghost dock — preview semi-transparent durant le drag depuis le dock ────
+
+  async _onDockDrag(brickId, x, y, nearSlots) {
+    // Spawn du ghost au premier appel
+    if (!this._dockGhost) {
+      if (this._dockGhostSpawning) return;
+      this._dockGhostSpawning = true;
+      const brickData = this._loadStore('rbang_bricks')[brickId];
+      if (!brickData) { this._dockGhostSpawning = false; return; }
+      const brick = await this._asmVerse.spawnBrick(brickId, brickData,
+        new THREE.Vector3(0, -1000, 0)); // hors champ le temps du spawn
+      this._dockGhostSpawning = false;
+      if (!brick) return;
+      brick.mesh.material.transparent = true;
+      brick.mesh.material.opacity     = 0.4;
+      brick.mesh.material.needsUpdate = true;
+      this._dockGhost = { brick, brickId, nearSlots };
+    }
+
+    const { brick } = this._dockGhost;
+
+    this._mouse.x =  (x / innerWidth)  * 2 - 1;
+    this._mouse.y = -(y / innerHeight) * 2 + 1;
+    this._raycaster.setFromCamera(this._mouse, this.engine.camera);
+
+    // Cherche une brique cible sous le pointeur (sans le ghost)
+    const meshes = [...this._asmVerse.bricks.values()]
+      .filter(i => i !== brick)
+      .map(i => i.mesh);
+    const hits = this._raycaster.intersectObjects(meshes, false);
+
+    if (hits.length > 0) {
+      const targetInst = [...this._asmVerse.bricks.values()].find(i => i.mesh === hits[0].object);
+      if (targetInst) {
+        const nearSlotsB = this._asmVerse.slots.nearSlotsOf(targetInst, x, y, this.engine.camera, true);
+        const result = this._asmVerse.worldSlots.resolve(nearSlots, nearSlotsB);
+        if (result) {
+          const snap = this._asmVerse.worldSlots.computeSnap(result.slotA, result.slotB, targetInst);
+          brick.mesh.position.copy(snap.position);
+          brick.mesh.quaternion.copy(snap.quaternion);
+          this._showPreviewHelper(snap.position);
+          return;
+        }
+      }
+    }
+
+    // Pas de snap → suit le plan monde
+    const pt = this._asmVerse.worldSlots.raycastPlane(this._raycaster);
+    if (pt) {
+      brick.mesh.position.copy(pt);
+      brick.mesh.quaternion.identity();
+    }
+    this._hidePreviewHelper();
+  }
+
+  _removeDockGhost() {
+    if (!this._dockGhost) return;
+    this._asmVerse.removeBrick(this._dockGhost.brick); // pas de _updateCount
+    this._dockGhost = null;
+    this._dockGhostSpawning = false;
+    this._hidePreviewHelper();
+  }
+
   // ─── Trackball sur un world slot ─────────────────────────────────────────────
 
   _startWorldSlotTrackball(wslot, e) {
@@ -404,7 +516,29 @@ export class Assembler {
       this._mouse.y = -(e.clientY / innerHeight) * 2 + 1;
       this._raycaster.setFromCamera(this._mouse, this.engine.camera);
 
-      // Priorité 0 : pickers de sélection de liaison (état intermédiaire)
+      // Priorité 0a : handles du gizmo de translation
+      if (this._gizmo?.visible) {
+        const handles = [];
+        this._gizmo.traverse(c => { if (c.userData.isGizmoHandle) handles.push(c); });
+        const gHits = this._raycaster.intersectObjects(handles, false);
+        if (gHits.length > 0) {
+          const axis = gHits[0].object.userData.worldAxis.clone();
+          const linkedSet = this._selectedComponent
+            ? this._linkedBrickSet([...this._selectedComponent.bricks][0])
+            : new Set();
+          const gizmoOrigin = this._gizmo.position.clone();
+          const s0 = this._rayAxisParam(this._raycaster.ray, gizmoOrigin, axis);
+          this._gizmoDrag = {
+            axis, s0, gizmoOrigin,
+            restoreStates: [...linkedSet].map(b => ({ brick: b, pos: b.mesh.position.clone() })),
+          };
+          this._setProcess('gizmo');
+          this.engine.controls.enabled = false;
+          return;
+        }
+      }
+
+      // Priorité 0b : pickers de sélection de liaison (état intermédiaire)
       if (this._liaisonPickers.length > 0) {
         const pickerHits = this._raycaster.intersectObjects(
           this._liaisonPickers.map(p => p.mesh), false);
@@ -449,18 +583,44 @@ export class Assembler {
     };
 
     this._onPointerMoveStack = (e) => {
+      // Gizmo drag — priorité absolue
+      if (this._gizmoDrag) {
+        this._mouse.x =  (e.clientX / innerWidth)  * 2 - 1;
+        this._mouse.y = -(e.clientY / innerHeight) * 2 + 1;
+        this._raycaster.setFromCamera(this._mouse, this.engine.camera);
+        const { axis, s0, gizmoOrigin, restoreStates } = this._gizmoDrag;
+        const s1    = this._rayAxisParam(this._raycaster.ray, gizmoOrigin, axis);
+        const delta = axis.clone().multiplyScalar(s1 - s0);
+        for (const { brick, pos } of restoreStates) {
+          brick.mesh.position.copy(pos).add(delta);
+        }
+        this._gizmo.position.copy(gizmoOrigin).add(delta);
+        return;
+      }
       if (!this._stackCandidate) return;
       const { inst, startX, startY } = this._stackCandidate;
       const dx = e.clientX - startX, dy = e.clientY - startY;
       if (Math.sqrt(dx * dx + dy * dy) >= 12) {
         if (this._process !== 'dragging') {
           if (this._mode === 'component') {
-            const comp = this._findComponent(inst);
-            this._stackCandidate.comp = comp;
-            this._stackCandidate.restoreStates = [...comp.bricks].map(b => ({
+            let brickSet;
+            if (this._linkedMove) {
+              brickSet = this._linkedBrickSet(inst);
+              if (this._isGrounded(brickSet)) {
+                this.engine.controls.enabled = true;
+                this._stackCandidate = null;
+                this._toast('Ensemble ancré au sol — déplacement impossible');
+                return;
+              }
+            } else {
+              const comp = this._findComponent(inst);
+              this._stackCandidate.comp = comp;
+              brickSet = comp.bricks;
+            }
+            this._stackCandidate.restoreStates = [...brickSet].map(b => ({
               brick: b, pos: b.mesh.position.clone(), quat: b.mesh.quaternion.clone(),
             }));
-            for (const b of comp.bricks) {
+            for (const b of brickSet) {
               b.mesh.material.transparent = true;
               b.mesh.material.opacity     = 0.4;
               b.mesh.material.needsUpdate = true;
@@ -483,6 +643,14 @@ export class Assembler {
     };
 
     this._onPointerUpStack = (e) => {
+      // Fin du drag gizmo
+      if (this._gizmoDrag) {
+        this._gizmoDrag = null;
+        this._setProcess('idle');
+        this.engine.controls.enabled = true;
+        this._asmVerse.joints.observe(this._asmVerse.slots);
+        return;
+      }
       if (!this._stackCandidate) {
         // Tap sur un picker → activer la liaison choisie
         if (this._pickerCandidate) {
@@ -570,6 +738,17 @@ export class Assembler {
     window.addEventListener('pointercancel', () => {
       this._tapStart        = null;
       this._pickerCandidate = null;
+      if (this._gizmoDrag) {
+        // Restaurer les positions initiales
+        for (const { brick, pos } of this._gizmoDrag.restoreStates) {
+          brick.mesh.position.copy(pos);
+        }
+        this._gizmo.position.copy(this._gizmoDrag.gizmoOrigin);
+        this._gizmoDrag = null;
+        this._setProcess('idle');
+        this.engine.controls.enabled = true;
+        return;
+      }
       if (this._stackCandidate) {
         if (this._mode === 'component') {
           for (const { brick, pos, quat } of (this._stackCandidate.restoreStates ?? [])) {
@@ -865,6 +1044,20 @@ export class Assembler {
     };
     this._updateSolverBtns();
 
+    // ── Toggle déplacement ensemble lié (mode composante uniquement) ─────────
+    const linkedMoveBtn = document.createElement('button');
+    linkedMoveBtn.className = 'asm-bar-btn';
+    linkedMoveBtn.title = 'Déplacer l\'ensemble lié (⛓)';
+    linkedMoveBtn.textContent = '⛓';
+    linkedMoveBtn.style.display = 'none'; // visible seulement en mode composante
+    linkedMoveBtn.addEventListener('click', () => {
+      this._linkedMove = !this._linkedMove;
+      linkedMoveBtn.style.color      = this._linkedMove ? C.accent : C.dim;
+      linkedMoveBtn.style.background = this._linkedMove ? `${C.bg}` : 'transparent';
+      this._updateGizmoForSelection();
+    });
+    this._linkedMoveBtn = linkedMoveBtn;
+
     this._countEl = document.createElement('span');
     this._countEl.style.cssText = 'flex:1;text-align:center;pointer-events:none;';
 
@@ -904,7 +1097,7 @@ export class Assembler {
     cfgBtn.textContent = '⚙';
     cfgBtn.addEventListener('click', () => this._openConfigModal());
 
-    bar.append(fsBtn, reloadBtn, modeStrip, solverStrip, this._countEl, catalogueBtn, bricksBtn, compBtn, jointsBtn, stateBtn, cfgBtn);
+    bar.append(fsBtn, reloadBtn, modeStrip, solverStrip, linkedMoveBtn, this._countEl, catalogueBtn, bricksBtn, compBtn, jointsBtn, stateBtn, cfgBtn);
     document.body.appendChild(bar);
     this._ui.push(bar);
 
@@ -921,6 +1114,11 @@ export class Assembler {
       const c = n ? this._asmVerse.componentCount() : 0;
       const nConn = this._asmVerse.joints.connections.length;
       this._countEl.textContent = `Briques : ${n}` + (n ? `  |  Liaisons : ${nConn}  |  Composants : ${c}` : '');
+      // Scaling du gizmo pour garder une taille constante à l'écran
+      if (this._gizmo?.visible) {
+        const dist = this._gizmo.position.distanceTo(this.engine.camera.position);
+        this._gizmo.scale.setScalar(dist * 0.22);
+      }
     };
   }
 
@@ -1368,6 +1566,7 @@ export class Assembler {
   }
 
   _clearAll() {
+    this._removeDockGhost();
     this._asmHandlers?.detach();
     this._asmHandlers = null;
     this._asmVerse.clear();
@@ -1690,6 +1889,9 @@ export class Assembler {
     this._selectBrick(null);
     this._selectedComponent = null;
     this._updateModeBtns?.();
+    if (this._linkedMoveBtn)
+      this._linkedMoveBtn.style.display = mode === 'component' ? '' : 'none';
+    this._updateGizmoForSelection();
     // Rafraîchir le panel état s'il est ouvert
     const p = this._panels?.state;
     if (p?.style.display === 'flex') this._refreshPanel('state');
@@ -1744,6 +1946,7 @@ export class Assembler {
       this._asmHandlers?.detach();
       this._asmHandlers = null;
     }
+    this._updateGizmoForSelection();
   }
 
   /** Sélectionne une composante (mode component). null = désélection.
@@ -1786,12 +1989,96 @@ export class Assembler {
       })), 0.32);
     }
 
+    this._updateGizmoForSelection();
     if (this._panels?.state?.style.display === 'flex') this._refreshPanel('state');
   }
 
   /** Retourne la classe d'équivalence contenant brick, ou null. */
   _findComponent(brick) {
     return this._asmVerse.computeComponents().find(c => c.contains(brick)) ?? null;
+  }
+
+  /** BFS traversant TOUTES les connexions (rigides + DOF) depuis brick. */
+  _linkedBrickSet(brick) {
+    const set   = new Set([brick]);
+    const queue = [brick];
+    const conns = this._asmVerse.joints.connections;
+    while (queue.length) {
+      const b = queue.shift();
+      for (const c of conns) {
+        const other = c.instA === b ? c.instB : c.instB === b ? c.instA : null;
+        if (other && !set.has(other)) { set.add(other); queue.push(other); }
+      }
+    }
+    return set;
+  }
+
+  /** Vrai si au moins une brique de brickSet est ancrée par un world slot. */
+  _isGrounded(brickSet) {
+    return this._asmVerse._wsConnections.some(wsc => brickSet.has(wsc.brick));
+  }
+
+  // ─── Gizmo de translation monde ──────────────────────────────────────────────
+
+  _buildGizmo() {
+    const group = new THREE.Group();
+
+    const mkArrow = (color, rotAxis, rotAngle, worldAxis) => {
+      const mat    = new THREE.MeshBasicMaterial({ color, depthTest: false, depthWrite: false });
+      const matHit = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
+
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.65, 8), mat);
+      shaft.position.y = 0.425; // 0.1 offset + half 0.65
+
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.085, 0.24, 8), mat);
+      tip.position.y = 0.87;    // 0.75 + half 0.24
+
+      // Zone de hit large pour les doigts
+      const hit = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 1.0, 8), matHit);
+      hit.position.y = 0.5;
+      hit.userData.isGizmoHandle = true;
+      hit.userData.worldAxis = worldAxis;
+
+      [shaft, tip, hit].forEach(m => { m.renderOrder = 300; });
+
+      const arrow = new THREE.Group();
+      arrow.add(shaft, tip, hit);
+      if (rotAxis) arrow.rotateOnAxis(rotAxis, rotAngle);
+      group.add(arrow);
+    };
+
+    mkArrow(0xff3333, new THREE.Vector3(0, 0, 1), -Math.PI / 2, new THREE.Vector3(1, 0, 0)); // +X
+    mkArrow(0x33cc55, null, 0,                                   new THREE.Vector3(0, 1, 0)); // +Y
+    mkArrow(0x3399ff, new THREE.Vector3(1, 0, 0),  Math.PI / 2, new THREE.Vector3(0, 0, 1)); // +Z
+
+    group.visible = false;
+    this.engine.scene.add(group);
+    this._gizmo = group;
+  }
+
+  _updateGizmoForSelection() {
+    if (!this._gizmo) return;
+    if (!this._linkedMove || this._mode !== 'component' || !this._selectedComponent) {
+      this._gizmo.visible = false;
+      return;
+    }
+    const bricks = [...this._selectedComponent.bricks];
+    const centroid = bricks.reduce(
+      (acc, b) => acc.add(b.mesh.position), new THREE.Vector3()
+    ).divideScalar(bricks.length);
+    this._gizmo.position.copy(centroid);
+    this._gizmo.visible = true;
+  }
+
+  /** Paramètre s tel que (axisOrigin + s·axisDir) soit le point de l'axe le plus proche du rayon. */
+  _rayAxisParam(ray, axisOrigin, axisDir) {
+    const w  = new THREE.Vector3().subVectors(ray.origin, axisOrigin);
+    const b  = ray.direction.dot(axisDir);
+    const dw = ray.direction.dot(w);
+    const e  = axisDir.dot(w);
+    const den = 1 - b * b;
+    if (Math.abs(den) < 1e-6) return e; // rayon quasi-parallèle à l'axe
+    return (e - b * dw) / den;
   }
 
   /** Retire le highlight de toutes les briques de _selectedComponent. */

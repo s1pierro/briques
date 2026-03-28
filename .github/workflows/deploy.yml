@@ -1,0 +1,58 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Assemble site
+        run: |
+          mkdir -p dist
+
+          # Contenu client
+          cp -r public/. dist/
+
+          # Three.js
+          mkdir -p dist/three/build dist/three/examples/jsm
+          cp node_modules/three/build/three.module.js dist/three/build/
+          cp -r node_modules/three/examples/jsm/. dist/three/examples/jsm/
+
+          # Rapier
+          mkdir -p dist/rapier
+          cp node_modules/@dimforge/rapier3d-compat/rapier.es.js dist/rapier/
+          cp node_modules/@dimforge/rapier3d-compat/rapier_wasm3d.js dist/rapier/
+          cp node_modules/@dimforge/rapier3d-compat/*.wasm dist/rapier/ 2>/dev/null || true
+
+          # Manifold
+          mkdir -p dist/manifold
+          cp node_modules/manifold-3d/manifold.js dist/manifold/
+          cp node_modules/manifold-3d/manifold.wasm dist/manifold/
+
+          # Eruda (debug console mobile — facultatif en prod)
+          mkdir -p dist/eruda
+          cp node_modules/eruda/eruda.js dist/eruda/
+
+          # SPA fallback : GitHub Pages renvoie 404 pour les routes inconnues
+          cp dist/index.html dist/404.html
+
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
