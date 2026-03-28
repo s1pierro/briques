@@ -429,6 +429,7 @@ export class Assembler {
       brick.mesh.material.opacity     = 0.4;
       brick.mesh.material.needsUpdate = true;
       this._dockGhost = { brick, brickId, nearSlots };
+      this._asmVerse.worldSlots.showGrid();
     }
 
     const { brick } = this._dockGhost;
@@ -458,13 +459,16 @@ export class Assembler {
       }
     }
 
-    // Pas de snap → suit le plan monde
+    // Pas de snap brique → snapper sur la cellule grille
     const pt = this._asmVerse.worldSlots.raycastPlane(this._raycaster);
     if (pt) {
-      brick.mesh.position.copy(pt);
+      const { gx, gz } = this._asmVerse.worldSlots.worldToGrid(pt);
+      const cellY = this._asmVerse.worldSlots.planY;
+      brick.mesh.position.set(gx, cellY, gz);
       brick.mesh.quaternion.identity();
+      const free = this._asmVerse.worldSlots.isFree(gx, gz);
+      this._showPreviewHelper(new THREE.Vector3(gx, cellY, gz), free);
     }
-    this._hidePreviewHelper();
   }
 
   _removeDockGhost() {
@@ -473,6 +477,7 @@ export class Assembler {
     this._dockGhost = null;
     this._dockGhostSpawning = false;
     this._hidePreviewHelper();
+    this._asmVerse.worldSlots.hideGrid();
   }
 
   // ─── Trackball sur un world slot ─────────────────────────────────────────────
@@ -1058,6 +1063,13 @@ export class Assembler {
     });
     this._linkedMoveBtn = linkedMoveBtn;
 
+    // ── Bouton centrer la vue ─────────────────────────────────────────────────
+    const centerViewBtn = document.createElement('button');
+    centerViewBtn.className = 'asm-bar-btn';
+    centerViewBtn.title = 'Centrer la vue sur la sélection';
+    centerViewBtn.textContent = '◎';
+    centerViewBtn.addEventListener('click', () => this._centerViewOnSelection());
+
     this._countEl = document.createElement('span');
     this._countEl.style.cssText = 'flex:1;text-align:center;pointer-events:none;';
 
@@ -1097,7 +1109,7 @@ export class Assembler {
     cfgBtn.textContent = '⚙';
     cfgBtn.addEventListener('click', () => this._openConfigModal());
 
-    bar.append(fsBtn, reloadBtn, modeStrip, solverStrip, linkedMoveBtn, this._countEl, catalogueBtn, bricksBtn, compBtn, jointsBtn, stateBtn, cfgBtn);
+    bar.append(fsBtn, reloadBtn, modeStrip, solverStrip, linkedMoveBtn, centerViewBtn, this._countEl, catalogueBtn, bricksBtn, compBtn, jointsBtn, stateBtn, cfgBtn);
     document.body.appendChild(bar);
     this._ui.push(bar);
 
@@ -1947,6 +1959,32 @@ export class Assembler {
       this._asmHandlers = null;
     }
     this._updateGizmoForSelection();
+  }
+
+  /** Centre la caméra sur la composante sélectionnée, ou sur toutes les briques. */
+  _centerViewOnSelection() {
+    let bricks;
+    if (this._mode === 'component' && this._selectedComponent) {
+      bricks = [...this._selectedComponent.bricks];
+    } else if (this._mode === 'brick' && this._selectedBrick) {
+      bricks = [this._selectedBrick];
+    } else {
+      bricks = [...this._asmVerse.bricks.values()];
+    }
+    if (!bricks.length) return;
+
+    const box = new THREE.Box3();
+    for (const b of bricks) box.expandByObject(b.mesh);
+    const center = box.getCenter(new THREE.Vector3());
+    const size   = box.getSize(new THREE.Vector3());
+    const radius = size.length() / 2 || 1;
+
+    // Déplacer le target des controls et reculer la caméra
+    const cam = this.engine.camera;
+    const dir = cam.position.clone().sub(this.engine.controls.target).normalize();
+    this.engine.controls.target.copy(center);
+    cam.position.copy(center).addScaledVector(dir, radius * 2.5);
+    this.engine.controls.update();
   }
 
   /** Sélectionne une composante (mode component). null = désélection.

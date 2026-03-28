@@ -7,13 +7,7 @@ import { AssemblySolver } from './AssemblySolver.js';
 const WS_COLOR    = 0x7aafc8;   // world slot / plan
 const JOINT_COLOR = 0x00ccff;   // marqueur disque liaison explicite
 
-// ─── Spirale phyllotaxique (world slots) ──────────────────────────────────────
-function _spiralPos(n, spacing = 2.0) {
-  if (n === 0) return new THREE.Vector3(0, 0, 0);
-  const angle  = n * 2.399963;
-  const radius = spacing * Math.sqrt(n);
-  return new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
-}
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // AsmBrick  —  instance d'une brique dans la scène
@@ -230,12 +224,13 @@ export class AsmSlots {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// WorldSlots  —  plan monde, spirale, snap, résolution de liaison
+// WorldSlots  —  grille monde, cellules, snap, résolution de liaison
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
- * Gère les world slots (points d'ancrage sur le plan monde) et la géométrie
- * de snap entre slots de briques.
+ * Grille infinie de cellules carrées (côté = 1 unité) sur le plan monde.
+ * Chaque cellule connaît son état : libre, occupée, ou réservée.
+ * Les cellules sont matérialisées à la demande (Map clé "x,z").
  */
 export class WorldSlots {
 
@@ -244,14 +239,17 @@ export class WorldSlots {
    * @param {AssemblySolver}  solver
    */
   constructor(scene, solver) {
-    this._scene     = scene;
-    this._solver    = solver;
-    this._slots     = [];
-    this._y         = 0.25;
-    this._plane     = new THREE.Plane(new THREE.Vector3(0, 1, 0), -this._y);
-    this._planeMesh = null;
-    this.snapR      = 1.2;
-    this._initPlaneMesh();
+    this._scene   = scene;
+    this._solver  = solver;
+    /** @type {Map<string, Object>}  "x,z" → { gx, gz, position, mesh, brickInstanceId } */
+    this._cells   = new Map();
+    this._y       = 0.25;
+    this._plane   = new THREE.Plane(new THREE.Vector3(0, 1, 0), -this._y);
+    this._gridGroup = null;
+    this.snapR    = 1.2;
+    this._gridRadius = 6;   // demi-côté de la grille visible (en cellules)
+    this._initGrid();
+    this._gridGroup.visible = false; // masquée par défaut, visible pendant dock drag
   }
 
   // ── Paramètres ──────────────────────────────────────────────────────────────
@@ -261,30 +259,62 @@ export class WorldSlots {
   set planY(y) {
     this._y = y;
     this._plane.constant = -y;
-    if (this._planeMesh) this._planeMesh.position.y = y;
-    for (const s of this._slots) {
-      s.position.y = y;
-      s.mesh.position.setY(y + 0.01);
-      if (s.mesh.userData.ring) s.mesh.userData.ring.position.setY(y + 0.011);
+    if (this._gridGroup) this._gridGroup.position.y = y;
+    for (const cell of this._cells.values()) {
+      cell.position.y = y;
+      cell.mesh.position.setY(y + 0.01);
     }
   }
 
-  get planMesh() { return this._planeMesh; }
-  get all() { return this._slots; }
+  get planMesh() { return this._gridGroup; }
+  get all() { return [...this._cells.values()]; }
 
-  // ── World slots ─────────────────────────────────────────────────────────────
+  showGrid() { if (this._gridGroup) this._gridGroup.visible = true; }
+  hideGrid() { if (this._gridGroup) this._gridGroup.visible = false; }
 
-  /** Ajoute un world slot proche de worldPos sur la spirale. */
+  // ── Coordonnées grille ──────────────────────────────────────────────────────
+
+  /** Convertit une position monde en coordonnées grille (entières). */
+  worldToGrid(worldPos) {
+    return {
+      gx: Math.round(worldPos.x),
+      gz: Math.round(worldPos.z),
+    };
+  }
+
+  /** Clé Map pour une cellule grille. */
+  _key(gx, gz) { return `${gx},${gz}`; }
+
+  /** Centre monde d'une cellule grille. */
+  _cellCenter(gx, gz) {
+    return new THREE.Vector3(gx, this._y, gz);
+  }
+
+  // ── World slots (cellules) ─────────────────────────────────────────────────
+
+  /** Retourne true si la cellule à (gx, gz) est libre. */
+  isFree(gx, gz) {
+    const cell = this._cells.get(this._key(gx, gz));
+    return !cell || !cell.brickInstanceId;
+  }
+
+  /** Ajoute (ou réutilise) un world slot à la cellule la plus proche de worldPos. */
   addWorldSlot(worldPos) {
-    const pos    = new THREE.Vector3(worldPos.x, 0, worldPos.z);
-    const index  = this._nextFreeIndex(pos);
-    const slotPos = _spiralPos(index);
-    slotPos.y = this._y;
-    const mesh = this._makeSlotMesh(slotPos);
-    this._scene.add(mesh);
-    const slot = { index, position: slotPos, mesh, brickInstanceId: null };
-    this._slots.push(slot);
-    return slot;
+    const { gx, gz } = this.worldToGrid(worldPos);
+
+    // Si la cellule exacte est occupée, chercher la plus proche libre
+    const [fx, fz] = this._nearestFree(gx, gz);
+    const key = this._key(fx, fz);
+
+    let cell = this._cells.get(key);
+    if (!cell) {
+      const pos  = this._cellCenter(fx, fz);
+      const mesh = this._makeCellMesh(pos);
+      this._scene.add(mesh);
+      cell = { gx: fx, gz: fz, position: pos, mesh, brickInstanceId: null };
+      this._cells.set(key, cell);
+    }
+    return cell;
   }
 
   bind(wslot, brickInstanceId) {
@@ -298,23 +328,26 @@ export class WorldSlots {
   }
 
   remove(wslot) {
-    if (wslot.mesh.userData.ring) {
-      this._scene.remove(wslot.mesh.userData.ring);
-      wslot.mesh.userData.ring.geometry.dispose();
-      wslot.mesh.userData.ring.material.dispose();
-    }
     this._scene.remove(wslot.mesh);
     wslot.mesh.geometry.dispose();
     wslot.mesh.material.dispose();
-    const idx = this._slots.indexOf(wslot);
-    if (idx !== -1) this._slots.splice(idx, 1);
+    const key = this._key(wslot.gx, wslot.gz);
+    this._cells.delete(key);
   }
 
   nearest(worldPos, maxDist = Infinity) {
+    const { gx, gz } = this.worldToGrid(worldPos);
+    const key = this._key(gx, gz);
+    const cell = this._cells.get(key);
+    if (cell) {
+      const d = new THREE.Vector2(worldPos.x - cell.position.x, worldPos.z - cell.position.z).length();
+      if (d < maxDist) return cell;
+    }
+    // Fallback : parcours des cellules matérialisées
     let best = null, bestD = maxDist;
-    for (const s of this._slots) {
-      const d = new THREE.Vector2(worldPos.x - s.position.x, worldPos.z - s.position.z).length();
-      if (d < bestD) { bestD = d; best = s; }
+    for (const c of this._cells.values()) {
+      const d = new THREE.Vector2(worldPos.x - c.position.x, worldPos.z - c.position.z).length();
+      if (d < bestD) { bestD = d; best = c; }
     }
     return best;
   }
@@ -369,59 +402,65 @@ export class WorldSlots {
   // ── Nettoyage ────────────────────────────────────────────────────────────────
 
   dispose() {
-    for (const s of [...this._slots]) this.remove(s);
-    if (this._planeMesh) {
-      this._scene.remove(this._planeMesh);
-      this._planeMesh.geometry.dispose();
-      this._planeMesh.material.dispose();
-      this._planeMesh = null;
+    for (const cell of [...this._cells.values()]) this.remove(cell);
+    if (this._gridGroup) {
+      this._scene.remove(this._gridGroup);
+      this._gridGroup.traverse(child => {
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) child.material.dispose();
+      });
+      this._gridGroup = null;
     }
   }
 
   // ── Privé ────────────────────────────────────────────────────────────────────
 
-  _initPlaneMesh() {
-    const geo = new THREE.PlaneGeometry(26, 26);
-    const mat = new THREE.MeshBasicMaterial({
-      color: WS_COLOR, transparent: true, opacity: 0.07,
-      side: THREE.DoubleSide, depthWrite: false,
-    });
-    this._planeMesh = new THREE.Mesh(geo, mat);
-    this._planeMesh.rotation.x = -Math.PI / 2;
-    this._planeMesh.position.y = this._y;
-    this._scene.add(this._planeMesh);
-  }
-
-  _nextFreeIndex(pos) {
-    const used = new Set(this._slots.map(s => s.index));
-    let bestIndex = -1, bestD = Infinity;
-    for (let i = 0; i < 64; i++) {
-      if (used.has(i)) continue;
-      const sp = _spiralPos(i);
-      const d  = new THREE.Vector2(pos.x - sp.x, pos.z - sp.z).length();
-      if (d < bestD) { bestD = d; bestIndex = i; }
+  /** Construit la grille visuelle (lignes). */
+  _initGrid() {
+    const r   = this._gridRadius;
+    const pts = [];
+    for (let i = -r; i <= r; i++) {
+      // Lignes parallèles à Z
+      pts.push(new THREE.Vector3(i, 0, -r), new THREE.Vector3(i, 0, r));
+      // Lignes parallèles à X
+      pts.push(new THREE.Vector3(-r, 0, i), new THREE.Vector3(r, 0, i));
     }
-    return bestIndex >= 0 ? bestIndex : this._slots.length;
+    const geo = new THREE.BufferGeometry().setFromPoints(pts);
+    const mat = new THREE.LineBasicMaterial({
+      color: WS_COLOR, transparent: true, opacity: 0.15, depthWrite: false,
+    });
+    const lines = new THREE.LineSegments(geo, mat);
+
+    this._gridGroup = new THREE.Group();
+    this._gridGroup.add(lines);
+    this._gridGroup.position.y = this._y;
+    this._scene.add(this._gridGroup);
   }
 
-  _makeSlotMesh(pos) {
-    const geo  = new THREE.CircleGeometry(0.35, 32);
+  /** Trouve la cellule libre la plus proche de (gx, gz) en spirale. */
+  _nearestFree(gx, gz) {
+    if (this.isFree(gx, gz)) return [gx, gz];
+    for (let r = 1; r <= 12; r++) {
+      for (let dx = -r; dx <= r; dx++) {
+        for (let dz = -r; dz <= r; dz++) {
+          if (Math.abs(dx) !== r && Math.abs(dz) !== r) continue; // périmètre seulement
+          if (this.isFree(gx + dx, gz + dz)) return [gx + dx, gz + dz];
+        }
+      }
+    }
+    return [gx, gz]; // fallback
+  }
+
+  /** Crée le mesh visuel d'une cellule occupée. */
+  _makeCellMesh(pos) {
+    const geo  = new THREE.PlaneGeometry(0.9, 0.9);
     const mat  = new THREE.MeshBasicMaterial({
-      color: WS_COLOR, transparent: true, opacity: 0.55,
+      color: WS_COLOR, transparent: true, opacity: 0.4,
       side: THREE.DoubleSide, depthWrite: false,
     });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.set(pos.x, pos.y + 0.01, pos.z);
-
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(0.35, 0.42, 32),
-      new THREE.MeshBasicMaterial({ color: WS_COLOR, side: THREE.DoubleSide, depthWrite: false })
-    );
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.set(pos.x, pos.y + 0.011, pos.z);
-    this._scene.add(ring);
-    mesh.userData.ring = ring;
     return mesh;
   }
 }
