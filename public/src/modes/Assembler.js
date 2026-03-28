@@ -151,15 +151,24 @@ export class Assembler {
   }
 
   _serializeSceneJSON() {
-    const data = this._asmVerse.serialize();
-    // Embarquer les définitions de briques utilisées → fichier auto-suffisant
-    const bricksStore = this._loadStore('rbang_bricks');
-    const bricks = {};
+    const data         = this._asmVerse.serialize();
+    const bricksStore  = this._loadStore('rbang_bricks');
+    const shapesStore  = this._loadStore('rbang_shapes');
+    const liaisonsStore = this._loadStore('rbang_liaisons');
+
+    const bricks   = {};
+    const shapes   = {};
+    const liaisons = { ...liaisonsStore }; // toutes les liaisons (petite taille)
+
     for (const inst of data.instances) {
-      if (bricksStore[inst.brickTypeId])
-        bricks[inst.brickTypeId] = bricksStore[inst.brickTypeId];
+      const bd = bricksStore[inst.brickTypeId];
+      if (!bd) continue;
+      bricks[inst.brickTypeId] = bd;
+      if (bd.shapeRef && shapesStore[bd.shapeRef])
+        shapes[bd.shapeRef] = shapesStore[bd.shapeRef];
     }
-    return JSON.stringify({ ...data, bricks }, null, 2);
+
+    return JSON.stringify({ ...data, bricks, shapes, liaisons }, null, 2);
   }
 
   _exportScene() {
@@ -194,12 +203,17 @@ export class Assembler {
         // Valider le JSON et le format avant de toucher à la scène
         const data = JSON.parse(text);
         if (!Array.isArray(data?.instances)) throw new Error('format invalide');
-        // Injecter les définitions de briques embarquées dans le store local
-        if (data.bricks && typeof data.bricks === 'object') {
-          const store = this._loadStore('rbang_bricks');
-          Object.assign(store, data.bricks);
-          localStorage.setItem('rbang_bricks', JSON.stringify(store));
-        }
+        // Injecter les stores embarqués dans le localStorage local
+        const inject = (key, field) => {
+          if (data[field] && typeof data[field] === 'object') {
+            const store = this._loadStore(key);
+            Object.assign(store, data[field]);
+            localStorage.setItem(key, JSON.stringify(store));
+          }
+        };
+        inject('rbang_bricks',   'bricks');
+        inject('rbang_shapes',   'shapes');
+        inject('rbang_liaisons', 'liaisons');
         // Scène valide — on peut effacer et restaurer
         localStorage.setItem(SCENE_KEY, text);
         this._clearAll();
