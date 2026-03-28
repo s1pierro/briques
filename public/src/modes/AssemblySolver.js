@@ -20,8 +20,10 @@ export class AssemblySolver {
    * @returns {{ slotA, slotB, liaison } | null}
    */
   solve(nearA, nearB) {
-    for (const sa of nearA) {
-      for (const sb of nearB) {
+    // Priorité au slot ciblé (nearB, trié par proximité au point de dépôt) :
+    // on cherche d'abord une correspondance pour nearB[0], puis nearB[1], etc.
+    for (const sb of nearB) {
+      for (const sa of nearA) {
         const li = this._findLiaison(sa.typeId, sb.typeId);
         if (li) return { slotA: sa, slotB: sb, liaison: li };
       }
