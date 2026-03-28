@@ -257,30 +257,34 @@ export class AsmDofHandler {
     this._updateCursor();
   }
 
-  /** Calcule l'offset DOF réel depuis la géométrie courante de la scène.
-   *  Appelé au moment de l'attach pour initialiser _rawTotal si la brique
-   *  a déjà été manipulée (re-sélection d'une liaison post-DOF). */
+  /** Initialise _rawTotal depuis la géométrie réelle de la scène.
+   *
+   *  Source de vérité : AsmBrick.worldSlotPos / worldSlotQuat (pose courante du mesh).
+   *
+   *  Translation : projection de (slotA_monde − slotB_monde) sur l'axe DOF.
+   *  Rotation    : angle extrait du quaternion relatif qA * qB⁻¹ autour de l'axe DOF.
+   *                L'axe est défini dans rbang_liaisons (dof.axis) et déjà transformé
+   *                dans _refAxis (espace monde via le repère du slot B fixe).
+   */
   _computeInitialOffset() {
-    const { instA, slotA } = this._conn;
+    const { instA, instB, slotA, slotB } = this._conn;
     const dof = this._dof;
 
     if (dof.type === 'translation') {
-      // Projection de (slotA_world − slotB_world) sur l'axe
-      const posA = new THREE.Vector3(...slotA.position)
-        .applyQuaternion(instA.mesh.quaternion)
-        .add(instA.mesh.position);
-      this._rawTotal = posA.sub(this._pivotWorld()).dot(this._refAxis);
+      const posA = instA.worldSlotPos(slotA);
+      const posB = instB.worldSlotPos(slotB);
+      this._rawTotal = posA.clone().sub(posB).dot(this._refAxis);
 
     } else {
-      // rotation / cylindrical : angle de l'axe X du slot A dans le plan du disque
-      const slotAQ  = new THREE.Quaternion(...slotA.quaternion);
-      const worldAQ = slotAQ.premultiply(instA.mesh.quaternion.clone());
-      const u = new THREE.Vector3(1, 0, 0).applyQuaternion(worldAQ);
-      u.addScaledVector(this._refAxis, -u.dot(this._refAxis));
-      if (u.lengthSq() > 1e-8) {
-        u.normalize();
-        this._rawTotal = Math.atan2(u.dot(this._refV), u.dot(this._refU));
-      }
+      // rotation / cylindrical
+      // qDiff = qA * qB⁻¹ : rotation de B vers A autour de l'axe DOF (≈ _refAxis)
+      const qA    = instA.worldSlotQuat(slotA);
+      const qB    = instB.worldSlotQuat(slotB);
+      const qDiff = qA.clone().multiply(qB.clone().invert());
+      // Projection sur l'axe DOF monde → sin(θ/2)
+      const sinHalf = new THREE.Vector3(qDiff.x, qDiff.y, qDiff.z)
+        .dot(this._refAxis);
+      this._rawTotal = 2 * Math.atan2(sinHalf, qDiff.w);
     }
   }
 
