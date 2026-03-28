@@ -3,6 +3,7 @@ import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 import { BrickDock } from './BrickDock.js';
 import { AsmHandlers } from './AsmDofHandler.js';
 import { AsmVerse } from './AsmVerse.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 
 // ─── Couleurs thème Industrial ────────────────────────────────────────────────
 const C = {
@@ -64,6 +65,7 @@ const CFG_DEFAULTS = {
   cellLabelColor         : '#888888',
   cellLabelFontSize      : 8,
   cellLabelVisible       : true,
+  floorVisible           : true,
   // ── Bandeau DOF (strips) ──────────────────────────────────────────────────
   stripBgColor           : '#121218',
   stripBgOpacity         : 0.6,
@@ -319,7 +321,9 @@ export class Assembler {
 
   _setupScene() {
     const e = this.engine;
-    e.addStaticBox(24, 0.5, 24, 0, 0, 0, 0x2a3a2a); // dessus à Y = 0.25
+    this._floor = e.addStaticBox(24, 0.5, 24, 0, 0, 0, 0x2a3a2a); // dessus à Y = 0.25
+    const cfg = this._loadConfig();
+    if (cfg.floorVisible === false) this._floor.mesh.visible = false;
     e.camera.position.set(0, 8, 14);
     e.controls.target.set(0, 0, 0);
     e.controls.update();
@@ -1111,13 +1115,19 @@ export class Assembler {
     stateBtn.textContent = '◉';
     stateBtn.addEventListener('click', () => this._togglePanel('state'));
 
+    const exportBtn = document.createElement('button');
+    exportBtn.className = 'asm-bar-btn';
+    exportBtn.title = 'Exporter GLB';
+    exportBtn.textContent = '⤓';
+    exportBtn.addEventListener('click', () => this._exportGLB());
+
     const cfgBtn = document.createElement('button');
     cfgBtn.className = 'asm-bar-btn';
     cfgBtn.title = 'Configuration';
     cfgBtn.textContent = '⚙';
     cfgBtn.addEventListener('click', () => this._openConfigModal());
 
-    bar.append(fsBtn, reloadBtn, modeStrip, solverStrip, linkedMoveBtn, centerViewBtn, this._countEl, catalogueBtn, bricksBtn, compBtn, jointsBtn, stateBtn, cfgBtn);
+    bar.append(fsBtn, reloadBtn, modeStrip, solverStrip, linkedMoveBtn, centerViewBtn, this._countEl, catalogueBtn, bricksBtn, compBtn, jointsBtn, stateBtn, exportBtn, cfgBtn);
     document.body.appendChild(bar);
     this._ui.push(bar);
 
@@ -1397,6 +1407,8 @@ export class Assembler {
       makeSlider('Rayon snap', 0.3, 4, 0.1, this._asmVerse.worldSlots.snapR, v => { this._asmVerse.worldSlots.snapR = v; this._saveConfig({ snapR: v }); }),
       makeToggle('Plan visible', this._asmVerse.worldSlots.planMesh?.visible ?? true,
         v => { if (this._asmVerse.worldSlots.planMesh) this._asmVerse.worldSlots.planMesh.visible = v; this._saveConfig({ planVisible: v }); }),
+      makeToggle('Sol visible', this._floor?.mesh.visible ?? true,
+        v => { if (this._floor) this._floor.mesh.visible = v; this._saveConfig({ floorVisible: v }); }),
     );
     body.append(wsCard);
 
@@ -2046,6 +2058,60 @@ export class Assembler {
     this.engine.controls.target.copy(center);
     cam.position.copy(center).addScaledVector(dir, radius * 2.5);
     this.engine.controls.update();
+  }
+
+  /** Exporte l'assemblage courant en GLB (briques uniquement, sans sol ni helpers). */
+  _exportGLB() {
+    const bricks = [...this._asmVerse.bricks.values()];
+    if (!bricks.length) {
+      this._toast('Aucune brique à exporter');
+      return;
+    }
+
+    // Construire une scène d'export propre
+    const exportScene = new THREE.Scene();
+
+    // Lumières d'export
+    const ambient = new THREE.AmbientLight(0xffffff, 0.4);
+    const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+    dir.position.set(5, 10, 7);
+    exportScene.add(ambient, dir);
+
+    // Cloner les meshes avec matériaux PBR enrichis
+    for (const brick of bricks) {
+      const clone = brick.mesh.clone();
+      const mat   = brick.mesh.material;
+      clone.material = new THREE.MeshStandardMaterial({
+        color:     mat.color.clone(),
+        roughness: mat.roughness ?? 0.55,
+        metalness: mat.metalness ?? 0.0,
+      });
+      exportScene.add(clone);
+    }
+
+    const exporter = new GLTFExporter();
+    exporter.parse(exportScene, (glb) => {
+      const blob = new Blob([glb], { type: 'model/gltf-binary' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `rbang-export-${Date.now()}.glb`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      // Nettoyer la scène d'export
+      exportScene.traverse(o => {
+        o.geometry?.dispose();
+        if (o.material) {
+          (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose());
+        }
+      });
+
+      this._toast(`Export GLB — ${bricks.length} brique(s)`);
+    }, (err) => {
+      console.error('[GLB export]', err);
+      this._toast('Erreur export GLB');
+    }, { binary: true });
   }
 
   /** Sélectionne une composante (mode component). null = désélection.
