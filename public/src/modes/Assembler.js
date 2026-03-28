@@ -156,18 +156,29 @@ export class Assembler {
 
   _exportScene() {
     const blob = new Blob([this._serializeSceneJSON()], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'rbang-scene.json';
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `rbang-scene-${Date.now()}.json`;
+    a.style.cssText = 'position:fixed;top:-9999px;left:-9999px;';
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(a.href);
+    document.body.removeChild(a);
+    // Révoquer après un délai pour laisser le navigateur initier le téléchargement
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
   }
 
   _importScene() {
     const input = document.createElement('input');
     input.type  = 'file';
     input.accept = '.json,application/json';
+    input.style.cssText = 'position:fixed;top:-9999px;left:-9999px;';
+    document.body.appendChild(input);
+
+    const cleanup = () => { if (input.parentNode) document.body.removeChild(input); };
+
     input.addEventListener('change', async () => {
+      cleanup();
       const file = input.files?.[0];
       if (!file) return;
       try {
@@ -179,11 +190,18 @@ export class Assembler {
         localStorage.setItem(SCENE_KEY, text);
         this._clearAll();
         await this._restoreScene();
+        const n = this._asmVerse.bricks.size;
+        if (n === 0 && data.instances.length > 0)
+          alert('Import : aucune brique chargée — les types de briques sont absents du store local.');
       } catch (e) {
         console.error('[Assembler] import échoué :', e.message);
         alert(`Import échoué : ${e.message}`);
       }
     });
+
+    // Nettoyage si l'utilisateur annule le sélecteur de fichier
+    window.addEventListener('focus', () => setTimeout(cleanup, 500), { once: true });
+
     input.click();
   }
 
