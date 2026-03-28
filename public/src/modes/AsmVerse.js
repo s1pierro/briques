@@ -202,13 +202,16 @@ export class AsmSlots {
   /** Distance max pour considérer deux slots comme coïncidents (unités scène). */
   static CLIP_DIST = 0.12;
 
+  /** Seuil de coïncidence actif (peut être surchargé depuis la config). */
+  clipDist = AsmSlots.CLIP_DIST;
+
   /**
    * Retourne toutes les paires de slots coïncidents entre des briques différentes.
    * Utilisé par AsmJoints.observe() pour détecter les connexions.
    * @param {number} [clipDist]
    * @returns {Array<{ brickA: AsmBrick, slotA: Object, brickB: AsmBrick, slotB: Object }>}
    */
-  coincidentPairs(clipDist = AsmSlots.CLIP_DIST) {
+  coincidentPairs(clipDist = this.clipDist) {
     const pairs = [];
     for (let i = 0; i < this._entries.length; i++) {
       const { brick: bA, slot: sA } = this._entries[i];

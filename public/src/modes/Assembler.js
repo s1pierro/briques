@@ -36,6 +36,7 @@ const CFG_DEFAULTS = {
   asmHelperStepsRot    : 16,   // nombre de divisions sur 360°
   asmHelperStepsTrans  : 20,   // nombre de divisions sur la plage
   involvedBricksSolver : 'physics', // 'physics' | 'asm'
+  connectionTolerance  : 0.12,      // distance max coïncidence slots (unités scène)
   // ── Apparence des cellules dock ───────────────────────────────────────────
   cellBgColor            : '#1e1e1e',
   cellBgOpacity          : 0.82,
@@ -116,6 +117,7 @@ export class Assembler {
     this._asmVerse.worldSlots.planY = cfg.planY;
     this._asmVerse.worldSlots.snapR = cfg.snapR;
     if (this._asmVerse.worldSlots.planMesh) this._asmVerse.worldSlots.planMesh.visible = cfg.planVisible;
+    this._asmVerse.slots.clipDist   = cfg.connectionTolerance ?? 0.12;
   }
 
   // ─── Persistance de la scène ───────────────────────────────────────────────
@@ -1071,6 +1073,32 @@ export class Assembler {
       this._saveConfig({ involvedBricksSolver: solverSel.value }));
     solverRow.append(solverLbl, solverSel);
 
+    // ── Tolérance de connexion ────────────────────────────────────────────────
+    const tolRow = document.createElement('div');
+    tolRow.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:10px;';
+    const tolLbl = document.createElement('span');
+    tolLbl.textContent = 'Tolérance connexion';
+    tolLbl.style.cssText = `color:${C.dim};font-size:10px;flex:1;`;
+    const tolInp = document.createElement('input');
+    tolInp.type = 'number'; tolInp.min = '0.01'; tolInp.max = '2'; tolInp.step = '0.01';
+    tolInp.value = String(cfg.connectionTolerance ?? 0.12);
+    tolInp.style.cssText = [
+      'width:60px', `background:${C.bgDark}`, `color:${C.fg}`,
+      `border:1px solid ${C.border}`, 'border-radius:2px',
+      'padding:3px 6px', 'font-size:11px', 'text-align:right',
+      'font-variant-numeric:tabular-nums',
+    ].join(';');
+    const tolUnit = document.createElement('span');
+    tolUnit.textContent = 'm';
+    tolUnit.style.cssText = `color:${C.dim};font-size:9px;`;
+    tolInp.addEventListener('change', () => {
+      const v = Math.max(0.01, Math.min(2, parseFloat(tolInp.value) || 0.12));
+      tolInp.value = v.toFixed(2);
+      this._saveConfig({ connectionTolerance: v });
+      this._asmVerse.slots.clipDist = v;
+    });
+    tolRow.append(tolLbl, tolInp, tolUnit);
+
     helpersCard.append(
       makeStepsInput(
         'Rotation (étapes)', '',
@@ -1085,6 +1113,7 @@ export class Assembler {
         v => this._saveConfig({ asmHelperStepsTrans: v }),
       ),
       solverRow,
+      tolRow,
     );
     body.append(helpersCard);
 
