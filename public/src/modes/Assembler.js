@@ -554,7 +554,8 @@ export class Assembler {
     // En mode Composante : toujours InvolvedComponentsSolver (cohérent avec computeComponents)
     const solver = this._mode === 'component' ? 'component' : (this._solverKey ?? 'physics');
     const connections = this._asmVerse.joints.connections;
-    const handlers = new AsmHandlers({ conn: oriented, engine: this.engine, topOffset: BAR_H, stepsRot, stepsTrans, connections, solver });
+    const xray    = this._mode === 'component';
+    const handlers = new AsmHandlers({ conn: oriented, engine: this.engine, topOffset: BAR_H, stepsRot, stepsTrans, connections, solver, xray });
     if (handlers.active) {
       handlers.onRelease = () => this._asmVerse.joints.observe(this._asmVerse.slots);
       handlers.attach();

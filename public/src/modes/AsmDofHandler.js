@@ -40,14 +40,15 @@ const CURSOR_R    = 0.95;  // rayon du curseur (même cercle que les marqueurs)
 
 export class AsmDofHandler {
 
-  constructor({ dof, conn, engine, stripIndex = 0, topOffset = 0, steps = 0, connections = [], solver = 'physics' }) {
+  constructor({ dof, conn, engine, stripIndex = 0, topOffset = 0, steps = 0, connections = [], solver = 'physics', xray = false }) {
     this._dof         = dof;
     this._conn        = conn;
     this._engine      = engine;
     this._stripIndex  = stripIndex;
     this._topOffset   = topOffset;
     this._connections = connections; // toutes les connexions de la scène (pour InvolvedBricksSolver)
-    this._solver      = solver;      // 'physics' | 'asm'
+    this._solver      = solver;      // 'physics' | 'asm' | 'component'
+    this._xray        = xray;        // true → helper visible à travers la géométrie
     this._helper        = null;
     this._strip         = null;
     this._rawTotal      = 0;
@@ -188,6 +189,15 @@ export class AsmDofHandler {
     } else if (dof.type === 'translation') {
       this._addAxisMarkers(group, color);
       this._addCursor(group);
+    }
+
+    if (this._xray) {
+      group.traverse(o => {
+        if (o.material) {
+          (Array.isArray(o.material) ? o.material : [o.material])
+            .forEach(m => { m.depthTest = false; });
+        }
+      });
     }
 
     this._engine.scene.add(group);
@@ -556,10 +566,10 @@ export class AsmDofHandler {
 
 export class AsmHandlers {
 
-  constructor({ conn, engine, topOffset = 0, stepsRot = 0, stepsTrans = 0, connections = [], solver = 'physics' }) {
+  constructor({ conn, engine, topOffset = 0, stepsRot = 0, stepsTrans = 0, connections = [], solver = 'physics', xray = false }) {
     this._handlers = (conn.liaison?.asmDof ?? []).map((dof, i) => {
       const steps = dof.type === 'translation' ? stepsTrans : stepsRot;
-      return new AsmDofHandler({ dof, conn, engine, stripIndex: i, topOffset, steps, connections, solver });
+      return new AsmDofHandler({ dof, conn, engine, stripIndex: i, topOffset, steps, connections, solver, xray });
     });
   }
 
