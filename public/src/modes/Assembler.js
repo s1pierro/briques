@@ -412,8 +412,11 @@ export class Assembler {
             const target = others.find(i => i.mesh === hits[0].object);
             if (target) connected = this._connectDrag(inst, startX, startY, target, e.clientX, e.clientY);
           }
-          // Si pas de connexion → remettre la brique à sa position de départ du drag
-          if (!connected && this._stackCandidate?.restorePos) {
+          if (connected) {
+            // Connexion créée → sélectionner la brique déplacée (helpers DOF visibles)
+            this._selectBrick(inst);
+          } else if (this._stackCandidate?.restorePos) {
+            // Pas de connexion → remettre la brique à sa position de départ du drag
             inst.mesh.position.copy(this._stackCandidate.restorePos);
             inst.mesh.quaternion.copy(this._stackCandidate.restoreQuat);
           }
