@@ -53,7 +53,7 @@ export class GameEngine {
     this.controls.dampingFactor = 0.08;
     this.controls.minDistance   = 2;
     this.controls.maxDistance   = 60;
-    this.controls.maxPolarAngle = Math.PI / 2 - 0.02;
+    this.controls.maxPolarAngle = Math.PI;
     this.controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
 
     this._vpLeft  = 0;
