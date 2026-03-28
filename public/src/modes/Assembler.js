@@ -156,16 +156,24 @@ export class Assembler {
 
   _importScene() {
     const input = document.createElement('input');
-    input.type = 'file'; input.accept = '.json,application/json';
+    input.type  = 'file';
+    input.accept = '.json,application/json';
     input.addEventListener('change', async () => {
       const file = input.files?.[0];
       if (!file) return;
       try {
         const text = await file.text();
+        // Valider le JSON et le format avant de toucher à la scène
+        const data = JSON.parse(text);
+        if (!Array.isArray(data?.instances)) throw new Error('format invalide');
+        // Scène valide — on peut effacer et restaurer
         localStorage.setItem(SCENE_KEY, text);
         this._clearAll();
         await this._restoreScene();
-      } catch (e) { console.error('[Assembler] import', e); }
+      } catch (e) {
+        console.error('[Assembler] import échoué :', e.message);
+        alert(`Import échoué : ${e.message}`);
+      }
     });
     input.click();
   }

@@ -917,6 +917,9 @@ export class AsmVerse {
    * @returns {{ version: number, instances: Object[], connections: Object[] }}
    */
   serialize() {
+    // Seules les poses des briques sont sauvegardées.
+    // Les connexions sont un état dérivé : elles seront reconstruites à la
+    // restauration depuis les positions monde des slots (joints.observe).
     const instances = [...this.bricks.values()].map(b => ({
       id          : b.id,
       brickTypeId : b.brickTypeId,
@@ -924,14 +927,7 @@ export class AsmVerse {
       qx: b.mesh.quaternion.x, qy: b.mesh.quaternion.y,
       qz: b.mesh.quaternion.z, qw: b.mesh.quaternion.w,
     }));
-    const connections = this.joints.connections.map(c => ({
-      instAId  : c.instA.id,
-      instBId  : c.instB.id,
-      slotAId  : c.slotA.id,
-      slotBId  : c.slotB.id,
-      liaisonId: c.liaison?.id ?? null,
-    }));
-    return { version: 1, instances, connections };
+    return { version: 1, instances };
   }
 
   /**
