@@ -162,6 +162,9 @@ export class AsmDofHandler {
       }
     }
 
+    // ── Offset initial (brique déjà en position post-DOF) ────────────────────
+    if (dof.type !== 'ball') this._computeInitialOffset();
+
     // ── Sphères de pas + curseur ──────────────────────────────────────────────
     if (dof.type === 'rotation' || dof.type === 'cylindrical') {
       this._addDiscMarkers(group, color);
@@ -252,6 +255,33 @@ export class AsmDofHandler {
       this._cursorMeshes.push(m);
     }
     this._updateCursor();
+  }
+
+  /** Calcule l'offset DOF réel depuis la géométrie courante de la scène.
+   *  Appelé au moment de l'attach pour initialiser _rawTotal si la brique
+   *  a déjà été manipulée (re-sélection d'une liaison post-DOF). */
+  _computeInitialOffset() {
+    const { instA, slotA } = this._conn;
+    const dof = this._dof;
+
+    if (dof.type === 'translation') {
+      // Projection de (slotA_world − slotB_world) sur l'axe
+      const posA = new THREE.Vector3(...slotA.position)
+        .applyQuaternion(instA.mesh.quaternion)
+        .add(instA.mesh.position);
+      this._rawTotal = posA.sub(this._pivotWorld()).dot(this._refAxis);
+
+    } else {
+      // rotation / cylindrical : angle de l'axe X du slot A dans le plan du disque
+      const slotAQ  = new THREE.Quaternion(...slotA.quaternion);
+      const worldAQ = slotAQ.premultiply(instA.mesh.quaternion.clone());
+      const u = new THREE.Vector3(1, 0, 0).applyQuaternion(worldAQ);
+      u.addScaledVector(this._refAxis, -u.dot(this._refAxis));
+      if (u.lengthSq() > 1e-8) {
+        u.normalize();
+        this._rawTotal = Math.atan2(u.dot(this._refV), u.dot(this._refU));
+      }
+    }
   }
 
   /** Repositionne les sphères curseur sur la position réellement engagée. */
@@ -356,10 +386,17 @@ export class AsmDofHandler {
       strip.appendChild(limEl);
     }
 
-    // Valeur courante
+    // Valeur courante (position effective à l'attach, peut être post-DOF)
     const valEl = document.createElement('span');
     valEl.style.cssText = 'flex:1;text-align:right;font-variant-numeric:tabular-nums;font-size:10px;color:#777;';
-    valEl.textContent   = this._formatVal(0);
+    {
+      let displayed = this._rawTotal;
+      if (this._stepActive && this._stepSize > 0)
+        displayed = Math.round(displayed / this._stepSize) * this._stepSize;
+      if (dof.min != null) displayed = Math.max(dof.min, displayed);
+      if (dof.max != null) displayed = Math.min(dof.max, displayed);
+      valEl.textContent = this._formatVal(displayed);
+    }
     strip.appendChild(valEl);
     this._valEl = valEl;
 
