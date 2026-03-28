@@ -450,7 +450,10 @@ export class AsmDofHandler {
       valEl.textContent = this._formatVal(displayed);
     }, { passive: false });
 
-    const onRelease = () => { strip.style.background = 'rgba(18,18,24,0.92)'; };
+    const onRelease = () => {
+      strip.style.background = 'rgba(18,18,24,0.92)';
+      this.onRelease?.();
+    };
     strip.addEventListener('pointerup',     onRelease);
     strip.addEventListener('pointercancel', onRelease);
 
@@ -558,6 +561,9 @@ export class AsmHandlers {
   }
 
   get active() { return this._handlers.length > 0; }
+
+  /** Callback appelé après chaque release du strip (pointerup/cancel). */
+  set onRelease(fn) { this._handlers.forEach(h => h.onRelease = fn); }
 
   attach() { this._handlers.forEach(h => h.attach()); }
 

@@ -453,6 +453,7 @@ export class Assembler {
             // Pas de connexion → remettre la brique à sa position de départ du drag
             inst.mesh.position.copy(this._stackCandidate.restorePos);
             inst.mesh.quaternion.copy(this._stackCandidate.restoreQuat);
+            this._asmVerse.joints.observe(this._asmVerse.slots);
           }
         }
         // Restaurer opacité dans tous les cas (drag ou tap)
@@ -474,6 +475,7 @@ export class Assembler {
           if (restorePos) {
             inst.mesh.position.copy(restorePos);
             inst.mesh.quaternion.copy(restoreQuat);
+            this._asmVerse.joints.observe(this._asmVerse.slots);
           }
           inst.mesh.material.transparent = false;
           inst.mesh.material.opacity     = 1;
@@ -512,6 +514,7 @@ export class Assembler {
     const connections = this._asmVerse.joints.connections;
     const handlers = new AsmHandlers({ conn: oriented, engine: this.engine, topOffset: BAR_H, stepsRot, stepsTrans, connections, solver });
     if (handlers.active) {
+      handlers.onRelease = () => this._asmVerse.joints.observe(this._asmVerse.slots);
       handlers.attach();
       this._asmHandlers = handlers;
       return true; // AsmHandlers remplace le disque marqueur
