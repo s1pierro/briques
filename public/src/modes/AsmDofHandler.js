@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import { InvolvedBricksSolver }    from './InvolvedBricksSolver.js';
-import { InvolvedBricksSolverAsm } from './InvolvedBricksSolverAsm.js';
+import { InvolvedBricksSolver }      from './InvolvedBricksSolver.js';
+import { InvolvedBricksSolverAsm }   from './InvolvedBricksSolverAsm.js';
+import { InvolvedComponentsSolver }  from './InvolvedComponentsSolver.js';
 
 // ─── Constantes visuelles ──────────────────────────────────────────────────────
 
@@ -170,7 +171,9 @@ export class AsmDofHandler {
     // ── Briques embarquées ────────────────────────────────────────────────────
     // null pour ball (pas d'axe unique → fallback instA seule)
     const solverAxis = (dof.type === 'ball') ? null : this._refAxis;
-    const solverInst = this._solver === 'asm'
+    const solverInst = this._solver === 'component'
+      ? new InvolvedComponentsSolver()
+      : this._solver === 'asm'
       ? new InvolvedBricksSolverAsm()
       : new InvolvedBricksSolver();
     this._involvedBricks = solverInst.solve(this._conn, this._connections, solverAxis);

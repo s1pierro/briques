@@ -551,7 +551,8 @@ export class Assembler {
     const cfg        = this._loadConfig();
     const stepsRot   = cfg.asmHelperStepsRot   ?? 16;
     const stepsTrans = cfg.asmHelperStepsTrans  ?? 20;
-    const solver     = this._solverKey ?? 'physics'; // 'physics' | 'asm'
+    // En mode Composante : toujours InvolvedComponentsSolver (cohérent avec computeComponents)
+    const solver = this._mode === 'component' ? 'component' : (this._solverKey ?? 'physics');
     const connections = this._asmVerse.joints.connections;
     const handlers = new AsmHandlers({ conn: oriented, engine: this.engine, topOffset: BAR_H, stepsRot, stepsTrans, connections, solver });
     if (handlers.active) {
