@@ -203,12 +203,21 @@ export class Assembler {
         // Valider le JSON et le format avant de toucher à la scène
         const data = JSON.parse(text);
         if (!Array.isArray(data?.instances)) throw new Error('format invalide');
+        console.log('[import] instances:', data.instances.length,
+          '| bricks embarqués:', Object.keys(data.bricks ?? {}).length,
+          '| shapes embarquées:', Object.keys(data.shapes ?? {}).length,
+          '| liaisons embarquées:', Object.keys(data.liaisons ?? {}).length);
+
         // Injecter les stores embarqués dans le localStorage local
         const inject = (key, field) => {
           if (data[field] && typeof data[field] === 'object') {
             const store = this._loadStore(key);
+            const before = Object.keys(store).length;
             Object.assign(store, data[field]);
             localStorage.setItem(key, JSON.stringify(store));
+            console.log(`[import] ${key} : ${before} → ${Object.keys(store).length} entrées`);
+          } else {
+            console.warn(`[import] champ "${field}" absent du fichier`);
           }
         };
         inject('rbang_bricks',   'bricks');

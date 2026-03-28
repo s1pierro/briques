@@ -727,9 +727,15 @@ export class AsmVerse {
       try {
         const store = JSON.parse(localStorage.getItem('rbang_shapes') || '{}');
         shapeData = store[brickData.shapeRef];
+        console.log('[spawnBrick] fallback shapes localStorage pour', brickData.shapeRef,
+          '→', shapeData ? 'trouvé' : 'ABSENT');
       } catch { return null; }
     }
-    if (!shapeData?.steps || !shapeData.rootId) return null;
+    if (!shapeData?.steps || !shapeData.rootId) {
+      console.warn('[spawnBrick] shapeData invalide pour', brickTypeId,
+        '| steps:', shapeData?.steps?.length, '| rootId:', shapeData?.rootId);
+      return null;
+    }
 
     try {
       const M     = await getManifold();
@@ -940,25 +946,41 @@ export class AsmVerse {
    * @returns {Promise<Map<string,AsmBrick>>}  ancien id → AsmBrick
    */
   async restore(data, bricksStore, shapesStore, liaisonsStore = {}) {
+    console.log('[restore] instances:', data?.instances?.length,
+      '| bricksStore keys:', Object.keys(bricksStore).length,
+      '| shapesStore keys:', Object.keys(shapesStore).length,
+      '| liaisonsStore keys:', Object.keys(liaisonsStore).length);
+
     if (!data?.instances?.length) return new Map();
     const idMap = new Map();
 
     for (const s of data.instances) {
       const brickData = bricksStore[s.brickTypeId];
-      if (!brickData) continue;
+      if (!brickData) {
+        console.warn('[restore] brickTypeId introuvable:', s.brickTypeId,
+          '— keys dispo:', Object.keys(bricksStore).slice(0, 5));
+        continue;
+      }
       const shapeData = shapesStore[brickData.shapeRef] ?? null;
+      console.log('[restore] instance', s.brickTypeId,
+        '| shapeRef:', brickData.shapeRef,
+        '| shapeData trouvé:', !!shapeData);
       const brick = await this.spawnBrick(
         s.brickTypeId, brickData,
         new THREE.Vector3(s.px, s.py, s.pz),
         null, shapeData
       );
-      if (!brick) continue;
+      if (!brick) {
+        console.warn('[restore] spawnBrick a retourné null pour', s.brickTypeId);
+        continue;
+      }
       // Appliquer la pose exacte sauvegardée
       brick.mesh.position.set(s.px, s.py, s.pz);
       brick.mesh.quaternion.set(s.qx, s.qy, s.qz, s.qw);
       idMap.set(s.id, brick);
     }
 
+    console.log('[restore] briques chargées:', idMap.size, '/', data.instances.length);
     // Toutes les briques sont positionnées — l'observateur détecte les connexions
     this.joints.observe(this.slots);
 
