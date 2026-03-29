@@ -69,6 +69,8 @@ export class BrickDock {
     this._activeCell     = null;
     this._activateOnOutsideTap = true;
     this._stackPersist = false;
+    this._slideAnimating = false;
+    this._raycaster      = new THREE.Raycaster();
     this._stackFamily = { name: '(tmp)Stack', bricks: [] };
     this._cellStyles = { ...CELL_STYLES_DEFAULTS };
 
@@ -528,32 +530,31 @@ export class BrickDock {
   }
 
   // ── Gestes sur cellule ─────────────────────────────────────────────────────
+  // Reconnaissance en deux temps :
+  //   pending  → seuil DISAMBIG franchi → verrouillage sur pick | scroll | slide
+  //   pick     → drag vers la scène (perpendiculaire au dock, côté scène)
+  //   scroll   → glissement parallèle à l'axe du dock
+  //   slide    → glissement vers le bord (perpendiculaire, côté bord) → famille suivante
 
   _bindCellGestures(cell) {
-    // TB est sur cell.canvas — nos listeners aussi pour recevoir les events à la source
     const cv = cell.canvas;
-    let startX = 0, startY = 0;
-    let mode = null; // 'assemble' | 'trackball' | null
+    const DISAMBIG = 8; // px — seuil de levée d'ambiguïté
 
-    const isTowardEdge = (dx, dy) => {
-      switch (this._edge) {
-        case 'bottom': return dy > 0;
-        case 'top':    return dy < 0;
-        case 'left':   return dx < 0;
-        case 'right':  return dx > 0;
-      }
-    };
+    let startX = 0, startY = 0;
+    let mode = null;        // null | 'pending' | 'pick' | 'scroll' | 'slide'
+    let pickPoint = null;   // THREE.Vector3 local — point d'impact sur la brique
+    let scrollStart = 0;    // valeur de scroll au moment du verrouillage
 
     cv.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       startX = e.clientX; startY = e.clientY;
-      mode = null;
+      mode = null; pickPoint = null;
 
-      const onBrick  = cell.mesh && this._hitsBrick(cell, e.clientX, e.clientY);
       const isActive = this._activeCell === cell;
+      const hit = cell.mesh ? this._raycastCell(cell, e.clientX, e.clientY) : null;
 
       if (!isActive) {
-        if (onBrick || this._activateOnOutsideTap) {
+        if (hit || this._activateOnOutsideTap) {
           this._activateCell(cell);
         } else {
           this._forwardToEngine(e);
@@ -561,39 +562,63 @@ export class BrickDock {
         }
       }
 
-      if (onBrick) {
-        mode = 'assemble';
-        cv.setPointerCapture(e.pointerId);
-      }
+      mode = 'pending';
+      pickPoint = hit; // null si pas sur la brique
+      cv.setPointerCapture(e.pointerId);
     }, { passive: false });
 
     cv.addEventListener('pointermove', (e) => {
-      if (mode !== 'assemble') return;
+      if (!mode) return;
       const dx = e.clientX - startX, dy = e.clientY - startY;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist >= 15 && isTowardEdge(dx, dy)) {
-        cv.releasePointerCapture(e.pointerId);
-        mode = null;
-        this._showFamily(this._famIdx + 1);
-      } else if (dist >= 8 && this._onDragBrick) {
+
+      // ── Levée d'ambiguïté ──────────────────────────────────────────────────
+      if (mode === 'pending') {
+        if (dist < DISAMBIG) return;
+
+        if (this._isTowardEdge(dx, dy)) {
+          // Slide : dock glisse vers le bord → famille suivante
+          mode = null;
+          cv.releasePointerCapture(e.pointerId);
+          this._animateDockSlide(1);
+          return;
+        } else if (this._isAlongDockAxis(dx, dy)) {
+          // Scroll : défilement des cellules dans l'axe du dock
+          mode = 'scroll';
+          scrollStart = this._scrollPx;
+        } else if (pickPoint) {
+          // Pick : drag d'une brique vers la scène
+          mode = 'pick';
+        } else {
+          // Contact hors brique + direction ambiguë → scroll par défaut
+          mode = 'scroll';
+          scrollStart = this._scrollPx;
+        }
+      }
+
+      // ── Handlers actifs ───────────────────────────────────────────────────
+      if (mode === 'pick' && this._onDragBrick) {
         const nearSlots = this._nearSlotsForBrick(cell, startX, startY);
-        this._onDragBrick(cell.brickId, { x: e.clientX, y: e.clientY, nearSlots });
+        this._onDragBrick(cell.brickId, { x: e.clientX, y: e.clientY, nearSlots, pickPoint });
+      } else if (mode === 'scroll') {
+        const isVert = this._edge === 'left' || this._edge === 'right';
+        const delta  = isVert ? (e.clientY - startY) : (e.clientX - startX);
+        this._setScroll(scrollStart - delta);
       }
     }, { passive: false });
 
     cv.addEventListener('pointerup', (e) => {
       const dx = e.clientX - startX, dy = e.clientY - startY;
-      const moved = Math.sqrt(dx * dx + dy * dy) >= 15;
+      const moved = Math.sqrt(dx * dx + dy * dy) >= DISAMBIG;
+      if (cv.hasPointerCapture(e.pointerId)) cv.releasePointerCapture(e.pointerId);
 
-      if (mode === 'assemble') {
-        if (cv.hasPointerCapture(e.pointerId)) cv.releasePointerCapture(e.pointerId);
+      // pick actif OU tap sur la brique sans mouvement (pending + pickPoint)
+      if (mode === 'pick' || (mode === 'pending' && pickPoint)) {
         if (this._onPickBrick) {
           const nearSlots = this._nearSlotsForBrick(cell, startX, startY);
           this._onPickBrick(cell.brickId, {
-            brickId: cell.brickId, nearSlots,
-            startX, startY,
-            endX: e.clientX, endY: e.clientY,
-            moved,
+            brickId: cell.brickId, nearSlots, pickPoint,
+            startX, startY, endX: e.clientX, endY: e.clientY, moved,
           });
         }
       }
@@ -602,10 +627,86 @@ export class BrickDock {
 
     cv.addEventListener('pointercancel', (e) => {
       if (cv.hasPointerCapture(e.pointerId)) cv.releasePointerCapture(e.pointerId);
-      if (mode === 'assemble') this._onCancelDrag?.();
+      if (mode === 'pick') this._onCancelDrag?.();
       mode = null;
     });
   }
+
+  // ── Helpers de classification du geste ────────────────────────────────────
+
+  /** Vrai si le mouvement est principalement dans l'axe d'empilement du dock. */
+  _isAlongDockAxis(dx, dy) {
+    const isVert = this._edge === 'left' || this._edge === 'right';
+    return isVert
+      ? Math.abs(dy) > Math.abs(dx) * 0.7
+      : Math.abs(dx) > Math.abs(dy) * 0.7;
+  }
+
+  /** Vrai si le mouvement est dirigé vers le bord d'ancrage du dock. */
+  _isTowardEdge(dx, dy) {
+    switch (this._edge) {
+      case 'bottom': return dy >  Math.abs(dx) * 0.5;
+      case 'top':    return dy < -Math.abs(dx) * 0.5;
+      case 'left':   return dx < -Math.abs(dy) * 0.5;
+      case 'right':  return dx >  Math.abs(dy) * 0.5;
+    }
+  }
+
+  // ── Raycast précis sur la brique de la cellule ────────────────────────────
+
+  /** Retourne le point 3D (espace local de la brique) sous le pointeur, ou null. */
+  _raycastCell(cell, cx, cy) {
+    const rect = cell.canvas.getBoundingClientRect();
+    const ndcX =  ((cx - rect.left) / rect.width)  * 2 - 1;
+    const ndcY = -((cy - rect.top)  / rect.height) * 2 + 1;
+    this._raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), cell.camera);
+    const hits = this._raycaster.intersectObject(cell.mesh, false);
+    return hits.length ? hits[0].point.clone() : null;
+  }
+
+  // ── Animation slide dock (changement de famille) ──────────────────────────
+
+  /** Fait glisser le dock hors écran, change de famille, le ramène. */
+  _animateDockSlide(direction) {
+    if (this._slideAnimating) return;
+    this._slideAnimating = true;
+
+    const isVert = this._edge === 'left' || this._edge === 'right';
+    const base   = this._align === 'center'
+      ? (isVert ? 'translateY(-50%)' : 'translateX(-50%)')
+      : '';
+
+    const exitTx = isVert
+      ? (this._edge === 'left' ? `${base} translateX(-110%)` : `${base} translateX(110%)`)
+      : (this._edge === 'bottom' ? `${base} translateY(110%)` : `${base} translateY(-110%)`);
+
+    const entryTx = isVert
+      ? (this._edge === 'left' ? `${base} translateX(110%)` : `${base} translateX(-110%)`)
+      : (this._edge === 'bottom' ? `${base} translateY(-110%)` : `${base} translateY(110%)`);
+
+    const T = 180; // ms par demi-animation
+
+    this._el.style.transition = `transform ${T}ms ease-in`;
+    this._el.style.transform  = exitTx;
+
+    setTimeout(async () => {
+      await this._showFamily(this._famIdx + direction);
+      this._el.style.transition = 'none';
+      this._el.style.transform  = entryTx;
+
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        this._el.style.transition = `transform ${T}ms ease-out`;
+        this._el.style.transform  = base || 'none';
+        setTimeout(() => {
+          this._el.style.transition = '';
+          this._applyContainerPosition(); // rétablit le positionnement nominal
+          this._slideAnimating = false;
+        }, T);
+      }));
+    }, T);
+  }
+
+  // ── Renvoi d'événement au moteur ──────────────────────────────────────────
 
   // Renvoie l'événement au canvas du moteur (pour que OrbitControls le traite)
   _forwardToEngine(e) {
@@ -617,15 +718,6 @@ export class BrickDock {
       pressure: e.pressure, isPrimary: e.isPrimary,
       button: e.button, buttons: e.buttons,
     }));
-  }
-
-  // Heuristique : le touch est-il sur la brique (cercle central du canvas) ?
-  _hitsBrick(cell, cx, cy) {
-    const rect = cell.canvas.getBoundingClientRect();
-    const lx = cx - rect.left, ly = cy - rect.top;
-    const mx = rect.width / 2, my = rect.height / 2;
-    const r  = Math.min(rect.width, rect.height) * 0.42;
-    return Math.sqrt((lx - mx) ** 2 + (ly - my) ** 2) < r;
   }
 
   // Slots triés par proximité au point de contact
