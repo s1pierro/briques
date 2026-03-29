@@ -227,7 +227,7 @@ export class BrickDock {
     ].join(';');
 
     this._trackEl.style.cssText = [
-      'display:flex', `gap:${GAP}px`, `padding:${GAP}px`,
+      'display:flex', `gap:${GAP}px`, `padding:${GAP}px`, 'touch-action:none',
     ].join(';');
 
     this._applyContainerPosition();
@@ -487,23 +487,16 @@ export class BrickDock {
 
     cv.addEventListener('pointerdown', (e) => {
       e.preventDefault();
+      e.stopPropagation(); // empêche la remontée vers _bindSlideSurface
       startX = e.clientX; startY = e.clientY;
       mode = null; pickPoint = null;
 
-      const isActive = this._activeCell === cell;
-      const hit = cell.mesh ? this._raycastCell(cell, e.clientX, e.clientY) : null;
+      // Raycast pour savoir si le doigt est sur la brique
+      pickPoint = cell.mesh ? this._raycastCell(cell, e.clientX, e.clientY) : null;
 
-      if (!isActive) {
-        if (hit || this._activateOnOutsideTap) {
-          this._activateCell(cell);
-        } else {
-          this._forwardToEngine(e);
-          return;
-        }
-      }
-
+      // Activation retardée : on ne grossit la cellule qu'au moment du pick,
+      // pas du scroll — évite d'activer une cellule lors d'un simple défilement
       mode = 'pending';
-      pickPoint = hit; // null si pas sur la brique
       cv.setPointerCapture(e.pointerId);
     }, { passive: false });
 
@@ -523,8 +516,9 @@ export class BrickDock {
           mode = 'scroll';
           scrollStart = this._scrollPx;
         } else if (pickPoint) {
-          // Pick : drag d'une brique vers la scène
+          // Pick : drag d'une brique vers la scène → activer la cellule maintenant
           mode = 'pick';
+          this._activateCell(cell);
         } else {
           // Contact hors brique + direction ambiguë → scroll par défaut
           mode = 'scroll';
@@ -555,6 +549,8 @@ export class BrickDock {
         if (slideProj >= BrickDock.SLIDE_COMMIT_PX) this._commitSlide();
         else                                         this._cancelSlide();
       } else if (mode === 'pick' || (mode === 'pending' && pickPoint)) {
+        // Tap sur la brique sans mouvement → activer + pick
+        if (mode === 'pending') this._activateCell(cell);
         if (this._onPickBrick) {
           const nearSlots = this._nearSlotsForBrick(cell, startX, startY);
           this._onPickBrick(cell.brickId, {
@@ -722,7 +718,6 @@ export class BrickDock {
     let mode = null; // null | 'pending' | 'scroll' | 'slide' | 'consumed'
 
     el.addEventListener('pointerdown', (e) => {
-      if (e.target !== el) return; // canvas de cellule → géré par _bindCellGestures
       e.preventDefault();
       startX = e.clientX; startY = e.clientY;
       startScroll = this._scrollPx; slideProj = 0;
