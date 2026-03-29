@@ -462,12 +462,22 @@ export class BrickDock {
       const shapes = this._loadStore('rbang_shapes');
       const bricks = this._loadStore('rbang_bricks');
       const brick  = bricks[cell.brickId] || cell.brickData;
-      const data   = shapes[brick.shapeRef];
-      if (!data?.steps || !data.rootId) return;
-      const M    = await getManifold();
-      const mf   = buildCache(data.steps, M).get(data.rootId);
-      if (!mf) return;
-      const { geo } = manifoldToGeometry(mf);
+
+      // Résolution de la géométrie : csgTree embarqué > shapeRef
+      let geo;
+      if (brick.csgTree?.steps && brick.csgTree?.rootId) {
+        const M  = await getManifold();
+        const mf = buildCache(brick.csgTree.steps, M).get(brick.csgTree.rootId);
+        if (!mf) return;
+        ({ geo } = manifoldToGeometry(mf));
+      } else {
+        const data = shapes[brick.shapeRef];
+        if (!data?.steps || !data.rootId) return;
+        const M  = await getManifold();
+        const mf = buildCache(data.steps, M).get(data.rootId);
+        if (!mf) return;
+        ({ geo } = manifoldToGeometry(mf));
+      }
       const color    = parseInt((brick.color || '#888888').replace('#', ''), 16);
       const mesh     = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.55 }));
       const box    = new THREE.Box3().setFromObject(mesh);
