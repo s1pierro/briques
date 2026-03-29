@@ -73,6 +73,9 @@ const CFG_DEFAULTS = {
   stripFontColor         : '#cccccc',
   // ── Trackball cellule dock ────────────────────────────────────────────────
   cellRotateSpeed        : 1.5,
+  // ── LOD (Level of Detail) ─────────────────────────────────────────────────
+  lodDistLow             : 12,    // au-delà → low poly
+  lodDistHigh            : 3,     // en-deçà → high poly
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -137,16 +140,17 @@ export class Assembler {
   _showLoader() {
     const el = document.createElement('div');
     el.style.cssText = [
-      'position:fixed', 'inset:0', 'z-index:200',
+      'position:fixed', 'bottom:16px', 'right:16px', 'z-index:200',
       'display:flex', 'flex-direction:column',
-      'align-items:center', 'justify-content:center',
-      'background:#0a0a10', 'color:#fff',
+      'background:rgba(0,0,0,0.65)', 'color:#fff',
+      'border-radius:6px', 'padding:14px 18px',
+      'backdrop-filter:blur(4px)',
       "font-family:'Segoe UI',system-ui,sans-serif",
       'transition:opacity 0.4s',
     ].join(';');
     const title = document.createElement('div');
     title.textContent = 'Assembleur';
-    title.style.cssText = 'font-size:1.8rem;font-weight:700;letter-spacing:0.15em;color:#7aafc8;margin-bottom:1.5rem;';
+    title.style.cssText = 'font-size:0.9rem;font-weight:700;letter-spacing:0.12em;color:#7aafc8;margin-bottom:8px;';
     const list = document.createElement('div');
     list.style.cssText = 'display:flex;flex-direction:column;gap:8px;min-width:220px;';
     el.append(title, list);
@@ -233,6 +237,8 @@ export class Assembler {
     this._asmVerse.worldSlots.snapR = cfg.snapR;
     if (this._asmVerse.worldSlots.planMesh) this._asmVerse.worldSlots.planMesh.visible = cfg.planVisible;
     this._asmVerse.slots.clipDist   = cfg.connectionTolerance ?? 0.12;
+    this._lodDistLow  = cfg.lodDistLow  ?? 12;
+    this._lodDistHigh = cfg.lodDistHigh ?? 3;
   }
 
   // ─── Persistance de la scène ───────────────────────────────────────────────
@@ -1254,6 +1260,8 @@ export class Assembler {
         const dist = this._gizmo.position.distanceTo(this.engine.camera.position);
         this._gizmo.scale.setScalar(dist * 0.22);
       }
+      // LOD — ajuster la définition des briques selon la distance caméra
+      this._asmVerse.updateLOD(this.engine.camera, this._lodDistLow, this._lodDistHigh);
     };
   }
 
@@ -1518,6 +1526,14 @@ export class Assembler {
         v => { if (this._floor) this._floor.mesh.visible = v; this._saveConfig({ floorVisible: v }); }),
     );
     body.append(wsCard);
+
+    // ── Carte : LOD ──────────────────────────────────────────────────────────
+    const lodCard = makeCard('LOD (Level of Detail)');
+    lodCard.append(makeSlider('Dist. high → med', 1, 20, 0.5, cfg.lodDistHigh ?? 3,
+      v => { this._saveConfig({ lodDistHigh: v }); this._lodDistHigh = v; }));
+    lodCard.append(makeSlider('Dist. med → low', 5, 50, 1, cfg.lodDistLow ?? 12,
+      v => { this._saveConfig({ lodDistLow: v }); this._lodDistLow = v; }));
+    body.append(lodCard);
 
     // ── Carte : Asm Helpers ───────────────────────────────────────────────────
     const helpersCard = makeCard('Asm Helpers');

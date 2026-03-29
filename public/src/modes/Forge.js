@@ -55,12 +55,21 @@ export class Forge {
   // ─── Cycle de vie ─────────────────────────────────────────────────────────
 
   async start() {
+    this._indexBrickValues();
     this._setupScene();
     this._setupUI();
     this._setupResizeHandles();
     this._setupViewWidget();
     this._applyPanelWidths();
     this.engine.start();
+  }
+
+  /** Indexe les couleurs, familles et sous-familles existantes pour l'autocomplétion. */
+  _indexBrickValues() {
+    const store = this._bricks();
+    this._knownColors      = [...new Set(Object.values(store).map(b => b.color).filter(Boolean))];
+    this._knownFamilies    = [...new Set(Object.values(store).map(b => b.family).filter(Boolean))].sort();
+    this._knownSubfamilies = [...new Set(Object.values(store).map(b => b.subfamily).filter(Boolean))].sort();
   }
 
   stop() {
@@ -318,6 +327,7 @@ export class Forge {
     store[saved.id] = saved;
     this._saveBricks(store);
     this._dirty = false;
+    this._indexBrickValues();
     this._updateSaveBtn();
     this._renderBrickList();
     this._setStatus('Brique sauvegardée');
@@ -1134,9 +1144,33 @@ export class Forge {
     const famInp = document.createElement('input');
     famInp.className = 'fg-input'; famInp.value = b.family || '';
     famInp.placeholder = 'ex: technic, system…';
+    famInp.setAttribute('list', 'fg-dl-family');
     famInp.addEventListener('input', e => this._setBrickFamily(e.target.value));
-    famSec.append(famLbl, famInp);
+    const famDl = document.createElement('datalist');
+    famDl.id = 'fg-dl-family';
+    for (const v of this._knownFamilies) { const o = document.createElement('option'); o.value = v; famDl.appendChild(o); }
+    famSec.append(famLbl, famInp, famDl);
     el.appendChild(famSec);
+
+    // Sous-famille
+    const sfSec = document.createElement('div');
+    sfSec.className = 'fg-section';
+    const sfLbl = document.createElement('div');
+    sfLbl.className = 'fg-label'; sfLbl.textContent = 'Sous-famille';
+    const sfInp = document.createElement('input');
+    sfInp.className = 'fg-input'; sfInp.value = b.subfamily || '';
+    sfInp.placeholder = 'ex: pin, plate, hinge…';
+    sfInp.setAttribute('list', 'fg-dl-subfamily');
+    sfInp.addEventListener('input', e => {
+      if (!this._currentBrick) return;
+      this._currentBrick.subfamily = e.target.value.trim().toLowerCase();
+      this._markDirty();
+    });
+    const sfDl = document.createElement('datalist');
+    sfDl.id = 'fg-dl-subfamily';
+    for (const v of this._knownSubfamilies) { const o = document.createElement('option'); o.value = v; sfDl.appendChild(o); }
+    sfSec.append(sfLbl, sfInp, sfDl);
+    el.appendChild(sfSec);
 
     // ── Géométrie ──────────────────────────────────────────────────────────
     const geoSec = document.createElement('div');
@@ -1246,6 +1280,27 @@ export class Forge {
     });
     colorRow.append(preview, hiddenInp, hexInp);
     colorSec.append(colorLbl, colorRow);
+
+    // Pastilles couleurs existantes
+    if (this._knownColors.length > 1) {
+      const swatches = document.createElement('div');
+      swatches.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;';
+      for (const c of this._knownColors) {
+        const sw = document.createElement('div');
+        sw.style.cssText = `width:18px;height:18px;border-radius:2px;cursor:pointer;background:${c};border:1px solid var(--fg-border);`;
+        if (c === b.color) sw.style.outline = '2px solid var(--fg-accent)';
+        sw.title = c;
+        sw.addEventListener('click', () => {
+          preview.style.background = c; hiddenInp.value = c; hexInp.value = c;
+          this._setBrickColor(c);
+          swatches.querySelectorAll('div').forEach(s => s.style.outline = '');
+          sw.style.outline = '2px solid var(--fg-accent)';
+        });
+        swatches.appendChild(sw);
+      }
+      colorSec.appendChild(swatches);
+    }
+
     el.appendChild(colorSec);
 
     // Résumé slots

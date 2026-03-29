@@ -14,6 +14,9 @@ const JOINT_COLOR = 0x00ccff;   // marqueur disque liaison explicite
 // AsmBrick  —  instance d'une brique dans la scène
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// ─── Seuils LOD par défaut (distance caméra) ─────────────────────────────────
+export const LOD_DEFAULTS = { distLow: 12, distHigh: 3 };
+
 export class AsmBrick {
 
   /**
@@ -23,8 +26,9 @@ export class AsmBrick {
    * @param {THREE.Mesh}     mesh
    * @param {Array}          slots         — expandSlots + corrigés géo
    * @param {THREE.Vector3}  geoCenter     — centre géométrique pré-translate
+   * @param {Object|null}    lodGeos       — { low?, medium?, high? } BufferGeometry
    */
-  constructor(id, brickTypeId, brickData, mesh, slots, geoCenter) {
+  constructor(id, brickTypeId, brickData, mesh, slots, geoCenter, lodGeos = null) {
     this.id          = id;
     this.brickTypeId = brickTypeId;
     this.brickData   = brickData;
@@ -33,6 +37,10 @@ export class AsmBrick {
     this.geoCenter   = geoCenter;
     /** @type {Object[]}  connexions impliquant cette brique */
     this.connections = [];
+
+    // LOD : géométries alternatives (low / medium / high)
+    this._lodGeos   = lodGeos;   // { low?, medium?, high? }
+    this._lodLevel  = lodGeos ? 'medium' : null;
   }
 
   /** Position monde d'un slot (calculée dynamiquement depuis la pose courante du mesh). */
@@ -50,9 +58,32 @@ export class AsmBrick {
     return q.premultiply(this.mesh.quaternion.clone());
   }
 
-  /** Libère la géométrie et le(s) matériau(x) du mesh. */
+  /**
+   * Choisit le niveau LOD en fonction de la distance caméra.
+   * @param {THREE.Vector3} camPos
+   * @param {number} distLow   — au-delà → low
+   * @param {number} distHigh  — en-deçà → high
+   */
+  updateLOD(camPos, distLow, distHigh) {
+    if (!this._lodGeos) return;
+    const d = this.mesh.position.distanceTo(camPos);
+    const level = d > distLow ? 'low' : d < distHigh ? 'high' : 'medium';
+    if (level === this._lodLevel) return;
+    const geo = this._lodGeos[level];
+    if (!geo) return;
+    this.mesh.geometry = geo;
+    this._lodLevel = level;
+  }
+
+  /** Libère toutes les géométries (LOD incluses) et le(s) matériau(x) du mesh. */
   dispose() {
-    this.mesh.geometry.dispose();
+    // Dispose LOD geos
+    if (this._lodGeos) {
+      for (const g of Object.values(this._lodGeos)) g?.dispose();
+      this._lodGeos = null;
+    } else {
+      this.mesh.geometry.dispose();
+    }
     if (Array.isArray(this.mesh.material)) {
       for (const m of this.mesh.material) m.dispose();
     } else {
@@ -763,21 +794,21 @@ export class AsmVerse {
    * @returns {Promise<AsmBrick|null>}
    */
   async spawnBrick(brickTypeId, brickData, pos = null, snapTransform = null, shapeData = null) {
-    let geo;
-
-    // ── Priorité 1 : OBJ pré-calculé depuis IndexedDB (medium > low > high) ──
-    for (const suffix of ['geoMedium', 'geoLow', 'geoHigh']) {
-      if (geo) break;
+    // ── Charger les 3 niveaux OBJ (IDB ou brickData inline) ──
+    const lodGeos = {};
+    for (const [suffix, level] of [['geoLow','low'],['geoMedium','medium'],['geoHigh','high']]) {
       try {
-        // D'abord l'objet brique (import JSON), sinon IndexedDB
         const objText = brickData[suffix] || await idb.get(`brick:${brickTypeId}:${suffix}`);
-        if (objText) geo = parseOBJ(objText);
+        if (objText) lodGeos[level] = parseOBJ(objText);
       } catch (e) {
         console.warn(`[spawnBrick] parseOBJ ${suffix} failed`, e);
       }
     }
 
-    // ── Priorité 2 : arbre CSG embarqué ──
+    // Géométrie par défaut : medium > low > high > CSG > shapeRef
+    let geo = lodGeos.medium || lodGeos.low || lodGeos.high || null;
+
+    // ── Fallback CSG embarqué ──
     if (!geo && brickData.csgTree?.steps && brickData.csgTree.rootId) {
       try {
         const M     = await getManifold();
@@ -789,7 +820,7 @@ export class AsmVerse {
       }
     }
 
-    // ── Priorité 3 : shapeRef externe (compatibilité) ──
+    // ── Fallback shapeRef externe (compatibilité) ──
     if (!geo) {
       if (!shapeData) {
         try {
@@ -827,6 +858,14 @@ export class AsmVerse {
       geo.translate(-center.x, -center.y, -center.z);
       geo.boundingBox = null;
 
+      // Appliquer le même centrage aux geos LOD alternatives
+      const hasLOD = Object.keys(lodGeos).length >= 2;
+      if (hasLOD) {
+        for (const [lvl, g] of Object.entries(lodGeos)) {
+          if (g !== geo) g.translate(-center.x, -center.y, -center.z);
+        }
+      }
+
       if (snapTransform) {
         mesh.position.copy(snapTransform.position);
         mesh.quaternion.copy(snapTransform.quaternion);
@@ -846,15 +885,22 @@ export class AsmVerse {
         ],
       }));
 
-      const brick = new AsmBrick(id, brickTypeId, brickData, mesh, slots, center);
-      // Flag NG : la brique possède un arbre CSG embarqué ou des OBJ pré-calculés
-      brick.ng = !!(brickData.csgTree || brickData._hasOBJ || brickData.geoMedium || brickData.geoLow || brickData.geoHigh);
+      const brick = new AsmBrick(id, brickTypeId, brickData, mesh, slots, center, hasLOD ? lodGeos : null);
+      brick.ng = !!(brickData.csgTree || brickData._hasOBJ || hasLOD);
       this.bricks.set(id, brick);
       this.slots.registerBrick(brick);   // ← point d'entrée 1 du registre
       return brick;
     } catch (e) {
       console.error('[AsmVerse] spawnBrick error', e);
       return null;
+    }
+  }
+
+  /** Met à jour le LOD de toutes les briques en fonction de la caméra. */
+  updateLOD(camera, distLow = LOD_DEFAULTS.distLow, distHigh = LOD_DEFAULTS.distHigh) {
+    const camPos = camera.position;
+    for (const brick of this.bricks.values()) {
+      brick.updateLOD(camPos, distLow, distHigh);
     }
   }
 
