@@ -1,7 +1,7 @@
 {
   "br-lfit2fd": {
     "id": "br-lfit2fd",
-    "name": "brique technic 1x1  v2",
+    "name": "brique technic 1x1 ",
     "shapeRef": "brique technic 1x1  v2",
     "color": "#bababa",
     "slots": [
@@ -52,7 +52,7 @@
       }
     ],
     "createdAt": "2026-03-24T22:39:16.655Z",
-    "updatedAt": "2026-03-29T13:30:06.329Z",
+    "updatedAt": "2026-03-29T19:11:27.440Z",
     "family": "technic",
     "csgTree": {
       "rootId": "step-qnb1vgb",
@@ -427,7 +427,7 @@
   },
   "br-obobhuk": {
     "id": "br-obobhuk",
-    "name": "system brique 1x1 v2",
+    "name": "system brique 1x1",
     "shapeRef": "system brique 1x1 v2",
     "color": "#ff0000",
     "slots": [
@@ -463,7 +463,7 @@
       }
     ],
     "createdAt": "2026-03-24T23:04:49.930Z",
-    "updatedAt": "2026-03-29T13:30:17.647Z",
+    "updatedAt": "2026-03-29T19:11:38.808Z",
     "family": "system",
     "csgTree": {
       "rootId": "step-5bdfngd",
@@ -1128,7 +1128,7 @@
   },
   "br-51a69db": {
     "id": "br-51a69db",
-    "name": "system plate 1x2 v4",
+    "name": "system plate 1x2",
     "shapeRef": "system plate 1x2 v3",
     "color": "#9e0000",
     "slots": [
@@ -1210,7 +1210,7 @@
     ],
     "createdAt": "2026-03-26T08:30:19.890Z",
     "family": "system",
-    "updatedAt": "2026-03-29T13:31:00.731Z",
+    "updatedAt": "2026-03-29T19:11:48.702Z",
     "csgTree": {
       "rootId": "smn6g64yl",
       "steps": [
@@ -2429,7 +2429,7 @@
       }
     ],
     "createdAt": "2026-03-26T10:04:21.005Z",
-    "updatedAt": "2026-03-29T11:41:37.998Z",
+    "updatedAt": "2026-03-29T19:12:34.862Z",
     "family": "system",
     "_hasOBJ": true,
     "csgTree": {
@@ -2823,7 +2823,8 @@
         "coneSegs": 48,
         "roundedBoxSegs": 16
       }
-    }
+    },
+    "subfamily": "plate"
   },
   "br-mtlv9r0": {
     "id": "br-mtlv9r0",
@@ -2857,7 +2858,7 @@
     ],
     "createdAt": "2026-03-26T10:44:36.038Z",
     "family": "technic",
-    "updatedAt": "2026-03-29T13:28:50.649Z",
+    "updatedAt": "2026-03-29T19:13:16.983Z",
     "csgTree": {
       "rootId": "step-wclhplz",
       "steps": [
@@ -3224,7 +3225,8 @@
         "roundedBoxSegs": 16
       }
     },
-    "_hasOBJ": true
+    "_hasOBJ": true,
+    "subfamily": "connect bar"
   },
   "br-aoejxli": {
     "id": "br-aoejxli",
@@ -5155,9 +5157,9 @@
   },
   "br-cq14eiv": {
     "id": "br-cq14eiv",
-    "name": "brique technic 1x1  v2",
+    "name": "brique technic 1x1 ",
     "shapeRef": "brique technic 1x1  v2",
-    "color": "#bababa",
+    "color": "#784600",
     "slots": [
       {
         "id": "sl-ogkbhay",
@@ -5206,7 +5208,7 @@
       }
     ],
     "createdAt": "2026-03-29T07:10:37.057Z",
-    "updatedAt": "2026-03-29T13:27:48.077Z",
+    "updatedAt": "2026-03-29T19:13:37.425Z",
     "family": "technic",
     "csgTree": {
       "rootId": "step-qnb1vgb",
@@ -5576,11 +5578,12 @@
         "roundedBoxSegs": 16
       }
     },
-    "_hasOBJ": true
+    "_hasOBJ": true,
+    "subfamily": "brick"
   },
   "br-87pdwb4": {
     "id": "br-87pdwb4",
-    "name": "system hinge 2f v0",
+    "name": "system hinge 2f",
     "shapeRef": "system hinge 2f v0",
     "color": "#f7ee6d",
     "slots": [
@@ -5666,7 +5669,7 @@
       }
     ],
     "createdAt": "2026-03-29T08:45:07.787Z",
-    "updatedAt": "2026-03-29T13:32:41.990Z",
+    "updatedAt": "2026-03-29T19:10:45.665Z",
     "family": "system",
     "_hasOBJ": true,
     "csgTree": {
@@ -6318,7 +6321,7 @@
   },
   "br-i3ejf18": {
     "id": "br-i3ejf18",
-    "name": "system hinge 3f v0",
+    "name": "system hinge 3f",
     "shapeRef": "system hinge 3f v0",
     "color": "#f7ee6d",
     "slots": [
@@ -6404,7 +6407,7 @@
       }
     ],
     "createdAt": "2026-03-29T08:52:14.588Z",
-    "updatedAt": "2026-03-29T13:24:10.638Z",
+    "updatedAt": "2026-03-29T19:11:00.371Z",
     "_hasOBJ": true,
     "csgTree": {
       "rootId": "step-xqcafzr",
