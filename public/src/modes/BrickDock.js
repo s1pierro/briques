@@ -61,6 +61,7 @@ export class BrickDock {
     this._scrollPx  = 0;
     this._el        = null;
     this._cellsEl   = null;
+    this._trackEl   = null;
     this._animId    = null;
     this._onPickBrick    = null;
     this._onDragBrick    = null;
@@ -211,6 +212,10 @@ export class BrickDock {
     this._cellsEl = document.createElement('div');
     this._cellsEl.className = 'brick-dock__cells';
 
+    this._trackEl = document.createElement('div');
+    this._trackEl.className = 'brick-dock__track';
+
+    this._cellsEl.appendChild(this._trackEl);
     this._el.appendChild(this._cellsEl);
 
     this._el.style.cssText = [
@@ -218,8 +223,11 @@ export class BrickDock {
     ].join(';');
 
     this._cellsEl.style.cssText = [
-      'display:flex', `gap:${GAP}px`, `padding:${GAP}px`,
       'overflow:hidden', 'pointer-events:auto', 'touch-action:none',
+    ].join(';');
+
+    this._trackEl.style.cssText = [
+      'display:flex', `gap:${GAP}px`, `padding:${GAP}px`,
     ].join(';');
 
     this._applyContainerPosition();
@@ -246,16 +254,16 @@ export class BrickDock {
   _applyFlexDirections() {
     const isVert = this._edge === 'left' || this._edge === 'right';
 
-    // Cellules : row ou column selon l'orientation du dock
-    this._cellsEl.style.flexDirection = isVert ? 'column' : 'row';
+    // _cellsEl : fenêtre fixe pleine largeur/hauteur
+    this._cellsEl.style.width  = isVert ? ''      : '100%';
+    this._cellsEl.style.height = isVert ? '100%'  : '';
 
-    // Alignement cross-axis : cellules flush côté bord
-    this._cellsEl.style.alignItems =
+    // _trackEl : rail interne qui porte les cellules et qui sera translaté
+    this._trackEl.style.flexDirection = isVert ? 'column' : 'row';
+    this._trackEl.style.alignItems    =
       (this._edge === 'bottom' || this._edge === 'right') ? 'flex-end' : 'flex-start';
-
-    // Alignement main-axis selon _align
     const justifyMap = { start: 'flex-start', center: 'center', end: 'flex-end' };
-    this._cellsEl.style.justifyContent = justifyMap[this._align] ?? 'center';
+    this._trackEl.style.justifyContent = justifyMap[this._align] ?? 'center';
   }
 
   // ── Familles ───────────────────────────────────────────────────────────────
@@ -287,12 +295,12 @@ export class BrickDock {
 
     this._disposeCells();
     this._scrollPx = 0;
-    this._cellsEl.style.transform = '';
+    this._trackEl.style.transform = '';
 
     for (const { id, data } of fam.bricks) {
       const cell = await this._createCell(id, data);
       this._cells.push(cell);
-      this._cellsEl.appendChild(cell.el);
+      this._trackEl.appendChild(cell.el);
       // handleResize() doit être appelé après insertion dans le DOM
       // → getBoundingClientRect() retourne des valeurs valides (screen.width ≠ 0)
       cell.tb.handleResize();
@@ -771,7 +779,7 @@ export class BrickDock {
     const max      = Math.max(0, total - viewport + CELL); // laisser au moins une cellule visible
     this._scrollPx = Math.max(0, Math.min(px, max));
     const axis     = isVert ? 'translateY' : 'translateX';
-    this._cellsEl.style.transform = `${axis}(-${this._scrollPx}px)`;
+    this._trackEl.style.transform = `${axis}(-${this._scrollPx}px)`;
   }
 
   // ── Boucle de rendu ────────────────────────────────────────────────────────
