@@ -462,22 +462,28 @@ export class BrickDock {
       const shapes = this._loadStore('rbang_shapes');
       const bricks = this._loadStore('rbang_bricks');
       const brick  = bricks[cell.brickId] || cell.brickData;
+      console.log('[BrickDock] cell', cell.brickId, 'brick=', brick,
+        'hasCsgTree=', !!(brick?.csgTree?.steps), 'shapeRef=', brick?.shapeRef);
 
       // Résolution de la géométrie : csgTree embarqué > shapeRef
       let geo;
       if (brick.csgTree?.steps && brick.csgTree?.rootId) {
+        console.log('[BrickDock] using csgTree, steps=', brick.csgTree.steps.length);
         const M  = await getManifold();
         const mf = buildCache(brick.csgTree.steps, M).get(brick.csgTree.rootId);
+        console.log('[BrickDock] mf=', mf);
         if (!mf) return;
         ({ geo } = manifoldToGeometry(mf));
       } else {
         const data = shapes[brick.shapeRef];
+        console.log('[BrickDock] using shapeRef', brick.shapeRef, 'data=', data);
         if (!data?.steps || !data.rootId) return;
         const M  = await getManifold();
         const mf = buildCache(data.steps, M).get(data.rootId);
         if (!mf) return;
         ({ geo } = manifoldToGeometry(mf));
       }
+      console.log('[BrickDock] geo ok', geo);
       const color    = parseInt((brick.color || '#888888').replace('#', ''), 16);
       const mesh     = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.55 }));
       const box    = new THREE.Box3().setFromObject(mesh);
@@ -493,7 +499,7 @@ export class BrickDock {
       cell.scene.add(mesh);
       cell.mesh = mesh;
       cell._dirty = true;
-    } catch (e) { console.warn('[BrickDock] geometry', e); }
+    } catch (e) { console.warn('[BrickDock] geometry ERROR', e); }
   }
 
   // ── Activation de cellule ──────────────────────────────────────────────────
