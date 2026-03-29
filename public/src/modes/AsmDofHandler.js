@@ -61,6 +61,12 @@ export class AsmDofHandler {
     this._refV          = null; // vecteur orthogonal dans le plan du disque
     this._involvedBricks = [conn.instA]; // briques à déplacer (résolu à l'attach)
 
+    this._lblEl    = null;
+    this._limEl    = null;
+    this._hintEl   = null;
+    this._stepBtn  = null;
+    this._applyStepStyle = null;
+
     if (steps > 0) {
       if (dof.type === 'translation') {
         const range = (dof.max != null && dof.min != null) ? (dof.max - dof.min) : 4;
@@ -388,7 +394,7 @@ export class AsmDofHandler {
       'width:50vw', 'height:5.5vh',
       'display:flex', 'align-items:center', 'padding:0 10px', 'gap:6px',
       `background:${this._stripBg}`,
-      `border-left:3px solid ${color}`,
+      `border-left:6px solid ${color}`,
       'z-index:130',
       'touch-action:none', 'cursor:ew-resize',
       'user-select:none', 'pointer-events:auto',
@@ -401,17 +407,20 @@ export class AsmDofHandler {
     const stepBtn = document.createElement('button');
     stepBtn.textContent = this._stepSize > 0 ? this._formatVal(this._stepSize) : '—';
     const applyStepStyle = (active) => {
+      const font = this._stripFont;
       stepBtn.style.cssText = [
         'flex-shrink:0', 'border-radius:3px', 'font-size:9px',
         'padding:1px 6px', 'cursor:pointer', 'line-height:1.4',
-        `border:1px solid ${active ? color : '#555'}`,
-        `background:${active ? color + '33' : 'transparent'}`,
-        `color:${active ? color : '#555'}`,
+        `border:1px solid ${active ? font : font + '55'}`,
+        `background:${active ? font + '22' : 'transparent'}`,
+        `color:${active ? font : font + '88'}`,
         'transition:background .1s,border-color .1s,color .1s',
         'touch-action:auto',
       ].join(';');
     };
     applyStepStyle(this._stepActive);
+    this._stepBtn = stepBtn;
+    this._applyStepStyle = applyStepStyle;
 
     stepBtn.addEventListener('pointerdown', e => e.stopPropagation());
     stepBtn.addEventListener('click', e => {
@@ -434,9 +443,10 @@ export class AsmDofHandler {
 
     // Étiquette type + axe
     const lbl = document.createElement('span');
-    lbl.style.cssText = `color:${color};font-weight:bold;flex-shrink:0;letter-spacing:.04em;`;
+    lbl.style.cssText = `color:${this._stripFont};font-weight:bold;flex-shrink:0;letter-spacing:.04em;`;
     lbl.textContent   = `${label} ${axStr}`;
     strip.appendChild(lbl);
+    this._lblEl = lbl;
 
     // Limites si définies
     if (dof.min != null || dof.max != null) {
@@ -447,6 +457,7 @@ export class AsmDofHandler {
       const unit   = dof.type === 'rotation' ? '°' : 'm';
       limEl.textContent = `${minStr}${unit} … ${maxStr}${unit}`;
       strip.appendChild(limEl);
+      this._limEl = limEl;
     }
 
     // Valeur courante (position effective à l'attach, peut être post-DOF)
@@ -468,6 +479,7 @@ export class AsmDofHandler {
     hint.style.cssText = `color:${this._stripFont};opacity:0.35;font-size:12px;flex-shrink:0;`;
     hint.textContent   = '◀ ▶';
     strip.appendChild(hint);
+    this._hintEl = hint;
 
     // ── Geste pointer ──────────────────────────────────────────────────────
     let lastX = 0;
@@ -593,6 +605,28 @@ export class AsmDofHandler {
     }
     return raw.toFixed(3) + ' m';
   }
+
+  /** Met à jour les couleurs du strip en live (appelé depuis AsmHandlers). */
+  updateStripStyle(stripBg, stripFont) {
+    this._stripBg   = stripBg;
+    this._stripFont = stripFont;
+    const s = this._strip;
+    if (!s) return;
+    s.style.background = stripBg;
+    s.style.color      = stripFont;
+    if (this._lblEl)  this._lblEl.style.color  = stripFont;
+    if (this._limEl)  this._limEl.style.color  = stripFont;
+    if (this._valEl)  this._valEl.style.color  = stripFont;
+    if (this._hintEl) this._hintEl.style.color = stripFont;
+    // re-appliquer le style du bouton step avec la nouvelle couleur font
+    if (this._applyStepStyle) this._applyStepStyle(this._stepActive);
+    // bouton switch ⇅ (ajouté par AsmHandlers, 2e enfant du strip)
+    const switchBtn = s.querySelector('.asm-switch-btn');
+    if (switchBtn) {
+      switchBtn.style.color       = stripFont;
+      switchBtn.style.borderColor = stripFont;
+    }
+  }
 }
 
 // ─── AsmHandlers ──────────────────────────────────────────────────────────────
@@ -667,6 +701,13 @@ export class AsmHandlers {
     }
   }
 
+  /** Met à jour le style des strips actifs en live. */
+  updateStripStyle(stripBg, stripFont) {
+    this._stripBg   = stripBg;
+    this._stripFont = stripFont;
+    this._handlers.forEach(h => h.updateStripStyle(stripBg, stripFont));
+  }
+
   detach() {
     this._handlers.forEach(h => h.detach());
     this._handlers = [];
@@ -699,13 +740,15 @@ export class AsmHandlers {
 
   _addSwitchBtn(strip, group, stripIndex) {
     const btn = document.createElement('button');
+    btn.className   = 'asm-switch-btn';
     btn.textContent = '⇅';
     btn.title       = `Repère alternatif (${group.dofs.length} alignements)`;
+    const font = this._stripFont;
     btn.style.cssText = [
       'flex-shrink:0', 'border-radius:3px', 'font-size:12px',
       'padding:1px 6px', 'cursor:pointer', 'line-height:1.4',
-      'border:1px solid #7aafc8', 'background:transparent',
-      'color:#7aafc8', 'touch-action:auto',
+      `border:1px solid ${font}`, 'background:transparent',
+      `color:${font}`, 'touch-action:auto',
     ].join(';');
 
     btn.addEventListener('pointerdown', e => e.stopPropagation());

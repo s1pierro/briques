@@ -11,6 +11,8 @@ app.use('/three',    express.static(join(__dirname, 'node_modules/three')));
 app.use('/rapier',  express.static(join(__dirname, 'node_modules/@dimforge/rapier3d-compat')));
 app.use('/eruda',   express.static(join(__dirname, 'node_modules/eruda')));
 app.use('/manifold',express.static(join(__dirname, 'node_modules/manifold-3d')));
+app.use('/pathtracer', express.static(join(__dirname, 'node_modules/three-gpu-pathtracer/build')));
+app.use('/mesh-bvh',   express.static(join(__dirname, 'node_modules/three-mesh-bvh/build')));
 app.use('/bank',   express.static(join(__dirname, 'bank')));
 app.use(express.static(join(__dirname, 'public')));
 

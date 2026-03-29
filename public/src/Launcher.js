@@ -3,6 +3,7 @@ import { Sandbox }    from './modes/Sandbox.js';
 import { Assembler }  from './modes/Assembler.js';
 import { Forge }      from './modes/Forge.js';
 import { Modeler }    from './modes/Modeler.js';
+import { Raytracer }  from './modes/Raytracer.js';
 
 const STEPS = [
   { id: 'renderer', label: 'Three.js'    },
@@ -111,6 +112,7 @@ export class Launcher {
         <button class="l-btn" id="btn-assembler">🔧 Assembleur</button>
         <button class="l-btn" id="btn-forge">⚙ Forge</button>
         <button class="l-btn" id="btn-modeler">◈ Modeler</button>
+        <button class="l-btn" id="btn-raytracer">✦ Raytracer</button>
       </div>
     `;
 
@@ -130,6 +132,8 @@ export class Launcher {
       .addEventListener('click', () => this._launch(new Forge(this.engine)));
     this._overlay.querySelector('#btn-modeler')
       .addEventListener('click', () => this._launch(new Modeler(this.engine)));
+    this._overlay.querySelector('#btn-raytracer')
+      .addEventListener('click', () => this._launch(new Raytracer(this.engine)));
   }
 
   // ─── Gestion des écrans ────────────────────────────────────────────────────

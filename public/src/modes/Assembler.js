@@ -128,6 +128,16 @@ export class Assembler {
     localStorage.setItem(CFG_KEY, JSON.stringify(Object.assign(cfg, patch)));
   }
 
+  _applyStripStyle() {
+    if (!this._asmHandlers) return;
+    const cfg = this._loadConfig();
+    const sbgHex   = cfg.stripBgColor   ?? '#121218';
+    const sbgAlpha = Math.round((cfg.stripBgOpacity ?? 0.6) * 255).toString(16).padStart(2, '0');
+    const stripBg    = sbgHex + sbgAlpha;
+    const stripFont  = cfg.stripFontColor ?? '#cccccc';
+    this._asmHandlers.updateStripStyle(stripBg, stripFont);
+  }
+
   _applyConfig() {
     const cfg = this._loadConfig();
     this._dock.setPosition(cfg.dockEdge, cfg.dockAlign);
@@ -1503,6 +1513,7 @@ export class Assembler {
     stripBgInp.style.cssText = 'width:32px;height:24px;border:none;cursor:pointer;background:transparent;';
     stripBgInp.addEventListener('input', () => {
       this._saveConfig({ stripBgColor: stripBgInp.value });
+      this._applyStripStyle();
     });
     stripBgRow.append(stripBgLbl, stripBgInp);
 
@@ -1523,6 +1534,7 @@ export class Assembler {
       const v = parseInt(stripOpInp.value) / 100;
       stripOpVal.textContent = stripOpInp.value + '%';
       this._saveConfig({ stripBgOpacity: v });
+      this._applyStripStyle();
     });
     stripOpRow.append(stripOpLbl, stripOpInp, stripOpVal);
 
@@ -1538,6 +1550,7 @@ export class Assembler {
     stripFontInp.style.cssText = 'width:32px;height:24px;border:none;cursor:pointer;background:transparent;';
     stripFontInp.addEventListener('input', () => {
       this._saveConfig({ stripFontColor: stripFontInp.value });
+      this._applyStripStyle();
     });
     stripFontRow.append(stripFontLbl, stripFontInp);
 

@@ -12,6 +12,8 @@
     "eruda": "^3.4.3",
     "express": "^4.19.2",
     "manifold-3d": "^3.3.2",
-    "three": "^0.170.0"
+    "three": "^0.170.0",
+    "three-gpu-pathtracer": "^0.0.24",
+    "three-mesh-bvh": "^0.9.9"
   }
 }

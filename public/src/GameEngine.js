@@ -76,6 +76,12 @@ export class GameEngine {
     sun.shadow.camera.left   = sun.shadow.camera.bottom = -20;
     sun.shadow.camera.right  = sun.shadow.camera.top    =  20;
     this.scene.add(sun);
+
+    // Lumière caméra — suit le point de vue avec un léger déport haut-droit
+    const camLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    camLight.position.set(0.5, 0.3, -1);
+    this.camera.add(camLight);
+    this.scene.add(this.camera);
   }
 
   resizeViewport(leftOffset = 0, rightOffset = 0, topOffset = 0) {
