@@ -60,7 +60,6 @@ export class BrickDock {
     this._cells     = [];   // cellules actives
     this._scrollPx  = 0;
     this._el        = null;
-    this._talonEl   = null;
     this._cellsEl   = null;
     this._animId    = null;
     this._onPickBrick    = null;
@@ -212,17 +211,7 @@ export class BrickDock {
     this._cellsEl = document.createElement('div');
     this._cellsEl.className = 'brick-dock__cells';
 
-    this._talonEl = document.createElement('div');
-    this._talonEl.className = 'brick-dock__talon';
-
-    // Le talon est toujours côté bord d'écran
-    // bottom/right : cells → talon (talon en bas/droite)
-    // top/left     : talon → cells (talon en haut/gauche)
-    if (this._edge === 'bottom' || this._edge === 'right') {
-      this._el.append(this._cellsEl, this._talonEl);
-    } else {
-      this._el.append(this._talonEl, this._cellsEl);
-    }
+    this._el.appendChild(this._cellsEl);
 
     this._el.style.cssText = [
       'position:fixed', 'display:flex', 'z-index:55', 'pointer-events:none',
@@ -233,19 +222,9 @@ export class BrickDock {
       'overflow:hidden', 'pointer-events:auto', 'touch-action:none',
     ].join(';');
 
-    this._talonEl.style.cssText = [
-      'display:flex', 'align-items:center', 'justify-content:center',
-      'background:rgba(20,20,20,0.88)',
-      `border:1px solid ${C.border}`,
-      `color:${C.dim}`, 'font:11px sans-serif',
-      'letter-spacing:.08em', 'text-transform:uppercase',
-      'pointer-events:auto', 'touch-action:none', 'cursor:grab',
-      'user-select:none',
-    ].join(';');
-
     this._applyContainerPosition();
     this._applyFlexDirections();
-    this._bindTalonGesture();
+    this._bindSlideSurface(this._cellsEl, true);
 
     document.body.appendChild(this._el);
   }
@@ -267,40 +246,16 @@ export class BrickDock {
   _applyFlexDirections() {
     const isVert = this._edge === 'left' || this._edge === 'right';
 
-    // Ordre DOM : talon côté bord d'écran
-    // bottom/right → cells avant talon ; top/left → talon avant cells
-    if (this._edge === 'bottom' || this._edge === 'right') {
-      this._el.append(this._cellsEl, this._talonEl);
-    } else {
-      this._el.append(this._talonEl, this._cellsEl);
-    }
-
-    // Conteneur principal : column pour top/bottom, row pour left/right
-    this._el.style.flexDirection = isVert ? 'row' : 'column';
-
     // Cellules : row ou column selon l'orientation du dock
     this._cellsEl.style.flexDirection = isVert ? 'column' : 'row';
 
-    // Alignement cross-axis : cellules flush côté talon
+    // Alignement cross-axis : cellules flush côté bord
     this._cellsEl.style.alignItems =
       (this._edge === 'bottom' || this._edge === 'right') ? 'flex-end' : 'flex-start';
 
-    // Alignement main-axis : position du groupe de cellules selon _align
+    // Alignement main-axis selon _align
     const justifyMap = { start: 'flex-start', center: 'center', end: 'flex-end' };
     this._cellsEl.style.justifyContent = justifyMap[this._align] ?? 'center';
-
-    // Talon : dimensions + texte vertical si gauche/droite
-    if (isVert) {
-      this._talonEl.style.width  = '1.75em';
-      this._talonEl.style.height = '';
-      this._talonEl.style.writingMode = 'vertical-rl';
-      this._talonEl.style.transform   = this._edge === 'left' ? 'rotate(180deg)' : 'none';
-    } else {
-      this._talonEl.style.height = '1.75em';
-      this._talonEl.style.width  = '';
-      this._talonEl.style.writingMode = 'horizontal-tb';
-      this._talonEl.style.transform   = 'none';
-    }
   }
 
   // ── Familles ───────────────────────────────────────────────────────────────
@@ -330,7 +285,6 @@ export class BrickDock {
     this._famIdx  = this._families.indexOf(visible[normIdx]);
     const fam = this._families[this._famIdx];
 
-    this._talonEl.textContent = fam.name;
     this._disposeCells();
     this._scrollPx = 0;
     this._cellsEl.style.transform = '';
@@ -746,12 +700,7 @@ export class BrickDock {
       .map(x => x.slot);
   }
 
-  // ── Talon + fond cellsEl — scroll et slide ────────────────────────────────
-
-  _bindTalonGesture() {
-    this._bindSlideSurface(this._talonEl,  /* scrollAlso */ true);
-    this._bindSlideSurface(this._cellsEl,  /* scrollAlso */ false);
-  }
+  // ── Surface dock — scroll et slide ───────────────────────────────────────
 
   /**
    * Attache un recognizer slide/scroll sur un élément de surface du dock.
