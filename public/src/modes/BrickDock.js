@@ -375,11 +375,12 @@ export class BrickDock {
     ].join(';');
     el.appendChild(camHandle);
 
-    // Court-circuite la détection de geste du dock — TrackballControls gère seul
-    camHandle.addEventListener('pointerdown', e => { e.stopPropagation(); }, { capture: true });
-
     // TrackballControls attaché au handle ↻ uniquement
     const tb = new TrackballControls(camera, camHandle);
+
+    // Enregistré APRÈS TC (bubble phase) : TC reçoit l'event en premier,
+    // puis on stoppe la remontée vers _cellsEl pour court-circuiter le dock
+    camHandle.addEventListener('pointerdown', e => { e.stopPropagation(); });
     tb.rotateSpeed          = this._cellStyles.rotateSpeed ?? 1.5;
     tb.noZoom               = true;
     tb.noPan                = true;
