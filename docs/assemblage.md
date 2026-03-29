@@ -64,25 +64,54 @@ semi-transparente pour signaler qu'elle est « tenue ». Quand elle est relâch�
 
 ### Expérience utilisateur
 
-L'utilisateur active une cellule du dock (tap), puis démarre son geste depuis
-la brique affichée dans la cellule et relâche sur la scène. Selon la cible :
+Le dock est ancré sur un bord de l'écran et occupe toute sa largeur. Les cellules
+défilent horizontalement à l'intérieur. Trois gestes sont disponibles depuis le dock :
 
-- **Sur une brique existante** : liaison résolue entre slots dock (triés par proximité
-  au point de départ) et slots cible (triés par proximité au point d'arrivée).
-  La nouvelle brique est spawnée directement à la position snappée. Les helpers
-  d'assemblage apparaissent automatiquement si la liaison définit des `asmDof`.
-- **Sur le plan monde** : la brique est spawnée sur le world slot le plus proche ou
-  un nouveau slot en spirale phyllotaxique.
+- **Pick** (drag vers la scène) : démarre sur la brique d'une cellule, relâché sur
+  la scène → spawn avec liaison si cible brique, sinon sur le plan monde.
+- **Scroll** (glissement axial) : fait défiler les cellules sans activer aucune cellule.
+- **Slide** (glissement vers le bord) : le dock suit le doigt ; relâché à ≥ 55 px du
+  bord → le dock sort, la famille suivante est chargée, il revient. Relâché avant →
+  spring back sans changer de famille.
+
+La cellule n'est **pas activée** par un simple scroll ou slide. Elle s'active
+uniquement lors d'un geste pick (verrouillage de geste) ou d'un tap sur la brique.
+
+### Reconnaissance de geste (`_bindCellGestures`)
+
+Toute interaction démarre en mode `pending`. Après le seuil de 8 px :
+
+| Direction | Mode verrouillé | Effet |
+|-----------|----------------|-------|
+| Vers la scène + contact sur brique | `pick` | Active la cellule, transmet `pickPoint` au solveur |
+| Axial au dock | `scroll` | Translate `_trackEl`, aucune activation |
+| Vers le bord | `slide` | Suit le doigt via `_applySlideOffset` |
+| Autre (hors brique) | `scroll` | Défilement par défaut |
+
+Le `pickPoint` est un `THREE.Vector3` en espace local de la brique, obtenu par
+`_raycastCell` (raycast THREE.js réel contre `cell.mesh`). Il est transmis dans
+le payload `_onPickBrick` / `_onDragBrick` pour le solveur d'assemblage.
+
+### Structure DOM du dock
+
+```
+_el         (position:fixed, pleine largeur du bord, pointer-events:none)
+  _cellsEl  (fenêtre fixe, overflow:hidden, pointer-events:auto)
+    _trackEl  (rail flex, translateX/Y pour le scroll)
+      cell.el, cell.el, …
+```
+
+`_cellsEl` ne se déplace jamais. Seul `_trackEl` est translaté par `_setScroll`.
+Le slide anime `_el` entier (transform translateY/X).
 
 ### Caméra dans les cellules dock
 
-La cellule active propose un bouton `↻` (coin haut-droit). L'utilisateur démarre
-son geste depuis ce bouton pour piloter la caméra de la cellule. Hors du bouton,
-le geste reste dédié à l'assemblage.
+La cellule active propose un bouton `↻` (coin haut-droit). L'utilisateur y démarre
+son geste pour piloter la caméra de la cellule (TrackballControls).
 
-Le `TrackballControls` de la cellule reste `enabled = false` par défaut. Le handle
-dispatch un `PointerEvent` synthétique sur le canvas pour que `TrackballControls`
-initialise son état interne (`_pointers` + `setPointerCapture`) et prenne le relais.
+`camHandle` enregistre son `stopPropagation` en **phase bubble après TC** : TC reçoit
+l'événement en premier (enregistré avant), puis la propagation est stoppée pour ne
+pas déclencher le recognizer du dock.
 
 ### Classes et méthodes impliquées
 
@@ -90,11 +119,14 @@ initialise son état interne (`_pointers` + `setPointerCapture`) et prenne le re
 
 | Étape | Méthode | Rôle |
 |-------|---------|------|
-| Activation cellule | `BrickDock._bindCellGestures` → `_activateCell` | Agrandit la cellule, affiche le bouton `↻`, appelle `tb.handleResize()` |
-| Handle caméra | `camHandle.pointerdown` listener | Active `tb`, dispatch synthétique → TB capture le pointeur |
-| Geste assemblage | `BrickDock._bindCellGestures` (`pointermove`) | Mode `'assemble'` si geste depuis le mesh ; swipe vers bord → famille suivante |
-| Slots de la brique dock | `BrickDock._nearSlotsForBrick(cell, x, y)` | Projette les slots (`expandSlots`) en NDC via la caméra de la cellule |
-| Callback | `_onPickBrick(brickId, { nearSlots, endX, endY, … })` | Transmet la saisie à l'Assembler |
+| Raycast brique | `BrickDock._raycastCell(cell, cx, cy)` | THREE.Raycaster contre `cell.mesh` → `Vector3` local ou `null` |
+| Classification | `_isAlongDockAxis / _isTowardEdge` | Détermine scroll, pick ou slide |
+| Activation cellule | `_activateCell(cell)` | Agrandit, affiche `↻`, `tb.handleResize()` — déclenché au pick uniquement |
+| Suivi slide | `_applySlideOffset(px)` | `transform` live sur `_el` sans transition |
+| Commit slide | `_commitSlide()` | Sortie animée 150 ms, `_showFamily(+1)`, entrée opposée |
+| Cancel slide | `_cancelSlide()` | Spring back 220 ms ease-out |
+| Slots dock | `_nearSlotsForBrick(cell, x, y)` | Projette les slots en NDC via caméra cellule, triés par proximité |
+| Callback | `_onPickBrick(brickId, { nearSlots, pickPoint, … })` | Transmet au solveur Assembler |
 
 **Dans Assembler (spawn) :**
 
@@ -123,12 +155,14 @@ initialise son état interne (`_pointers` + `setPointerCapture`) et prenne le re
   la construction. Sans `handleResize()` après insertion dans le DOM, `_getMouseOnCircle`
   divise par `screen.width = 0` → NaN → aucune rotation. Appeler après `appendChild`
   et après chaque changement de taille CSS.
-- **Dispatch synthétique pour TB** : le handle `↻` est un élément sibling du canvas.
-  Ses events ne remontent pas vers le canvas. On dispatche un `PointerEvent`
-  synthétique avec le même `pointerId` pour que TB appelle `canvas.setPointerCapture()`
-  et prenne le relais sur les events suivants.
+- **Ordre d'enregistrement camHandle** : TC est instancié avant le listener
+  `stopPropagation`. L'ordre garantit que TC reçoit `pointerdown` avant que la
+  propagation soit coupée.
 - **Géométrie CSG asynchrone** : `spawnBrick` est `async`. Toute logique dépendant
   de la brique fraîchement spawnée doit être placée après l'`await`.
+- **Scroll depuis cellule inactive** : le scroll n'active pas la cellule. La caméra
+  principale n'est pas affectée car `stopPropagation` est appelé dans `_bindCellGestures`
+  avant que l'event remonte au canvas du moteur.
 
 ---
 
@@ -198,4 +232,5 @@ En relâchant, la brique disparaît de la scène et apparaît en premier dans la
 | `CFG_DEFAULTS.snapR` | 1,2 | Rayon de snap world slot |
 | `CFG_DEFAULTS.planY` | 0,25 | Hauteur du plan monde |
 | seuil drag scène | 12 px | Déclenchement feedback visuel |
-| seuil swipe dock | 15 px | Déclenchement changement de famille |
+| `DISAMBIG` (dock) | 8 px | Seuil de levée d'ambiguïté geste pick/scroll/slide |
+| `SLIDE_COMMIT_PX` | 55 px | Distance minimale vers le bord pour valider le slide |
