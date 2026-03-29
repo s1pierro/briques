@@ -230,7 +230,7 @@ export class BrickDock {
 
     this._cellsEl.style.cssText = [
       'display:flex', `gap:${GAP}px`, `padding:${GAP}px`,
-      'overflow:hidden', 'pointer-events:none',
+      'overflow:hidden', 'pointer-events:auto', 'touch-action:none',
     ].join(';');
 
     this._talonEl.style.cssText = [
@@ -744,26 +744,63 @@ export class BrickDock {
       .map(x => x.slot);
   }
 
-  // ── Talon — scroll de l'overflow ───────────────────────────────────────────
+  // ── Talon + fond cellsEl — scroll et slide ────────────────────────────────
 
   _bindTalonGesture() {
-    const isVert = () => this._edge === 'left' || this._edge === 'right';
-    let startVal = 0, startCoord = 0;
+    this._bindSlideSurface(this._talonEl,  /* scrollAlso */ true);
+    this._bindSlideSurface(this._cellsEl,  /* scrollAlso */ false);
+  }
 
-    this._talonEl.addEventListener('pointerdown', (e) => {
-      this._talonEl.setPointerCapture(e.pointerId);
-      startVal   = this._scrollPx;
-      startCoord = isVert() ? e.clientY : e.clientX;
-    });
+  /**
+   * Attache un recognizer slide/scroll sur un élément de surface du dock.
+   * scrollAlso : si true, le geste axial fait aussi défiler les cellules.
+   * Les touches qui atterrissent sur un canvas de cellule sont gérées par
+   * _bindCellGestures — on n'intercepte ici que les zones "vides".
+   */
+  _bindSlideSurface(el, scrollAlso) {
+    const DISAMBIG = 8;
+    let startX = 0, startY = 0, startScroll = 0;
+    let mode = null; // null | 'pending' | 'scroll' | 'consumed'
 
-    this._talonEl.addEventListener('pointermove', (e) => {
-      if (!this._talonEl.hasPointerCapture(e.pointerId)) return;
-      const delta = (isVert() ? e.clientY : e.clientX) - startCoord;
-      this._setScroll(startVal - delta);
-    });
+    el.addEventListener('pointerdown', (e) => {
+      // Ignorer si l'event vient d'un canvas de cellule (déjà géré)
+      if (e.target !== el) return;
+      e.preventDefault();
+      startX = e.clientX; startY = e.clientY;
+      startScroll = this._scrollPx;
+      mode = 'pending';
+      el.setPointerCapture(e.pointerId);
+    }, { passive: false });
 
-    this._talonEl.addEventListener('pointerup', () => {});
-    this._talonEl.addEventListener('pointercancel', () => {});
+    el.addEventListener('pointermove', (e) => {
+      if (!mode || mode === 'consumed') return;
+      const dx = e.clientX - startX, dy = e.clientY - startY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (mode === 'pending') {
+        if (dist < DISAMBIG) return;
+        if (this._isTowardEdge(dx, dy)) {
+          mode = 'consumed';
+          el.releasePointerCapture(e.pointerId);
+          this._animateDockSlide(1);
+          return;
+        } else if (scrollAlso && this._isAlongDockAxis(dx, dy)) {
+          mode = 'scroll';
+        } else {
+          mode = 'consumed'; // geste ambiguë sur surface vide → ignorer
+          return;
+        }
+      }
+
+      if (mode === 'scroll') {
+        const isVert = this._edge === 'left' || this._edge === 'right';
+        const delta  = isVert ? (e.clientY - startY) : (e.clientX - startX);
+        this._setScroll(startScroll - delta);
+      }
+    }, { passive: false });
+
+    el.addEventListener('pointerup',     () => { mode = null; });
+    el.addEventListener('pointercancel', () => { mode = null; });
   }
 
   _setScroll(px) {
