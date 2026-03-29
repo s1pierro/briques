@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 import { getManifold, buildCache, buildCsgWithSegs, manifoldToGeometry, geometryToOBJ, parseOBJ } from '../csg-utils.js';
+import { idb } from '../idb-store.js';
 import { expandSlots } from '../slot-utils.js';
 
 // ─── Stores localStorage ──────────────────────────────────────────────────────
@@ -311,7 +312,10 @@ export class Forge {
   _saveBrick() {
     if (!this._currentBrick) return;
     const store = this._bricks();
-    store[this._currentBrick.id] = { ...this._currentBrick, updatedAt: new Date().toISOString() };
+    const saved = { ...this._currentBrick, updatedAt: new Date().toISOString() };
+    // OBJ stockés dans IndexedDB — ne pas polluer localStorage
+    delete saved.geoLow; delete saved.geoMedium; delete saved.geoHigh;
+    store[saved.id] = saved;
     this._saveBricks(store);
     this._dirty = false;
     this._updateSaveBtn();
@@ -461,15 +465,19 @@ export class Forge {
 
     try {
       const M = await getManifold();
-      for (const [level, propName] of [['low','geoLow'],['medium','geoMedium'],['high','geoHigh']]) {
+      const entries = [];
+      for (const [level, suffix] of [['low','geoLow'],['medium','geoMedium'],['high','geoHigh']]) {
         const mf = buildCsgWithSegs(b.csgTree.steps, b.csgTree.rootId, b.segConfig[level], M);
         if (!mf) { this._setStatus(`Erreur CSG niveau ${level}`); return; }
         const { geo } = manifoldToGeometry(mf);
-        b[propName] = geometryToOBJ(geo);
+        entries.push([`brick:${b.id}:${suffix}`, geometryToOBJ(geo)]);
       }
+      await idb.setMany(entries);
+      // Marquer la présence des OBJ (flag léger, pas le contenu)
+      b._hasOBJ = true;
       this._markDirty();
       this._renderActiveTab();
-      this._setStatus('Géométries low/med/high générées');
+      this._setStatus('Géométries low/med/high → IndexedDB');
     } catch (err) {
       this._setStatus('Erreur génération OBJ');
       console.error(err);
@@ -1202,12 +1210,15 @@ export class Forge {
       genBtn.addEventListener('click', () => this._generateOBJs());
       geoSec.appendChild(genBtn);
 
-      // Indicateur OBJ existants
+      // Indicateur OBJ existants (vérifie IndexedDB)
       const objStatus = document.createElement('div');
       objStatus.style.cssText = 'font:10px sans-serif;color:var(--fg-dim);margin-top:4px;';
-      const has = l => b[`geo${l}`] ? '✓' : '✕';
-      objStatus.textContent = `OBJ : Low ${has('Low')}  Med ${has('Medium')}  High ${has('High')}`;
+      objStatus.textContent = 'OBJ : …';
       geoSec.appendChild(objStatus);
+      idb.keys(`brick:${b.id}:geo`).then(ks => {
+        const has = s => ks.some(k => k.endsWith(s)) ? '✓' : '✕';
+        objStatus.textContent = `OBJ : Low ${has('geoLow')}  Med ${has('geoMedium')}  High ${has('geoHigh')}`;
+      });
     }
 
     el.appendChild(geoSec);

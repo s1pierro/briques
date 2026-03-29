@@ -4,6 +4,7 @@ import { BrickDock } from './BrickDock.js';
 import { AsmHandlers } from './AsmDofHandler.js';
 import { AsmVerse } from './AsmVerse.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+import { idb } from '../idb-store.js';
 
 // ─── Couleurs thème Industrial ────────────────────────────────────────────────
 const C = {
@@ -253,7 +254,7 @@ export class Assembler {
     this._updateCount();
   }
 
-  _serializeSceneJSON() {
+  async _serializeSceneJSON() {
     const data         = this._asmVerse.serialize();
     const bricksStore  = this._loadStore('rbang_bricks');
     const shapesStore  = this._loadStore('rbang_shapes');
@@ -261,21 +262,31 @@ export class Assembler {
 
     const bricks   = {};
     const shapes   = {};
-    const liaisons = { ...liaisonsStore }; // toutes les liaisons (petite taille)
+    const liaisons = { ...liaisonsStore };
 
     for (const inst of data.instances) {
       const bd = bricksStore[inst.brickTypeId];
       if (!bd) continue;
-      bricks[inst.brickTypeId] = bd;
+      bricks[inst.brickTypeId] = { ...bd };
       if (bd.shapeRef && shapesStore[bd.shapeRef])
         shapes[bd.shapeRef] = shapesStore[bd.shapeRef];
+    }
+
+    // Embarquer les OBJ depuis IndexedDB pour la portabilité
+    for (const [typeId, bd] of Object.entries(bricks)) {
+      for (const suffix of ['geoLow', 'geoMedium', 'geoHigh']) {
+        const obj = await idb.get(`brick:${typeId}:${suffix}`);
+        if (obj) bd[suffix] = obj;
+      }
     }
 
     return JSON.stringify({ ...data, bricks, shapes, liaisons }, null, 2);
   }
 
-  _exportScene() {
-    const blob = new Blob([this._serializeSceneJSON()], { type: 'application/json' });
+  async _exportScene() {
+    this._toast('Préparation export…');
+    const json = await this._serializeSceneJSON();
+    const blob = new Blob([json], { type: 'application/json' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
@@ -347,7 +358,21 @@ export class Assembler {
           if (!go) return;
         }
 
-        // Injecter les stores embarqués dans le localStorage local
+        // Extraire les OBJ des briques → IndexedDB, puis injecter le reste dans localStorage
+        if (data.bricks && typeof data.bricks === 'object') {
+          const idbEntries = [];
+          for (const [typeId, bd] of Object.entries(data.bricks)) {
+            for (const suffix of ['geoLow', 'geoMedium', 'geoHigh']) {
+              if (bd[suffix]) {
+                idbEntries.push([`brick:${typeId}:${suffix}`, bd[suffix]]);
+                delete bd[suffix];
+              }
+            }
+            if (idbEntries.length) bd._hasOBJ = true;
+          }
+          if (idbEntries.length) await idb.setMany(idbEntries);
+        }
+
         const inject = (key, field) => {
           if (data[field] && typeof data[field] === 'object') {
             const store = this._loadStore(key);

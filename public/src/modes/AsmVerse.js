@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { expandSlots } from '../slot-utils.js';
 import { getManifold, buildCache, manifoldToGeometry, parseOBJ } from '../csg-utils.js';
+import { idb } from '../idb-store.js';
 import { AssemblySolver } from './AssemblySolver.js';
 
 // ─── Constantes visuelles ─────────────────────────────────────────────────────
@@ -764,14 +765,15 @@ export class AsmVerse {
   async spawnBrick(brickTypeId, brickData, pos = null, snapTransform = null, shapeData = null) {
     let geo;
 
-    // ── Priorité 1 : OBJ pré-calculé (geoMedium > geoLow > geoHigh) ──
-    const objText = brickData.geoMedium || brickData.geoLow || brickData.geoHigh;
-    if (objText) {
+    // ── Priorité 1 : OBJ pré-calculé depuis IndexedDB (medium > low > high) ──
+    for (const suffix of ['geoMedium', 'geoLow', 'geoHigh']) {
+      if (geo) break;
       try {
-        geo = parseOBJ(objText);
+        // D'abord l'objet brique (import JSON), sinon IndexedDB
+        const objText = brickData[suffix] || await idb.get(`brick:${brickTypeId}:${suffix}`);
+        if (objText) geo = parseOBJ(objText);
       } catch (e) {
-        console.warn('[spawnBrick] parseOBJ failed, fallback CSG', e);
-        geo = null;
+        console.warn(`[spawnBrick] parseOBJ ${suffix} failed`, e);
       }
     }
 
@@ -845,8 +847,8 @@ export class AsmVerse {
       }));
 
       const brick = new AsmBrick(id, brickTypeId, brickData, mesh, slots, center);
-      // Flag NG : la brique embarque son propre arbre CSG (ou OBJ pré-calculé)
-      brick.ng = !!(brickData.csgTree || brickData.geoMedium || brickData.geoLow || brickData.geoHigh);
+      // Flag NG : la brique possède un arbre CSG embarqué ou des OBJ pré-calculés
+      brick.ng = !!(brickData.csgTree || brickData._hasOBJ || brickData.geoMedium || brickData.geoLow || brickData.geoHigh);
       this.bricks.set(id, brick);
       this.slots.registerBrick(brick);   // ← point d'entrée 1 du registre
       return brick;
