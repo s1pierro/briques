@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
-import { getManifold, buildCache, manifoldToGeometry, manifoldToPoints } from '../csg-utils.js';
+import { getManifold, buildCache, buildCsgWithSegs, manifoldToGeometry, manifoldToPoints } from '../csg-utils.js';
+
+const SEG_LOW = { cylinderSegs: 8, sphereSegs: 6, coneSegs: 8, roundedBoxSegs: 2 };
 
 
 export class Sandbox {
@@ -86,7 +88,8 @@ export class Sandbox {
       if (!mf) { this._spawnBox(); return; }
 
       const { geo } = manifoldToGeometry(mf);
-      const pts     = manifoldToPoints(mf);
+      const mfLow   = buildCsgWithSegs(data.steps, data.rootId, SEG_LOW, M);
+      const pts     = manifoldToPoints(mfLow ?? mf);
 
       const color = colorHex ? parseInt(colorHex.replace('#', ''), 16) : 0x888888;
       const mesh  = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color }));
