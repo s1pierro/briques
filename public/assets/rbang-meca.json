@@ -1,0 +1,147 @@
+{
+  "slotTypes": {
+    "st-kv5ni7k": {
+      "id": "st-kv5ni7k",
+      "name": "technic pin a"
+    },
+    "st-h0fwzps": {
+      "id": "st-h0fwzps",
+      "name": "technic hole a"
+    },
+    "st-hvq44gj": {
+      "id": "st-hvq44gj",
+      "name": "system pin top"
+    },
+    "st-muu7dd0": {
+      "id": "st-muu7dd0",
+      "name": "system hole bottom"
+    },
+    "st-8durhr3": {
+      "id": "st-8durhr3",
+      "name": "technic pin top"
+    },
+    "st-nc0rrtq": {
+      "id": "st-nc0rrtq",
+      "name": "system mid hole bottom"
+    },
+    "st-s1t739k": {
+      "id": "st-s1t739k",
+      "name": "system mid hole bottom 2x"
+    },
+    "st-9u1bw6t": {
+      "id": "st-9u1bw6t",
+      "name": "hinge 2f con."
+    },
+    "st-urpt6bo": {
+      "id": "st-urpt6bo",
+      "name": "hinge 3f con."
+    }
+  },
+  "liaisons": {
+    "li-qdbuh7g": {
+      "id": "li-qdbuh7g",
+      "name": "pivot friction medium",
+      "pairs": [
+        {
+          "typeA": "st-kv5ni7k",
+          "typeB": "st-h0fwzps"
+        },
+        {
+          "typeA": "st-9u1bw6t",
+          "typeB": "st-urpt6bo"
+        }
+      ],
+      "dof": [
+        {
+          "type": "rotation",
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "min": null,
+          "max": null,
+          "step": null,
+          "damping": 0
+        },
+        {
+          "type": "rotation",
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "min": null,
+          "max": null,
+          "step": null,
+          "damping": 0
+        }
+      ],
+      "asmDof": [
+        {
+          "type": "rotation",
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "min": null,
+          "max": null,
+          "step": null
+        },
+        {
+          "type": "rotation",
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "min": null,
+          "max": null,
+          "step": null
+        }
+      ]
+    },
+    "li-fvn8n15": {
+      "id": "li-fvn8n15",
+      "name": "Liaison 2",
+      "pairs": [
+        {
+          "typeA": "st-8durhr3",
+          "typeB": "st-muu7dd0"
+        },
+        {
+          "typeA": "st-hvq44gj",
+          "typeB": "st-muu7dd0"
+        },
+        {
+          "typeA": "st-8durhr3",
+          "typeB": "st-nc0rrtq"
+        },
+        {
+          "typeA": "st-s1t739k",
+          "typeB": "st-hvq44gj"
+        },
+        {
+          "typeA": "st-s1t739k",
+          "typeB": "st-8durhr3"
+        }
+      ],
+      "dof": [],
+      "type": "weld",
+      "asmDof": [
+        {
+          "type": "rotation",
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "min": null,
+          "max": null,
+          "step": null
+        }
+      ]
+    }
+  }
+}

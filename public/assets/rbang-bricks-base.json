@@ -1,0 +1,8148 @@
+{
+  "br-lfit2fd": {
+    "id": "br-lfit2fd",
+    "name": "brique technic 1x1  v2",
+    "shapeRef": "brique technic 1x1  v2",
+    "color": "#bababa",
+    "slots": [
+      {
+        "id": "sl-ogkbhay",
+        "typeId": "st-h0fwzps",
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "quaternion": [
+          0,
+          -1,
+          0,
+          2.220446049250313e-16
+        ]
+      },
+      {
+        "id": "sl-jtr93pz",
+        "typeId": "st-muu7dd0",
+        "position": [
+          0,
+          -0.7,
+          0
+        ],
+        "quaternion": [
+          -0.5000000000000001,
+          -0.4999999999999999,
+          -0.4999999999999997,
+          0.49999999999999994
+        ]
+      },
+      {
+        "id": "sl-0zqwxc9",
+        "typeId": "st-8durhr3",
+        "position": [
+          0,
+          0.5,
+          0
+        ],
+        "quaternion": [
+          0.5,
+          0.4999999999999999,
+          0.5,
+          -0.49999999999999983
+        ]
+      }
+    ],
+    "createdAt": "2026-03-24T22:39:16.655Z",
+    "updatedAt": "2026-03-29T13:30:06.329Z",
+    "family": "technic",
+    "csgTree": {
+      "rootId": "step-qnb1vgb",
+      "steps": [
+        {
+          "id": "step-fgc82em",
+          "kind": "cube",
+          "label": "Corp",
+          "params": {
+            "x": 0.995,
+            "y": 1.195,
+            "z": 0.995
+          },
+          "translate": [
+            0,
+            -0.1,
+            0
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-hbw36sk",
+          "kind": "cylinder",
+          "label": "Cylindre",
+          "params": {
+            "r": 0.3,
+            "h": 2,
+            "segs": 128
+          },
+          "visible": false
+        },
+        {
+          "id": "step-8ngznel",
+          "kind": "subtract",
+          "label": "Soustraire 1",
+          "params": {
+            "a": "step-fgc82em",
+            "b": "step-hbw36sk"
+          },
+          "visible": false
+        },
+        {
+          "id": "step-a6uqjbe",
+          "kind": "cube",
+          "label": "Cube 2",
+          "params": {
+            "x": 0.6,
+            "y": 1,
+            "z": 0.6
+          },
+          "translate": [
+            0,
+            -0.5,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-03b5muh",
+          "kind": "cylinder",
+          "label": "Cylindre 2",
+          "params": {
+            "r": 0.45,
+            "h": 2,
+            "segs": 32
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-yw7f6k6",
+          "kind": "subtract",
+          "label": "Soustraire bottom",
+          "params": {
+            "a": "step-a6uqjbe",
+            "b": "step-03b5muh"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-sb94iad",
+          "kind": "cylinder",
+          "label": "Cylindre ep-0",
+          "params": {
+            "r": 0.4,
+            "h": 1.5,
+            "segs": 32
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-ywtgr82",
+          "kind": "cylinder",
+          "label": "Cylindre ep-1",
+          "params": {
+            "r": 0.5,
+            "h": 0.8,
+            "segs": 24
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-xdpufmk",
+          "kind": "subtract",
+          "label": "ep-soustr",
+          "params": {
+            "a": "step-sb94iad",
+            "b": "step-ywtgr82"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-z2cp0of",
+          "kind": "subtract",
+          "label": "Soustraire - 0",
+          "params": {
+            "a": "step-8ngznel",
+            "b": "step-xdpufmk"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-u5stfue",
+          "kind": "subtract",
+          "label": "Soustraire - 3",
+          "params": {
+            "a": "step-z2cp0of",
+            "b": "step-yw7f6k6"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-ldadiu6",
+          "kind": "cylinder",
+          "label": "Cylindre plot - 1",
+          "params": {
+            "r": 0.3,
+            "h": 0.22,
+            "segs": 32
+          },
+          "translate": [
+            0,
+            0,
+            0.59
+          ],
+          "rotate": [
+            -90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-lfsxmxe",
+          "kind": "cylinder",
+          "label": "Cylindre plot def",
+          "params": {
+            "r": 0.2,
+            "h": 2,
+            "segs": 24
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-o0xad53",
+          "kind": "subtract",
+          "label": "plot",
+          "params": {
+            "a": "step-ldadiu6",
+            "b": "step-lfsxmxe"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-qnb1vgb",
+          "kind": "union",
+          "label": "brique technic 1x1  v2",
+          "params": {
+            "a": "step-u5stfue",
+            "b": "step-o0xad53"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": true
+        }
+      ]
+    },
+    "segConfig": {
+      "low": {
+        "cylinderSegs": 8,
+        "sphereSegs": 8,
+        "coneSegs": 8,
+        "roundedBoxSegs": 4
+      },
+      "medium": {
+        "cylinderSegs": 24,
+        "sphereSegs": 16,
+        "coneSegs": 16,
+        "roundedBoxSegs": 8
+      },
+      "high": {
+        "cylinderSegs": 64,
+        "sphereSegs": 48,
+        "coneSegs": 48,
+        "roundedBoxSegs": 16
+      }
+    },
+    "_hasOBJ": true,
+    "subfamily": "brick"
+  },
+  "br-obobhuk": {
+    "id": "br-obobhuk",
+    "name": "system brique 1x1 v2",
+    "shapeRef": "system brique 1x1 v2",
+    "color": "#ff0000",
+    "slots": [
+      {
+        "id": "sl-rg2llhs",
+        "typeId": "st-hvq44gj",
+        "position": [
+          0,
+          0.2,
+          0
+        ],
+        "quaternion": [
+          -5.551115123125783e-17,
+          -0.7071067811865475,
+          -0.7071067811865472,
+          -4.440892098500626e-16
+        ]
+      },
+      {
+        "id": "sl-l3j3x0q",
+        "typeId": "st-muu7dd0",
+        "position": [
+          0,
+          -1,
+          0
+        ],
+        "quaternion": [
+          0,
+          0.7071067811865474,
+          0.7071067811865475,
+          0
+        ]
+      }
+    ],
+    "createdAt": "2026-03-24T23:04:49.930Z",
+    "updatedAt": "2026-03-29T13:30:17.647Z",
+    "family": "system",
+    "csgTree": {
+      "rootId": "step-5bdfngd",
+      "steps": [
+        {
+          "id": "step-hqdemjv",
+          "kind": "cylinder",
+          "label": "Cylindre",
+          "params": {
+            "r": 0.3,
+            "h": 0.22,
+            "segs": 64
+          },
+          "translate": [
+            0,
+            0,
+            0.29
+          ],
+          "rotate": [
+            -90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-ohnbih8",
+          "kind": "cone",
+          "label": "Cône",
+          "params": {
+            "r": 2,
+            "h": 2,
+            "segs": 128
+          },
+          "translate": [
+            0,
+            0,
+            -0.32
+          ],
+          "rotate": [
+            -90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-6ax4v8l",
+          "kind": "intersect",
+          "label": "system plot",
+          "params": {
+            "a": "step-hqdemjv",
+            "b": "step-ohnbih8"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-upruzk7",
+          "kind": "roundedBox",
+          "label": "brique corp v2",
+          "params": {
+            "x": 0.99,
+            "y": 1.195,
+            "z": 0.995,
+            "r": 0.005,
+            "segs": 1
+          },
+          "translate": [
+            0,
+            -0.4,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-ynxhl96",
+          "kind": "cube",
+          "label": "defonce basse",
+          "params": {
+            "x": 0.6,
+            "y": 1,
+            "z": 0.6
+          },
+          "translate": [
+            0,
+            -0.5,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-5linyuc",
+          "kind": "cylinder",
+          "label": "Cylindre defonce basse",
+          "params": {
+            "r": 0.1,
+            "h": 0.4,
+            "segs": 24
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-7d1d7lr",
+          "kind": "union",
+          "label": "Union defonce basse",
+          "params": {
+            "a": "step-ynxhl96",
+            "b": "step-5linyuc"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-xopus26",
+          "kind": "union",
+          "label": "Union corp - plot",
+          "params": {
+            "a": "step-upruzk7",
+            "b": "step-6ax4v8l"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-5bdfngd",
+          "kind": "subtract",
+          "label": "system brique 1x1 v2",
+          "params": {
+            "a": "step-xopus26",
+            "b": "step-7d1d7lr"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": true
+        }
+      ]
+    },
+    "segConfig": {
+      "low": {
+        "cylinderSegs": 8,
+        "sphereSegs": 8,
+        "coneSegs": 8,
+        "roundedBoxSegs": 4
+      },
+      "medium": {
+        "cylinderSegs": 24,
+        "sphereSegs": 16,
+        "coneSegs": 16,
+        "roundedBoxSegs": 8
+      },
+      "high": {
+        "cylinderSegs": 64,
+        "sphereSegs": 48,
+        "coneSegs": 48,
+        "roundedBoxSegs": 16
+      }
+    },
+    "subfamily": "brick"
+  },
+  "br-gnea8ws": {
+    "id": "br-gnea8ws",
+    "name": "technic bar 4x v1",
+    "shapeRef": "technic bar 4x v1",
+    "color": "#ffffff",
+    "slots": [
+      {
+        "id": "sl-see66wy",
+        "typeId": "st-h0fwzps",
+        "position": [
+          -1.5,
+          0,
+          0
+        ],
+        "quaternion": [
+          0,
+          -1,
+          0,
+          2.220446049250313e-16
+        ],
+        "repeat": {
+          "count": 4,
+          "step": [
+            1,
+            0,
+            0
+          ]
+        }
+      }
+    ],
+    "createdAt": "2026-03-25T01:05:38.939Z",
+    "updatedAt": "2026-03-29T13:30:50.006Z",
+    "family": "technic",
+    "csgTree": {
+      "rootId": "step-kp4cog9",
+      "steps": [
+        {
+          "id": "step-1jwsht2",
+          "kind": "cube",
+          "label": "Cube",
+          "params": {
+            "x": 5,
+            "y": 2,
+            "z": 1
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-2mubtm7",
+          "kind": "roundedBox",
+          "label": "Cube arrondi",
+          "params": {
+            "x": 4,
+            "y": 1,
+            "z": 5,
+            "r": 0.5,
+            "segs": 64
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-6rc19a8",
+          "kind": "intersect",
+          "label": "technic bar 2x",
+          "params": {
+            "a": "step-1jwsht2",
+            "b": "step-2mubtm7"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-x5kw89p",
+          "kind": "roundedBox",
+          "label": "Cube arrondi",
+          "params": {
+            "x": 3.8,
+            "y": 0.8,
+            "z": 4,
+            "r": 0.4,
+            "segs": 64
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-ixlu5jr",
+          "kind": "subtract",
+          "label": "technic bar frame 2x",
+          "params": {
+            "a": "step-6rc19a8",
+            "b": "step-x5kw89p"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-fc4e3aa",
+          "kind": "cylinder",
+          "label": "bar hole body",
+          "params": {
+            "r": 0.45,
+            "h": 1,
+            "segs": 64
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-duxuetu",
+          "kind": "cylinder",
+          "label": "bar hole body def",
+          "params": {
+            "r": 0.3,
+            "h": 2,
+            "segs": 48
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-iszxvix",
+          "kind": "cylinder",
+          "label": "bar hole body def ep z-",
+          "params": {
+            "r": 0.4,
+            "h": 0.2,
+            "segs": 72
+          },
+          "translate": [
+            0,
+            0,
+            -0.5
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-l4cpqis",
+          "kind": "repeat",
+          "label": "Répétition",
+          "params": {
+            "src": "step-iszxvix",
+            "n": 2,
+            "dx": 0,
+            "dy": 0,
+            "dz": 1
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-b0tlztd",
+          "kind": "union",
+          "label": "technic hole defonce",
+          "params": {
+            "a": "step-duxuetu",
+            "b": "step-l4cpqis"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-z8pdqx4",
+          "kind": "subtract",
+          "label": "technic hole single",
+          "params": {
+            "a": "step-fc4e3aa",
+            "b": "step-b0tlztd"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-vlx5p3t",
+          "kind": "repeat",
+          "label": "Répétition",
+          "params": {
+            "src": "step-z8pdqx4",
+            "n": 4,
+            "dx": 1,
+            "dy": 0,
+            "dz": 0
+          },
+          "translate": [
+            -1.5,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-kp4cog9",
+          "kind": "union",
+          "label": "technic bar 4x v1",
+          "params": {
+            "a": "step-ixlu5jr",
+            "b": "step-vlx5p3t"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": true
+        }
+      ]
+    },
+    "segConfig": {
+      "low": {
+        "cylinderSegs": 8,
+        "sphereSegs": 8,
+        "coneSegs": 8,
+        "roundedBoxSegs": 4
+      },
+      "medium": {
+        "cylinderSegs": 24,
+        "sphereSegs": 16,
+        "coneSegs": 16,
+        "roundedBoxSegs": 8
+      },
+      "high": {
+        "cylinderSegs": 64,
+        "sphereSegs": 48,
+        "coneSegs": 48,
+        "roundedBoxSegs": 16
+      }
+    },
+    "_hasOBJ": true,
+    "subfamily": "bar"
+  },
+  "br-51a69db": {
+    "id": "br-51a69db",
+    "name": "system plate 1x2 v4",
+    "shapeRef": "system plate 1x2 v3",
+    "color": "#9e0000",
+    "slots": [
+      {
+        "id": "sl-y35vuzi",
+        "typeId": "st-hvq44gj",
+        "position": [
+          0,
+          0.2,
+          0
+        ],
+        "quaternion": [
+          -0.5,
+          0.4999999999999999,
+          0.5,
+          0.5000000000000001
+        ]
+      },
+      {
+        "id": "sl-euehee9",
+        "typeId": "st-hvq44gj",
+        "position": [
+          1,
+          0.2,
+          0
+        ],
+        "quaternion": [
+          -0.5,
+          0.4999999999999999,
+          0.5,
+          0.5000000000000001
+        ]
+      },
+      {
+        "id": "sl-7jt6vz7",
+        "typeId": "st-muu7dd0",
+        "position": [
+          0,
+          -0.2,
+          0
+        ],
+        "quaternion": [
+          -0.5,
+          0.4999999999999999,
+          0.5,
+          0.5000000000000001
+        ]
+      },
+      {
+        "id": "sl-48uz4j7",
+        "typeId": "st-muu7dd0",
+        "position": [
+          1,
+          -0.2,
+          0
+        ],
+        "quaternion": [
+          -0.5,
+          0.4999999999999999,
+          0.5,
+          0.5000000000000001
+        ]
+      },
+      {
+        "id": "sl-ght4p0b",
+        "typeId": "st-nc0rrtq",
+        "position": [
+          0.5,
+          -0.2,
+          0
+        ],
+        "quaternion": [
+          -0.5,
+          0.4999999999999999,
+          0.5,
+          0.5000000000000001
+        ]
+      }
+    ],
+    "createdAt": "2026-03-26T08:30:19.890Z",
+    "family": "system",
+    "updatedAt": "2026-03-29T13:31:00.731Z",
+    "csgTree": {
+      "rootId": "smn6g64yl",
+      "steps": [
+        {
+          "id": "step-umo5n0o",
+          "kind": "cylinder",
+          "label": "Cylindre",
+          "params": {
+            "r": 0.3,
+            "h": 0.22,
+            "segs": 64
+          },
+          "translate": [
+            0,
+            0,
+            0.29
+          ],
+          "rotate": [
+            -90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-9sqg65o",
+          "kind": "cone",
+          "label": "Cône",
+          "params": {
+            "r": 2,
+            "h": 2,
+            "segs": 128
+          },
+          "translate": [
+            0,
+            0,
+            -0.32
+          ],
+          "rotate": [
+            -90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-wn61h9e",
+          "kind": "intersect",
+          "label": "system plot",
+          "params": {
+            "a": "step-umo5n0o",
+            "b": "step-9sqg65o"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-lee1wah",
+          "kind": "roundedBox",
+          "label": "brique corp v2",
+          "params": {
+            "x": 1.995,
+            "y": 0.395,
+            "z": 0.995,
+            "r": 0.005,
+            "segs": 1
+          },
+          "translate": [
+            0.5,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-h2dc819",
+          "kind": "cube",
+          "label": "defonce basse",
+          "params": {
+            "x": 1.6,
+            "y": 1,
+            "z": 0.6
+          },
+          "translate": [
+            0.5,
+            -0.5,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-ovy2gtu",
+          "kind": "cylinder",
+          "label": "Cylindre defonce basse",
+          "params": {
+            "r": 0.1,
+            "h": 0.4,
+            "segs": 24
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smn6fs933",
+          "kind": "repeat",
+          "label": "Répétition system plot",
+          "params": {
+            "src": "step-wn61h9e",
+            "n": 2,
+            "dx": 1,
+            "dy": 0,
+            "dz": 0
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smn6fvc37",
+          "kind": "repeat",
+          "label": "Répétition Cylindre defonce basse",
+          "params": {
+            "src": "step-ovy2gtu",
+            "n": 2,
+            "dx": 1,
+            "dy": 0,
+            "dz": 0
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smn6fwvsp",
+          "kind": "union",
+          "label": "Union defonce basse 2",
+          "params": {
+            "a": "step-h2dc819",
+            "b": "smn6fvc37"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smn6fy1cp",
+          "kind": "union",
+          "label": "Union corp plot 2",
+          "params": {
+            "a": "step-lee1wah",
+            "b": "smn6fs933"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smn6g2jn6",
+          "kind": "cylinder",
+          "label": "Cylindre",
+          "params": {
+            "r": 0.2,
+            "h": 0.395,
+            "segs": 24
+          },
+          "translate": [
+            0.5,
+            0,
+            0
+          ],
+          "rotate": [
+            90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smn6g4dxx",
+          "kind": "subtract",
+          "label": "Union defonce basse 3",
+          "params": {
+            "a": "smn6fwvsp",
+            "b": "smn6g2jn6"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smn6g64yl",
+          "kind": "subtract",
+          "label": "system plate 1x2 v3",
+          "params": {
+            "a": "smn6fy1cp",
+            "b": "smn6g4dxx"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": true
+        }
+      ]
+    },
+    "segConfig": {
+      "low": {
+        "cylinderSegs": 8,
+        "sphereSegs": 8,
+        "coneSegs": 8,
+        "roundedBoxSegs": 4
+      },
+      "medium": {
+        "cylinderSegs": 24,
+        "sphereSegs": 16,
+        "coneSegs": 16,
+        "roundedBoxSegs": 8
+      },
+      "high": {
+        "cylinderSegs": 64,
+        "sphereSegs": 48,
+        "coneSegs": 48,
+        "roundedBoxSegs": 16
+      }
+    },
+    "_hasOBJ": true,
+    "subfamily": "plate"
+  },
+  "br-lal7jwt": {
+    "id": "br-lal7jwt",
+    "name": "system plate 1x4",
+    "shapeRef": "system plate 1x4",
+    "color": "#522500",
+    "slots": [
+      {
+        "id": "sl-gdhefyq",
+        "typeId": "st-hvq44gj",
+        "position": [
+          0,
+          0.2,
+          0
+        ],
+        "quaternion": [
+          -0.7071067811865475,
+          0,
+          0,
+          0.7071067811865476
+        ],
+        "repeat": {
+          "count": 4,
+          "step": [
+            1,
+            0,
+            0
+          ]
+        }
+      },
+      {
+        "id": "sl-uqnwp1e",
+        "typeId": "st-muu7dd0",
+        "position": [
+          0,
+          -0.2,
+          0
+        ],
+        "quaternion": [
+          -0.7071067811865475,
+          0,
+          0,
+          0.7071067811865476
+        ],
+        "repeat": {
+          "count": 4,
+          "step": [
+            1,
+            0,
+            0
+          ]
+        }
+      },
+      {
+        "id": "sl-c3ng7v8",
+        "typeId": "st-nc0rrtq",
+        "position": [
+          0.5,
+          -0.2,
+          0
+        ],
+        "quaternion": [
+          -0.7071067811865475,
+          0,
+          0,
+          0.7071067811865476
+        ],
+        "repeat": {
+          "count": 3,
+          "step": [
+            1,
+            0,
+            0
+          ]
+        }
+      }
+    ],
+    "createdAt": "2026-03-26T09:26:07.100Z",
+    "updatedAt": "2026-03-29T13:31:09.832Z",
+    "family": "system",
+    "csgTree": {
+      "rootId": "smn79j0o3",
+      "steps": [
+        {
+          "id": "step-16m8abt",
+          "kind": "cube",
+          "label": "defonce basse",
+          "params": {
+            "x": 3.6,
+            "y": 1,
+            "z": 0.6
+          },
+          "translate": [
+            1.5,
+            -0.5,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-r3qx4v8",
+          "kind": "cylinder",
+          "label": "Cylindre defonce basse",
+          "params": {
+            "r": 0.1,
+            "h": 0.4,
+            "segs": 24
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-shz4zfs",
+          "kind": "repeat",
+          "label": "Répétition Cylindre defonce basse",
+          "params": {
+            "src": "step-r3qx4v8",
+            "n": 4,
+            "dx": 1,
+            "dy": 0,
+            "dz": 0
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-k389y88",
+          "kind": "cylinder",
+          "label": "Cylindre defonce basse negatif",
+          "params": {
+            "r": 0.2,
+            "h": 0.395,
+            "segs": 24
+          },
+          "translate": [
+            0.5,
+            0,
+            0
+          ],
+          "rotate": [
+            90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-tthnd47",
+          "kind": "repeat",
+          "label": "Rép. Cylindre defonce basse negatif",
+          "params": {
+            "src": "step-k389y88",
+            "n": 3,
+            "dx": 1,
+            "dy": 0,
+            "dz": 0
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-ovzi74t",
+          "kind": "union",
+          "label": "Union defonce basse 5",
+          "params": {
+            "a": "step-16m8abt",
+            "b": "step-shz4zfs"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-4lzn5s8",
+          "kind": "subtract",
+          "label": "defonce basse 4x",
+          "params": {
+            "a": "step-ovzi74t",
+            "b": "step-tthnd47"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-szyt6of",
+          "kind": "cylinder",
+          "label": "Cylindre",
+          "params": {
+            "r": 0.3,
+            "h": 0.22,
+            "segs": 64
+          },
+          "translate": [
+            0,
+            0,
+            0.29
+          ],
+          "rotate": [
+            -90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-cajuaff",
+          "kind": "cone",
+          "label": "Cône",
+          "params": {
+            "r": 2,
+            "h": 2,
+            "segs": 128
+          },
+          "translate": [
+            0,
+            0,
+            -0.32
+          ],
+          "rotate": [
+            -90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-099jev4",
+          "kind": "intersect",
+          "label": "system plot",
+          "params": {
+            "a": "step-szyt6of",
+            "b": "step-cajuaff"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-128dt6a",
+          "kind": "roundedBox",
+          "label": "brique corp v2",
+          "params": {
+            "x": 3.995,
+            "y": 0.395,
+            "z": 0.995,
+            "r": 0.005,
+            "segs": 1
+          },
+          "translate": [
+            1.5,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-5zb6om9",
+          "kind": "repeat",
+          "label": "Répétition system plot",
+          "params": {
+            "src": "step-099jev4",
+            "n": 4,
+            "dx": 1,
+            "dy": 0,
+            "dz": 0
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-wgmt6e3",
+          "kind": "union",
+          "label": "Union corp plot 4x",
+          "params": {
+            "a": "step-128dt6a",
+            "b": "step-5zb6om9"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smn79j0o3",
+          "kind": "subtract",
+          "label": "system plate 1x4",
+          "params": {
+            "a": "step-wgmt6e3",
+            "b": "step-4lzn5s8"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": true
+        }
+      ]
+    },
+    "segConfig": {
+      "low": {
+        "cylinderSegs": 8,
+        "sphereSegs": 8,
+        "coneSegs": 8,
+        "roundedBoxSegs": 4
+      },
+      "medium": {
+        "cylinderSegs": 24,
+        "sphereSegs": 16,
+        "coneSegs": 16,
+        "roundedBoxSegs": 8
+      },
+      "high": {
+        "cylinderSegs": 64,
+        "sphereSegs": 48,
+        "coneSegs": 48,
+        "roundedBoxSegs": 16
+      }
+    },
+    "_hasOBJ": true,
+    "subfamily": "plate"
+  },
+  "br-3kj907v": {
+    "id": "br-3kj907v",
+    "name": "system plate 1x1",
+    "shapeRef": "system plate 1x1 v2",
+    "color": "#784600",
+    "slots": [
+      {
+        "id": "sl-ztj0jx4",
+        "typeId": "st-hvq44gj",
+        "position": [
+          0,
+          0.2,
+          0
+        ],
+        "quaternion": [
+          -0.7071067811865475,
+          0,
+          0,
+          0.7071067811865476
+        ]
+      },
+      {
+        "id": "sl-qyxj9yq",
+        "typeId": "st-muu7dd0",
+        "position": [
+          0,
+          -0.2,
+          0
+        ],
+        "quaternion": [
+          -0.7071067811865475,
+          0,
+          0,
+          0.7071067811865476
+        ]
+      }
+    ],
+    "createdAt": "2026-03-26T10:02:57.376Z",
+    "updatedAt": "2026-03-29T13:31:15.876Z",
+    "family": "system",
+    "csgTree": {
+      "rootId": "smn4xrtgv",
+      "steps": [
+        {
+          "id": "smn4x9a4b",
+          "kind": "cylinder",
+          "label": "Cylindre",
+          "params": {
+            "r": 0.3,
+            "h": 0.22,
+            "segs": 64
+          },
+          "translate": [
+            0,
+            0,
+            0.29
+          ],
+          "rotate": [
+            -90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smn4xdt7y",
+          "kind": "cone",
+          "label": "Cône",
+          "params": {
+            "r": 2,
+            "h": 2,
+            "segs": 128
+          },
+          "translate": [
+            0,
+            0,
+            -0.32
+          ],
+          "rotate": [
+            -90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smn4xhkuq",
+          "kind": "intersect",
+          "label": "system plot",
+          "params": {
+            "a": "smn4x9a4b",
+            "b": "smn4xdt7y"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-f4vu598",
+          "kind": "roundedBox",
+          "label": "brique corp v2",
+          "params": {
+            "x": 0.99,
+            "y": 0.395,
+            "z": 0.995,
+            "r": 0.005,
+            "segs": 1
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smn4xkhrn",
+          "kind": "cube",
+          "label": "defonce basse",
+          "params": {
+            "x": 0.6,
+            "y": 1,
+            "z": 0.6
+          },
+          "translate": [
+            0,
+            -0.5,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smn4xndwv",
+          "kind": "cylinder",
+          "label": "Cylindre defonce basse",
+          "params": {
+            "r": 0.1,
+            "h": 0.4,
+            "segs": 24
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smn4xpflv",
+          "kind": "union",
+          "label": "Union defonce basse",
+          "params": {
+            "a": "smn4xkhrn",
+            "b": "smn4xndwv"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smn4xqi38",
+          "kind": "union",
+          "label": "Union corp - plot",
+          "params": {
+            "a": "step-f4vu598",
+            "b": "smn4xhkuq"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smn4xrtgv",
+          "kind": "subtract",
+          "label": "system plate 1x1 v2",
+          "params": {
+            "a": "smn4xqi38",
+            "b": "smn4xpflv"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": true
+        }
+      ]
+    },
+    "segConfig": {
+      "low": {
+        "cylinderSegs": 8,
+        "sphereSegs": 8,
+        "coneSegs": 8,
+        "roundedBoxSegs": 4
+      },
+      "medium": {
+        "cylinderSegs": 24,
+        "sphereSegs": 16,
+        "coneSegs": 16,
+        "roundedBoxSegs": 8
+      },
+      "high": {
+        "cylinderSegs": 64,
+        "sphereSegs": 48,
+        "coneSegs": 48,
+        "roundedBoxSegs": 16
+      }
+    },
+    "_hasOBJ": true,
+    "subfamily": "plate"
+  },
+  "br-97g9c2y": {
+    "id": "br-97g9c2y",
+    "name": "system plate 1x3",
+    "shapeRef": "system plate 1x3",
+    "color": "#9e9e9e",
+    "slots": [
+      {
+        "id": "sl-wpqac5t",
+        "typeId": "st-hvq44gj",
+        "position": [
+          0,
+          0.2,
+          0
+        ],
+        "quaternion": [
+          -0.7071067811865475,
+          0,
+          0,
+          0.7071067811865476
+        ],
+        "repeat": {
+          "count": 3,
+          "step": [
+            1,
+            0,
+            0
+          ]
+        }
+      },
+      {
+        "id": "sl-9xiueis",
+        "typeId": "st-muu7dd0",
+        "position": [
+          0,
+          -0.2,
+          0
+        ],
+        "quaternion": [
+          -0.7071067811865475,
+          0,
+          0,
+          0.7071067811865476
+        ],
+        "repeat": {
+          "count": 3,
+          "step": [
+            1,
+            0,
+            0
+          ]
+        }
+      },
+      {
+        "id": "sl-cokcckm",
+        "typeId": "st-nc0rrtq",
+        "position": [
+          0.5,
+          -0.2,
+          0
+        ],
+        "quaternion": [
+          -0.7071067811865475,
+          0,
+          0,
+          0.7071067811865476
+        ],
+        "repeat": {
+          "count": 2,
+          "step": [
+            1,
+            0,
+            0
+          ]
+        }
+      }
+    ],
+    "createdAt": "2026-03-26T10:04:21.005Z",
+    "updatedAt": "2026-03-29T11:41:37.998Z",
+    "family": "system",
+    "_hasOBJ": true,
+    "csgTree": {
+      "rootId": "smn798fni",
+      "steps": [
+        {
+          "id": "step-zyaqf6v",
+          "kind": "cylinder",
+          "label": "Cylindre",
+          "params": {
+            "r": 0.3,
+            "h": 0.22,
+            "segs": 64
+          },
+          "translate": [
+            0,
+            0,
+            0.29
+          ],
+          "rotate": [
+            -90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-8lpkt7x",
+          "kind": "cone",
+          "label": "Cône",
+          "params": {
+            "r": 2,
+            "h": 2,
+            "segs": 128
+          },
+          "translate": [
+            0,
+            0,
+            -0.32
+          ],
+          "rotate": [
+            -90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-ddva1dv",
+          "kind": "intersect",
+          "label": "system plot",
+          "params": {
+            "a": "step-zyaqf6v",
+            "b": "step-8lpkt7x"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-np5if68",
+          "kind": "roundedBox",
+          "label": "brique corp v2",
+          "params": {
+            "x": 2.995,
+            "y": 0.395,
+            "z": 0.995,
+            "r": 0.005,
+            "segs": 1
+          },
+          "translate": [
+            1,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-mxk97vn",
+          "kind": "cube",
+          "label": "defonce basse",
+          "params": {
+            "x": 2.6,
+            "y": 1,
+            "z": 0.6
+          },
+          "translate": [
+            1,
+            -0.5,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-bcaa32s",
+          "kind": "cylinder",
+          "label": "Cylindre defonce basse",
+          "params": {
+            "r": 0.1,
+            "h": 0.4,
+            "segs": 24
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-xilx6ju",
+          "kind": "repeat",
+          "label": "Répétition system plot",
+          "params": {
+            "src": "step-ddva1dv",
+            "n": 3,
+            "dx": 1,
+            "dy": 0,
+            "dz": 0
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-ja1m64t",
+          "kind": "repeat",
+          "label": "Répétition Cylindre defonce basse",
+          "params": {
+            "src": "step-bcaa32s",
+            "n": 3,
+            "dx": 1,
+            "dy": 0,
+            "dz": 0
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-eatpqq7",
+          "kind": "union",
+          "label": "Union corp plot 2",
+          "params": {
+            "a": "step-np5if68",
+            "b": "step-xilx6ju"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-b514l6w",
+          "kind": "cylinder",
+          "label": "Cylindre defonce basse negatif",
+          "params": {
+            "r": 0.2,
+            "h": 0.395,
+            "segs": 24
+          },
+          "translate": [
+            0.5,
+            0,
+            0
+          ],
+          "rotate": [
+            90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smn7901aq",
+          "kind": "repeat",
+          "label": "Rép. Cylindre defonce basse negatif",
+          "params": {
+            "src": "step-b514l6w",
+            "n": 2,
+            "dx": 1,
+            "dy": 0,
+            "dz": 0
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smn793cxa",
+          "kind": "union",
+          "label": "Union defonce basse 5",
+          "params": {
+            "a": "step-mxk97vn",
+            "b": "step-ja1m64t"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smn795nbf",
+          "kind": "subtract",
+          "label": "defonce basse 3x",
+          "params": {
+            "a": "smn793cxa",
+            "b": "smn7901aq"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smn798fni",
+          "kind": "subtract",
+          "label": "system plate 1x3",
+          "params": {
+            "a": "step-eatpqq7",
+            "b": "smn795nbf"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": true
+        }
+      ]
+    },
+    "segConfig": {
+      "low": {
+        "cylinderSegs": 8,
+        "sphereSegs": 8,
+        "coneSegs": 8,
+        "roundedBoxSegs": 4
+      },
+      "medium": {
+        "cylinderSegs": 24,
+        "sphereSegs": 16,
+        "coneSegs": 16,
+        "roundedBoxSegs": 8
+      },
+      "high": {
+        "cylinderSegs": 64,
+        "sphereSegs": 48,
+        "coneSegs": 48,
+        "roundedBoxSegs": 16
+      }
+    }
+  },
+  "br-mtlv9r0": {
+    "id": "br-mtlv9r0",
+    "name": "technic bar 2x",
+    "shapeRef": "technic bar 2x v1",
+    "color": "#ffffff",
+    "slots": [
+      {
+        "id": "sl-6ql9ojr",
+        "typeId": "st-h0fwzps",
+        "position": [
+          -0.5,
+          0,
+          0
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "repeat": {
+          "count": 2,
+          "step": [
+            1,
+            0,
+            0
+          ]
+        }
+      }
+    ],
+    "createdAt": "2026-03-26T10:44:36.038Z",
+    "family": "technic",
+    "updatedAt": "2026-03-29T13:28:50.649Z",
+    "csgTree": {
+      "rootId": "step-wclhplz",
+      "steps": [
+        {
+          "id": "step-kdrv4de",
+          "kind": "cube",
+          "label": "Cube",
+          "params": {
+            "x": 3,
+            "y": 2,
+            "z": 1
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-p51hf53",
+          "kind": "roundedBox",
+          "label": "Cube arrondi",
+          "params": {
+            "x": 2,
+            "y": 1,
+            "z": 5,
+            "r": 0.5,
+            "segs": 64
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-ecu9syt",
+          "kind": "intersect",
+          "label": "technic bar 2x",
+          "params": {
+            "a": "step-kdrv4de",
+            "b": "step-p51hf53"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-a9cpczz",
+          "kind": "roundedBox",
+          "label": "Cube arrondi",
+          "params": {
+            "x": 1.8,
+            "y": 0.8,
+            "z": 4,
+            "r": 0.4,
+            "segs": 64
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1.05,
+            1.05,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-s7yznqv",
+          "kind": "subtract",
+          "label": "technic bar frame 2x",
+          "params": {
+            "a": "step-ecu9syt",
+            "b": "step-a9cpczz"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-p9j0125",
+          "kind": "cylinder",
+          "label": "bar hole body",
+          "params": {
+            "r": 0.45,
+            "h": 1,
+            "segs": 64
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-s1oi3n2",
+          "kind": "cylinder",
+          "label": "bar hole body def",
+          "params": {
+            "r": 0.3,
+            "h": 2,
+            "segs": 48
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-ehjgvdy",
+          "kind": "cylinder",
+          "label": "bar hole body def ep z-",
+          "params": {
+            "r": 0.4,
+            "h": 0.2,
+            "segs": 72
+          },
+          "translate": [
+            0,
+            0,
+            -0.5
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-75hd38v",
+          "kind": "repeat",
+          "label": "Répétition",
+          "params": {
+            "src": "step-ehjgvdy",
+            "n": 2,
+            "dx": 0,
+            "dy": 0,
+            "dz": 1
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-zn3f001",
+          "kind": "union",
+          "label": "technic hole defonce",
+          "params": {
+            "a": "step-s1oi3n2",
+            "b": "step-75hd38v"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-tsaqsxr",
+          "kind": "subtract",
+          "label": "technic hole single",
+          "params": {
+            "a": "step-p9j0125",
+            "b": "step-zn3f001"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-j7i7cnj",
+          "kind": "repeat",
+          "label": "Répétition",
+          "params": {
+            "src": "step-tsaqsxr",
+            "n": 2,
+            "dx": 1,
+            "dy": 0,
+            "dz": 0
+          },
+          "translate": [
+            -0.5,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-wclhplz",
+          "kind": "union",
+          "label": "technic bar 2x v1",
+          "params": {
+            "a": "step-s7yznqv",
+            "b": "step-j7i7cnj"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": true
+        }
+      ]
+    },
+    "segConfig": {
+      "low": {
+        "cylinderSegs": 8,
+        "sphereSegs": 8,
+        "coneSegs": 8,
+        "roundedBoxSegs": 4
+      },
+      "medium": {
+        "cylinderSegs": 24,
+        "sphereSegs": 16,
+        "coneSegs": 16,
+        "roundedBoxSegs": 8
+      },
+      "high": {
+        "cylinderSegs": 64,
+        "sphereSegs": 48,
+        "coneSegs": 48,
+        "roundedBoxSegs": 16
+      }
+    },
+    "_hasOBJ": true
+  },
+  "br-aoejxli": {
+    "id": "br-aoejxli",
+    "name": "system plate 2x2",
+    "shapeRef": "system plate 2x2 v3",
+    "color": "#ffffff",
+    "slots": [
+      {
+        "id": "sl-mq6ltf5",
+        "typeId": "st-hvq44gj",
+        "position": [
+          -0.5,
+          0.2,
+          -0.5
+        ],
+        "quaternion": [
+          -0.7071067811865475,
+          0,
+          0,
+          0.7071067811865476
+        ],
+        "repeats": [
+          {
+            "count": 2,
+            "step": [
+              1,
+              0,
+              0
+            ]
+          },
+          {
+            "count": 2,
+            "step": [
+              0,
+              0,
+              1
+            ]
+          }
+        ]
+      },
+      {
+        "id": "sl-hvqo2sj",
+        "typeId": "st-muu7dd0",
+        "position": [
+          -0.5,
+          -0.2,
+          -0.5
+        ],
+        "quaternion": [
+          -0.7071067811865475,
+          0,
+          0,
+          0.7071067811865476
+        ],
+        "repeats": [
+          {
+            "count": 2,
+            "step": [
+              1,
+              0,
+              0
+            ]
+          },
+          {
+            "count": 2,
+            "step": [
+              0,
+              0,
+              1
+            ]
+          }
+        ]
+      },
+      {
+        "id": "sl-hblpzlu",
+        "typeId": "st-s1t739k",
+        "position": [
+          0,
+          -0.2,
+          0
+        ],
+        "quaternion": [
+          -0.7071067811865475,
+          0,
+          0,
+          0.7071067811865476
+        ]
+      }
+    ],
+    "createdAt": "2026-03-28T15:06:46.416Z",
+    "family": "system",
+    "updatedAt": "2026-03-29T13:31:55.594Z",
+    "_hasOBJ": true,
+    "csgTree": {
+      "rootId": "smnago4or",
+      "steps": [
+        {
+          "id": "step-7sole6l",
+          "kind": "cylinder",
+          "label": "Cylindre defonce basse",
+          "params": {
+            "r": 0.1,
+            "h": 0.4,
+            "segs": 24
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-vw08gcr",
+          "kind": "repeat",
+          "label": "Répétition Cylindre defonce basse",
+          "params": {
+            "src": "step-7sole6l",
+            "n": 2,
+            "dx": 1,
+            "dy": 0,
+            "dz": 0
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-754ec3o",
+          "kind": "repeat",
+          "label": "Répétition Cylindre defonce basse 2x",
+          "params": {
+            "src": "step-vw08gcr",
+            "n": 2,
+            "dx": 0,
+            "dy": 0,
+            "dz": 1
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-ou7s861",
+          "kind": "cube",
+          "label": "defonce basse 2x v2",
+          "params": {
+            "x": 1.6,
+            "y": 0.4,
+            "z": 1.6
+          },
+          "translate": [
+            0.5,
+            -0.2,
+            0.5
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-xxvajsr",
+          "kind": "union",
+          "label": "Union defonce basse 2x",
+          "params": {
+            "a": "step-ou7s861",
+            "b": "step-754ec3o"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-rwfqpvd",
+          "kind": "cylinder",
+          "label": "negatif mid hole 2x",
+          "params": {
+            "r": 0.35,
+            "h": 0.3,
+            "segs": 72
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-v7c69t1",
+          "kind": "cylinder",
+          "label": "negatif mid hole 2x (copie)",
+          "params": {
+            "r": 0.3,
+            "h": 1,
+            "segs": 72
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-gcc35tb",
+          "kind": "subtract",
+          "label": "Soust. negatif mid hole 2x",
+          "params": {
+            "a": "step-rwfqpvd",
+            "b": "step-v7c69t1"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-jpeu7fz",
+          "kind": "repeat",
+          "label": "Rép. negatif mid hole 2x 1-",
+          "params": {
+            "src": "step-gcc35tb",
+            "n": 1,
+            "dx": 0,
+            "dy": 0,
+            "dz": 0
+          },
+          "translate": [
+            0.5,
+            0,
+            0.5
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-inxjous",
+          "kind": "repeat",
+          "label": "Rép. negatif mid hole 2x 2-",
+          "params": {
+            "src": "step-jpeu7fz",
+            "n": 0,
+            "dx": 0,
+            "dy": 0,
+            "dz": 0
+          },
+          "translate": [
+            0,
+            -0.1,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-x7ggnd8",
+          "kind": "subtract",
+          "label": "defonce basse 2X v2",
+          "params": {
+            "a": "step-xxvajsr",
+            "b": "step-inxjous"
+          },
+          "translate": [
+            -0.5,
+            0,
+            -0.5
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-nvcmm72",
+          "kind": "roundedBox",
+          "label": "plate body 2x2",
+          "params": {
+            "x": 1.995,
+            "y": 0.395,
+            "z": 1.995,
+            "r": 0.005,
+            "segs": 1
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-9lsr097",
+          "kind": "cylinder",
+          "label": "Cylindre",
+          "params": {
+            "r": 0.3,
+            "h": 0.22,
+            "segs": 64
+          },
+          "translate": [
+            0,
+            0,
+            0.29
+          ],
+          "rotate": [
+            -90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-8fs6034",
+          "kind": "cone",
+          "label": "Cône",
+          "params": {
+            "r": 2,
+            "h": 2,
+            "segs": 128
+          },
+          "translate": [
+            0,
+            0,
+            -0.32
+          ],
+          "rotate": [
+            -90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-8jvlogz",
+          "kind": "intersect",
+          "label": "system plot",
+          "params": {
+            "a": "step-9lsr097",
+            "b": "step-8fs6034"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-f4gc2bz",
+          "kind": "repeat",
+          "label": "Répétition plot",
+          "params": {
+            "src": "step-8jvlogz",
+            "n": 2,
+            "dx": 1,
+            "dy": 0,
+            "dz": 0
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-rj5ipun",
+          "kind": "repeat",
+          "label": "Répétition plot 1",
+          "params": {
+            "src": "step-f4gc2bz",
+            "n": 2,
+            "dx": 0,
+            "dy": 0,
+            "dz": 1
+          },
+          "translate": [
+            -0.5,
+            0,
+            -0.5
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-zry0w98",
+          "kind": "union",
+          "label": "Union corp plot 2x",
+          "params": {
+            "a": "step-nvcmm72",
+            "b": "step-rj5ipun"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smnago4or",
+          "kind": "subtract",
+          "label": "system plate 2x2 v3",
+          "params": {
+            "a": "step-zry0w98",
+            "b": "step-x7ggnd8"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": true
+        }
+      ]
+    },
+    "segConfig": {
+      "low": {
+        "cylinderSegs": 8,
+        "sphereSegs": 8,
+        "coneSegs": 8,
+        "roundedBoxSegs": 4
+      },
+      "medium": {
+        "cylinderSegs": 24,
+        "sphereSegs": 16,
+        "coneSegs": 16,
+        "roundedBoxSegs": 8
+      },
+      "high": {
+        "cylinderSegs": 64,
+        "sphereSegs": 48,
+        "coneSegs": 48,
+        "roundedBoxSegs": 16
+      }
+    },
+    "subfamily": "plate"
+  },
+  "br-pta89bq": {
+    "id": "br-pta89bq",
+    "name": "brique technic 1x2",
+    "shapeRef": "brique technic 1x2",
+    "color": "#615c5c",
+    "slots": [
+      {
+        "id": "sl-nluk46r",
+        "typeId": "st-8durhr3",
+        "position": [
+          0,
+          0.5,
+          0
+        ],
+        "quaternion": [
+          -0.7071067811865475,
+          0,
+          0,
+          0.7071067811865476
+        ],
+        "repeats": [
+          {
+            "count": 2,
+            "step": [
+              1,
+              0,
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "id": "sl-m2u82rs",
+        "typeId": "st-muu7dd0",
+        "position": [
+          0,
+          -0.7,
+          0
+        ],
+        "quaternion": [
+          0.7071067811865475,
+          2.7755575615628914e-16,
+          -1.6653345369377348e-16,
+          -0.7071067811865477
+        ],
+        "repeats": [
+          {
+            "count": 2,
+            "step": [
+              1,
+              0,
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "id": "sl-8py320g",
+        "typeId": "st-nc0rrtq",
+        "position": [
+          0.5,
+          -0.7,
+          0
+        ],
+        "quaternion": [
+          0.7071067811865472,
+          0,
+          0,
+          -0.7071067811865478
+        ]
+      },
+      {
+        "id": "sl-vx2n2sg",
+        "typeId": "st-h0fwzps",
+        "position": [
+          0.5,
+          0,
+          0
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ]
+      }
+    ],
+    "createdAt": "2026-03-28T15:58:05.972Z",
+    "family": "technic",
+    "updatedAt": "2026-03-29T13:32:08.865Z",
+    "_hasOBJ": true,
+    "csgTree": {
+      "rootId": "smnaiidus",
+      "steps": [
+        {
+          "id": "step-x3mw81w",
+          "kind": "roundedBox",
+          "label": "brique corp v4",
+          "params": {
+            "x": 1.995,
+            "y": 1.195,
+            "z": 0.995,
+            "r": 0.005,
+            "segs": 1
+          },
+          "translate": [
+            0.5,
+            -0.1,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-ka08jyy",
+          "kind": "cylinder",
+          "label": "Cylindre",
+          "params": {
+            "r": 0.3,
+            "h": 0.22,
+            "segs": 64
+          },
+          "translate": [
+            0,
+            0,
+            0.29
+          ],
+          "rotate": [
+            -90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-m8e6285",
+          "kind": "cone",
+          "label": "Cône",
+          "params": {
+            "r": 2,
+            "h": 2,
+            "segs": 128
+          },
+          "translate": [
+            0,
+            0,
+            -0.32
+          ],
+          "rotate": [
+            -90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-lb1o4dp",
+          "kind": "intersect",
+          "label": "system plot",
+          "params": {
+            "a": "step-ka08jyy",
+            "b": "step-m8e6285"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-jjunya2",
+          "kind": "cylinder",
+          "label": "Cylindre",
+          "params": {
+            "r": 0.2,
+            "h": 2,
+            "segs": 48
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-8gccet9",
+          "kind": "subtract",
+          "label": "technic plot",
+          "params": {
+            "a": "step-lb1o4dp",
+            "b": "step-jjunya2"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smnahr9ak",
+          "kind": "repeat",
+          "label": "Répétition plot",
+          "params": {
+            "src": "step-8gccet9",
+            "n": 2,
+            "dx": 1,
+            "dy": 0,
+            "dz": 0
+          },
+          "translate": [
+            0,
+            0.3,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-7lh5ack",
+          "kind": "cylinder",
+          "label": "defonce technic hole a - 0v",
+          "params": {
+            "r": 0.3,
+            "h": 2,
+            "segs": 72
+          },
+          "visible": false
+        },
+        {
+          "id": "step-xn0rumw",
+          "kind": "cylinder",
+          "label": "Cylindre ep-0",
+          "params": {
+            "r": 0.4,
+            "h": 1.5,
+            "segs": 96
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-mo9mqas",
+          "kind": "cylinder",
+          "label": "Cylindre ep-1",
+          "params": {
+            "r": 0.5,
+            "h": 0.8,
+            "segs": 24
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-g84jog1",
+          "kind": "subtract",
+          "label": "ep-soustr",
+          "params": {
+            "a": "step-xn0rumw",
+            "b": "step-mo9mqas"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-p0a2zmj",
+          "kind": "union",
+          "label": "defonce technic hole a v2",
+          "params": {
+            "a": "step-7lh5ack",
+            "b": "step-g84jog1"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smnahtkix",
+          "kind": "repeat",
+          "label": "Rép. defonce technic hole",
+          "params": {
+            "src": "step-p0a2zmj",
+            "n": 1,
+            "dx": 1,
+            "dy": 0,
+            "dz": 0
+          },
+          "translate": [
+            0.5,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smnahw9zd",
+          "kind": "union",
+          "label": "Union corp plot",
+          "params": {
+            "a": "step-x3mw81w",
+            "b": "smnahr9ak"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smnahxm68",
+          "kind": "cube",
+          "label": "defonce basse",
+          "params": {
+            "x": 1.6,
+            "y": 1.2,
+            "z": 0.6
+          },
+          "translate": [
+            0,
+            -0.3,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smnai0mel",
+          "kind": "cylinder",
+          "label": "Cylindre",
+          "params": {
+            "r": 0.2,
+            "h": 2,
+            "segs": 24
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smnai1kcn",
+          "kind": "cylinder",
+          "label": "Cylindre a",
+          "params": {
+            "r": 0.41,
+            "h": 1,
+            "segs": 24
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smnai5h9e",
+          "kind": "cube",
+          "label": "Cube",
+          "params": {
+            "x": 0.84,
+            "y": 1,
+            "z": 1.1
+          },
+          "translate": [
+            0,
+            0.5,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smnaibub7",
+          "kind": "union",
+          "label": "neg 0",
+          "params": {
+            "a": "smnai1kcn",
+            "b": "smnai5h9e"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smnaid8fx",
+          "kind": "union",
+          "label": "neg b",
+          "params": {
+            "a": "smnaibub7",
+            "b": "smnai0mel"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smnaidxpr",
+          "kind": "repeat",
+          "label": "Rép. negatif defonce",
+          "params": {
+            "src": "smnaid8fx",
+            "n": 1,
+            "dx": 1,
+            "dy": 0,
+            "dz": 0
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smnaifext",
+          "kind": "subtract",
+          "label": "defonce basse final",
+          "params": {
+            "a": "smnahxm68",
+            "b": "smnaidxpr"
+          },
+          "translate": [
+            0.5,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smnaih8ke",
+          "kind": "subtract",
+          "label": "Soustraire 001",
+          "params": {
+            "a": "smnahw9zd",
+            "b": "smnaifext"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smnaiidus",
+          "kind": "subtract",
+          "label": "brique technic 1x2",
+          "params": {
+            "a": "smnaih8ke",
+            "b": "smnahtkix"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": true
+        }
+      ]
+    },
+    "segConfig": {
+      "low": {
+        "cylinderSegs": 8,
+        "sphereSegs": 8,
+        "coneSegs": 8,
+        "roundedBoxSegs": 4
+      },
+      "medium": {
+        "cylinderSegs": 24,
+        "sphereSegs": 16,
+        "coneSegs": 16,
+        "roundedBoxSegs": 8
+      },
+      "high": {
+        "cylinderSegs": 64,
+        "sphereSegs": 48,
+        "coneSegs": 48,
+        "roundedBoxSegs": 16
+      }
+    },
+    "subfamily": "brick"
+  },
+  "br-9vvxmdt": {
+    "id": "br-9vvxmdt",
+    "name": "pin 3x",
+    "shapeRef": "pin 3x",
+    "color": "#292929",
+    "slots": [
+      {
+        "id": "sl-f7hvf1n",
+        "typeId": "st-kv5ni7k",
+        "position": [
+          0,
+          0,
+          -1.5
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "repeats": [
+          {
+            "count": 3,
+            "step": [
+              0,
+              0,
+              1
+            ]
+          }
+        ]
+      }
+    ],
+    "createdAt": "2026-03-28T18:00:09.813Z",
+    "family": "technic",
+    "updatedAt": "2026-03-29T13:32:23.329Z",
+    "_hasOBJ": true,
+    "csgTree": {
+      "rootId": "step-aj94fi3",
+      "steps": [
+        {
+          "id": "step-3hh567e",
+          "kind": "cylinder",
+          "label": "Cylindre",
+          "params": {
+            "r": 0.3,
+            "h": 2.995,
+            "segs": 64
+          },
+          "translate": [
+            0,
+            0,
+            -0.5
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-aurowfr",
+          "kind": "cylinder",
+          "label": "Cylindre butte o",
+          "params": {
+            "r": 0.39,
+            "h": 0.2,
+            "segs": 72
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-qh9xzzk",
+          "kind": "cylinder",
+          "label": "Cylindre butte z-",
+          "params": {
+            "r": 0.36,
+            "h": 0.1,
+            "segs": 72
+          },
+          "translate": [
+            0,
+            0,
+            -1.95
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smnamfniw",
+          "kind": "cylinder",
+          "label": "Cylindre buttee z--",
+          "params": {
+            "r": 0.36,
+            "h": 0.2,
+            "segs": 48
+          },
+          "translate": [
+            0,
+            0,
+            -1
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-dyvn2q5",
+          "kind": "cylinder",
+          "label": "Cylindre butte z+",
+          "params": {
+            "r": 0.36,
+            "h": 0.1,
+            "segs": 72
+          },
+          "translate": [
+            0,
+            0,
+            0.95
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-aq2om34",
+          "kind": "union",
+          "label": "butte - 2",
+          "params": {
+            "a": "step-qh9xzzk",
+            "b": "step-dyvn2q5"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-itoeav8",
+          "kind": "union",
+          "label": "butte 3",
+          "params": {
+            "a": "step-aurowfr",
+            "b": "step-aq2om34"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-vr3rkc1",
+          "kind": "union",
+          "label": "Union body",
+          "params": {
+            "a": "step-3hh567e",
+            "b": "step-itoeav8"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smnamb5x4",
+          "kind": "union",
+          "label": "Union body 2",
+          "params": {
+            "a": "step-vr3rkc1",
+            "b": "smnam3cvr"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smnamezg6",
+          "kind": "union",
+          "label": "Union body 3",
+          "params": {
+            "a": "smnamb5x4",
+            "b": "smnamfniw"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-bdmmrxc",
+          "kind": "roundedBox",
+          "label": "Cube arrondi",
+          "params": {
+            "x": 0.2,
+            "y": 2,
+            "z": 0.6,
+            "r": 0.1,
+            "segs": 8
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smnamlxzg",
+          "kind": "roundedBox",
+          "label": "Cube arrondi z-",
+          "params": {
+            "x": 0.2,
+            "y": 2,
+            "z": 1,
+            "r": 0.1,
+            "segs": 8
+          },
+          "translate": [
+            0,
+            0,
+            -2
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-e2nkz4c",
+          "kind": "roundedBox",
+          "label": "Cube arrondi (copie)",
+          "params": {
+            "x": 0.2,
+            "y": 2,
+            "z": 1,
+            "r": 0.1,
+            "segs": 8
+          },
+          "translate": [
+            0,
+            0,
+            1
+          ],
+          "rotate": [
+            0,
+            0,
+            90
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-77cy8kx",
+          "kind": "roundedBox",
+          "label": "Cube arrondi (copie) (copie)",
+          "params": {
+            "x": 0.2,
+            "y": 2,
+            "z": 1,
+            "r": 0.1,
+            "segs": 8
+          },
+          "translate": [
+            0,
+            0,
+            -1
+          ],
+          "rotate": [
+            0,
+            0,
+            90
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-8olumo0",
+          "kind": "union",
+          "label": "springer hol 2",
+          "params": {
+            "a": "step-bdmmrxc",
+            "b": "smnamlxzg"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-rjnshg4",
+          "kind": "union",
+          "label": "springer holes 3",
+          "params": {
+            "a": "step-e2nkz4c",
+            "b": "step-77cy8kx"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smnamp2jx",
+          "kind": "union",
+          "label": "springer holes",
+          "params": {
+            "a": "step-8olumo0",
+            "b": "step-rjnshg4"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-xr8z1l6",
+          "kind": "subtract",
+          "label": "Soustraire  b",
+          "params": {
+            "a": "smnamezg6",
+            "b": "smnamp2jx"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-pteelh4",
+          "kind": "cylinder",
+          "label": "Cylindre 0",
+          "params": {
+            "r": 0.25,
+            "h": 6,
+            "segs": 24
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-aj94fi3",
+          "kind": "subtract",
+          "label": "pin 3x",
+          "params": {
+            "a": "step-xr8z1l6",
+            "b": "step-pteelh4"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": true
+        }
+      ]
+    },
+    "segConfig": {
+      "low": {
+        "cylinderSegs": 8,
+        "sphereSegs": 8,
+        "coneSegs": 8,
+        "roundedBoxSegs": 4
+      },
+      "medium": {
+        "cylinderSegs": 24,
+        "sphereSegs": 16,
+        "coneSegs": 16,
+        "roundedBoxSegs": 8
+      },
+      "high": {
+        "cylinderSegs": 64,
+        "sphereSegs": 48,
+        "coneSegs": 48,
+        "roundedBoxSegs": 16
+      }
+    },
+    "subfamily": "pin"
+  },
+  "br-cq14eiv": {
+    "id": "br-cq14eiv",
+    "name": "brique technic 1x1  v2",
+    "shapeRef": "brique technic 1x1  v2",
+    "color": "#bababa",
+    "slots": [
+      {
+        "id": "sl-ogkbhay",
+        "typeId": "st-h0fwzps",
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "quaternion": [
+          0,
+          -1,
+          0,
+          2.220446049250313e-16
+        ]
+      },
+      {
+        "id": "sl-jtr93pz",
+        "typeId": "st-muu7dd0",
+        "position": [
+          0,
+          -0.7,
+          0
+        ],
+        "quaternion": [
+          -0.5000000000000001,
+          -0.4999999999999999,
+          -0.4999999999999997,
+          0.49999999999999994
+        ]
+      },
+      {
+        "id": "sl-0zqwxc9",
+        "typeId": "st-8durhr3",
+        "position": [
+          0,
+          0.5,
+          0
+        ],
+        "quaternion": [
+          0.5,
+          0.4999999999999999,
+          0.5,
+          -0.49999999999999983
+        ]
+      }
+    ],
+    "createdAt": "2026-03-29T07:10:37.057Z",
+    "updatedAt": "2026-03-29T13:27:48.077Z",
+    "family": "technic",
+    "csgTree": {
+      "rootId": "step-qnb1vgb",
+      "steps": [
+        {
+          "id": "step-fgc82em",
+          "kind": "cube",
+          "label": "Corp",
+          "params": {
+            "x": 0.995,
+            "y": 1.195,
+            "z": 0.995
+          },
+          "translate": [
+            0,
+            -0.1,
+            0
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-hbw36sk",
+          "kind": "cylinder",
+          "label": "Cylindre",
+          "params": {
+            "r": 0.3,
+            "h": 2,
+            "segs": 128
+          },
+          "visible": false
+        },
+        {
+          "id": "step-8ngznel",
+          "kind": "subtract",
+          "label": "Soustraire 1",
+          "params": {
+            "a": "step-fgc82em",
+            "b": "step-hbw36sk"
+          },
+          "visible": false
+        },
+        {
+          "id": "step-a6uqjbe",
+          "kind": "cube",
+          "label": "Cube 2",
+          "params": {
+            "x": 0.6,
+            "y": 1,
+            "z": 0.6
+          },
+          "translate": [
+            0,
+            -0.5,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-03b5muh",
+          "kind": "cylinder",
+          "label": "Cylindre 2",
+          "params": {
+            "r": 0.45,
+            "h": 2,
+            "segs": 32
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-yw7f6k6",
+          "kind": "subtract",
+          "label": "Soustraire bottom",
+          "params": {
+            "a": "step-a6uqjbe",
+            "b": "step-03b5muh"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-sb94iad",
+          "kind": "cylinder",
+          "label": "Cylindre ep-0",
+          "params": {
+            "r": 0.4,
+            "h": 1.5,
+            "segs": 32
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-ywtgr82",
+          "kind": "cylinder",
+          "label": "Cylindre ep-1",
+          "params": {
+            "r": 0.5,
+            "h": 0.8,
+            "segs": 24
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-xdpufmk",
+          "kind": "subtract",
+          "label": "ep-soustr",
+          "params": {
+            "a": "step-sb94iad",
+            "b": "step-ywtgr82"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-z2cp0of",
+          "kind": "subtract",
+          "label": "Soustraire - 0",
+          "params": {
+            "a": "step-8ngznel",
+            "b": "step-xdpufmk"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-u5stfue",
+          "kind": "subtract",
+          "label": "Soustraire - 3",
+          "params": {
+            "a": "step-z2cp0of",
+            "b": "step-yw7f6k6"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-ldadiu6",
+          "kind": "cylinder",
+          "label": "Cylindre plot - 1",
+          "params": {
+            "r": 0.3,
+            "h": 0.22,
+            "segs": 32
+          },
+          "translate": [
+            0,
+            0,
+            0.59
+          ],
+          "rotate": [
+            -90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-lfsxmxe",
+          "kind": "cylinder",
+          "label": "Cylindre plot def",
+          "params": {
+            "r": 0.2,
+            "h": 2,
+            "segs": 24
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-o0xad53",
+          "kind": "subtract",
+          "label": "plot",
+          "params": {
+            "a": "step-ldadiu6",
+            "b": "step-lfsxmxe"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-qnb1vgb",
+          "kind": "union",
+          "label": "brique technic 1x1  v2",
+          "params": {
+            "a": "step-u5stfue",
+            "b": "step-o0xad53"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": true
+        }
+      ]
+    },
+    "segConfig": {
+      "low": {
+        "cylinderSegs": 8,
+        "sphereSegs": 8,
+        "coneSegs": 8,
+        "roundedBoxSegs": 4
+      },
+      "medium": {
+        "cylinderSegs": 24,
+        "sphereSegs": 16,
+        "coneSegs": 16,
+        "roundedBoxSegs": 8
+      },
+      "high": {
+        "cylinderSegs": 64,
+        "sphereSegs": 48,
+        "coneSegs": 48,
+        "roundedBoxSegs": 16
+      }
+    },
+    "_hasOBJ": true
+  },
+  "br-87pdwb4": {
+    "id": "br-87pdwb4",
+    "name": "system hinge 2f v0",
+    "shapeRef": "system hinge 2f v0",
+    "color": "#f7ee6d",
+    "slots": [
+      {
+        "id": "sl-vglgh6x",
+        "typeId": "st-8durhr3",
+        "position": [
+          1,
+          0.2,
+          0
+        ],
+        "quaternion": [
+          -0.7071067811865475,
+          0,
+          0,
+          0.7071067811865476
+        ],
+        "repeats": [
+          {
+            "count": 2,
+            "step": [
+              1,
+              0,
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "id": "sl-lk4ygh5",
+        "typeId": "st-muu7dd0",
+        "position": [
+          1,
+          -0.2,
+          0
+        ],
+        "quaternion": [
+          -0.7071067811865475,
+          0,
+          0,
+          0.7071067811865476
+        ],
+        "repeats": [
+          {
+            "count": 2,
+            "step": [
+              1,
+              0,
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "id": "sl-jrz6yvt",
+        "typeId": "st-nc0rrtq",
+        "position": [
+          1.5,
+          -0.2,
+          0
+        ],
+        "quaternion": [
+          -0.7071067811865475,
+          0,
+          0,
+          0.7071067811865476
+        ]
+      },
+      {
+        "id": "sl-rpmn9kq",
+        "typeId": "st-9u1bw6t",
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ]
+      }
+    ],
+    "createdAt": "2026-03-29T08:45:07.787Z",
+    "updatedAt": "2026-03-29T13:32:41.990Z",
+    "family": "system",
+    "_hasOBJ": true,
+    "csgTree": {
+      "rootId": "smnbiakop",
+      "steps": [
+        {
+          "id": "step-2h5qznz",
+          "kind": "cylinder",
+          "label": "Cylindre",
+          "params": {
+            "r": 0.195,
+            "h": 1,
+            "segs": 64
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-kl9dj0v",
+          "kind": "cube",
+          "label": "Cube",
+          "params": {
+            "x": 2.5,
+            "y": 0.39,
+            "z": 1
+          },
+          "translate": [
+            1.25,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-6oszc0s",
+          "kind": "union",
+          "label": "Union hinge 0",
+          "params": {
+            "a": "step-2h5qznz",
+            "b": "step-kl9dj0v"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-bvzwcx4",
+          "kind": "cylinder",
+          "label": "Cylindre",
+          "params": {
+            "r": 0.3,
+            "h": 0.22,
+            "segs": 64
+          },
+          "translate": [
+            0,
+            0,
+            0.29
+          ],
+          "rotate": [
+            -90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-zwml90c",
+          "kind": "cone",
+          "label": "Cône",
+          "params": {
+            "r": 2,
+            "h": 2,
+            "segs": 128
+          },
+          "translate": [
+            0,
+            0,
+            -0.32
+          ],
+          "rotate": [
+            -90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-6unr1m3",
+          "kind": "intersect",
+          "label": "system plot",
+          "params": {
+            "a": "step-bvzwcx4",
+            "b": "step-zwml90c"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-dao0psw",
+          "kind": "cylinder",
+          "label": "Cylindre",
+          "params": {
+            "r": 0.2,
+            "h": 2,
+            "segs": 48
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-py11l4a",
+          "kind": "subtract",
+          "label": "technic plot",
+          "params": {
+            "a": "step-6unr1m3",
+            "b": "step-dao0psw"
+          },
+          "translate": [
+            1,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-u4c244v",
+          "kind": "repeat",
+          "label": "Répétition",
+          "params": {
+            "src": "step-py11l4a",
+            "n": 2,
+            "dx": 1,
+            "dy": 0,
+            "dz": 0
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-lw49h1h",
+          "kind": "union",
+          "label": "hinge - 0",
+          "params": {
+            "a": "step-6oszc0s",
+            "b": "step-u4c244v"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-gn9vu8k",
+          "kind": "cylinder",
+          "label": "cyl neg def",
+          "params": {
+            "r": 0.2,
+            "h": 2,
+            "segs": 64
+          },
+          "translate": [
+            0.425,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-qkm9qqv",
+          "kind": "cube",
+          "label": "Cube neg def",
+          "params": {
+            "x": 1,
+            "y": 0.4,
+            "z": 2
+          },
+          "translate": [
+            0.925,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-q2fceuz",
+          "kind": "union",
+          "label": "negatif defonce",
+          "params": {
+            "a": "step-gn9vu8k",
+            "b": "step-qkm9qqv"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-detwvzv",
+          "kind": "cube",
+          "label": "defonce 0",
+          "params": {
+            "x": 1,
+            "y": 2,
+            "z": 0.2
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-s9tdsia",
+          "kind": "repeat",
+          "label": "Répétition defonce 1",
+          "params": {
+            "src": "step-detwvzv",
+            "n": 3,
+            "dx": 0,
+            "dy": 0,
+            "dz": 0.4
+          },
+          "translate": [
+            0,
+            0,
+            -0.4
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-kpkfwdc",
+          "kind": "subtract",
+          "label": "Soustraire",
+          "params": {
+            "a": "step-s9tdsia",
+            "b": "step-q2fceuz"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-qw2enol",
+          "kind": "subtract",
+          "label": "hinge 2f 2x",
+          "params": {
+            "a": "step-lw49h1h",
+            "b": "step-kpkfwdc"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-2zp8624",
+          "kind": "cube",
+          "label": "defonce basse",
+          "params": {
+            "x": 1.6,
+            "y": 1,
+            "z": 0.6
+          },
+          "translate": [
+            0.5,
+            -0.5,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-3yd4ttk",
+          "kind": "cylinder",
+          "label": "Cylindre defonce basse",
+          "params": {
+            "r": 0.1,
+            "h": 0.4,
+            "segs": 24
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-q9fowsn",
+          "kind": "repeat",
+          "label": "Répétition Cylindre defonce basse",
+          "params": {
+            "src": "step-3yd4ttk",
+            "n": 2,
+            "dx": 1,
+            "dy": 0,
+            "dz": 0
+          },
+          "translate": [
+            0,
+            -0.1,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-8ffd3m5",
+          "kind": "union",
+          "label": "Union defonce basse 2",
+          "params": {
+            "a": "step-2zp8624",
+            "b": "step-q9fowsn"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-zp0b1j7",
+          "kind": "cylinder",
+          "label": "Cylindre",
+          "params": {
+            "r": 0.2,
+            "h": 0.395,
+            "segs": 24
+          },
+          "translate": [
+            0.5,
+            0,
+            0
+          ],
+          "rotate": [
+            90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-9cjqubr",
+          "kind": "subtract",
+          "label": "Union defonce basse 2x v3",
+          "params": {
+            "a": "step-8ffd3m5",
+            "b": "step-zp0b1j7"
+          },
+          "translate": [
+            1,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "smnbiakop",
+          "kind": "subtract",
+          "label": "system hinge 2f v0",
+          "params": {
+            "a": "step-qw2enol",
+            "b": "step-9cjqubr"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": true
+        }
+      ]
+    },
+    "segConfig": {
+      "low": {
+        "cylinderSegs": 8,
+        "sphereSegs": 8,
+        "coneSegs": 8,
+        "roundedBoxSegs": 4
+      },
+      "medium": {
+        "cylinderSegs": 24,
+        "sphereSegs": 16,
+        "coneSegs": 16,
+        "roundedBoxSegs": 8
+      },
+      "high": {
+        "cylinderSegs": 64,
+        "sphereSegs": 48,
+        "coneSegs": 48,
+        "roundedBoxSegs": 16
+      }
+    },
+    "subfamily": "hinge"
+  },
+  "br-i3ejf18": {
+    "id": "br-i3ejf18",
+    "name": "system hinge 3f v0",
+    "shapeRef": "system hinge 3f v0",
+    "color": "#f7ee6d",
+    "slots": [
+      {
+        "id": "sl-01ujvzy",
+        "typeId": "st-urpt6bo",
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "quaternion": [
+          0,
+          -1,
+          0,
+          2.220446049250313e-16
+        ]
+      },
+      {
+        "id": "sl-nebr1ke",
+        "typeId": "st-8durhr3",
+        "position": [
+          1,
+          0.2,
+          0
+        ],
+        "quaternion": [
+          -0.7071067811865475,
+          0,
+          0,
+          0.7071067811865476
+        ],
+        "repeats": [
+          {
+            "count": 2,
+            "step": [
+              1,
+              0,
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "id": "sl-8o7uph8",
+        "typeId": "st-muu7dd0",
+        "position": [
+          1,
+          -0.2,
+          0
+        ],
+        "quaternion": [
+          -0.7071067811865475,
+          0,
+          0,
+          0.7071067811865476
+        ],
+        "repeats": [
+          {
+            "count": 2,
+            "step": [
+              1,
+              0,
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "id": "sl-iatx91b",
+        "typeId": "st-nc0rrtq",
+        "position": [
+          1.5,
+          -0.2,
+          0
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ]
+      }
+    ],
+    "createdAt": "2026-03-29T08:52:14.588Z",
+    "updatedAt": "2026-03-29T13:24:10.638Z",
+    "_hasOBJ": true,
+    "csgTree": {
+      "rootId": "step-xqcafzr",
+      "steps": [
+        {
+          "id": "step-c28tknn",
+          "kind": "cylinder",
+          "label": "Cylindre",
+          "params": {
+            "r": 0.195,
+            "h": 1,
+            "segs": 64
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-uv89fde",
+          "kind": "cube",
+          "label": "Cube",
+          "params": {
+            "x": 2.5,
+            "y": 0.39,
+            "z": 1
+          },
+          "translate": [
+            1.25,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-1ya0u0z",
+          "kind": "union",
+          "label": "Union hinge 0",
+          "params": {
+            "a": "step-c28tknn",
+            "b": "step-uv89fde"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-w873qci",
+          "kind": "cylinder",
+          "label": "Cylindre",
+          "params": {
+            "r": 0.3,
+            "h": 0.22,
+            "segs": 64
+          },
+          "translate": [
+            0,
+            0,
+            0.29
+          ],
+          "rotate": [
+            -90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-ijx91an",
+          "kind": "cone",
+          "label": "Cône",
+          "params": {
+            "r": 2,
+            "h": 2,
+            "segs": 128
+          },
+          "translate": [
+            0,
+            0,
+            -0.32
+          ],
+          "rotate": [
+            -90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-ipv2u5m",
+          "kind": "intersect",
+          "label": "system plot",
+          "params": {
+            "a": "step-w873qci",
+            "b": "step-ijx91an"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-f4w27r3",
+          "kind": "cylinder",
+          "label": "Cylindre",
+          "params": {
+            "r": 0.2,
+            "h": 2,
+            "segs": 48
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-8wizsqw",
+          "kind": "subtract",
+          "label": "technic plot",
+          "params": {
+            "a": "step-ipv2u5m",
+            "b": "step-f4w27r3"
+          },
+          "translate": [
+            1,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-qnw4thz",
+          "kind": "repeat",
+          "label": "Répétition",
+          "params": {
+            "src": "step-8wizsqw",
+            "n": 2,
+            "dx": 1,
+            "dy": 0,
+            "dz": 0
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-49fxysz",
+          "kind": "union",
+          "label": "hinge - 0",
+          "params": {
+            "a": "step-1ya0u0z",
+            "b": "step-qnw4thz"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-yboduxz",
+          "kind": "cylinder",
+          "label": "cyl neg def",
+          "params": {
+            "r": 0.2,
+            "h": 2,
+            "segs": 64
+          },
+          "translate": [
+            0.425,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-hcganvv",
+          "kind": "cube",
+          "label": "Cube neg def",
+          "params": {
+            "x": 1,
+            "y": 0.4,
+            "z": 2
+          },
+          "translate": [
+            0.925,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-3tlyfcc",
+          "kind": "union",
+          "label": "negatif defonce",
+          "params": {
+            "a": "step-yboduxz",
+            "b": "step-hcganvv"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-yli5nye",
+          "kind": "cube",
+          "label": "defonce 0",
+          "params": {
+            "x": 1,
+            "y": 2,
+            "z": 0.2
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-far4qox",
+          "kind": "repeat",
+          "label": "Répétition defonce 1",
+          "params": {
+            "src": "step-yli5nye",
+            "n": 2,
+            "dx": 0,
+            "dy": 0,
+            "dz": 0.4
+          },
+          "translate": [
+            0,
+            0,
+            -0.2
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-ofdbyfq",
+          "kind": "subtract",
+          "label": "Soustraire",
+          "params": {
+            "a": "step-far4qox",
+            "b": "step-3tlyfcc"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-ezrtnac",
+          "kind": "subtract",
+          "label": "hinge 2f 2x",
+          "params": {
+            "a": "step-49fxysz",
+            "b": "step-ofdbyfq"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-phbl9pr",
+          "kind": "cube",
+          "label": "defonce basse",
+          "params": {
+            "x": 1.6,
+            "y": 1,
+            "z": 0.6
+          },
+          "translate": [
+            0.5,
+            -0.5,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-42u8gcl",
+          "kind": "cylinder",
+          "label": "Cylindre defonce basse",
+          "params": {
+            "r": 0.1,
+            "h": 0.4,
+            "segs": 24
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-cm3q5ty",
+          "kind": "repeat",
+          "label": "Répétition Cylindre defonce basse",
+          "params": {
+            "src": "step-42u8gcl",
+            "n": 2,
+            "dx": 1,
+            "dy": 0,
+            "dz": 0
+          },
+          "translate": [
+            0,
+            -0.1,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-58jusjh",
+          "kind": "union",
+          "label": "Union defonce basse 2",
+          "params": {
+            "a": "step-phbl9pr",
+            "b": "step-cm3q5ty"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-2lcrx0e",
+          "kind": "cylinder",
+          "label": "Cylindre",
+          "params": {
+            "r": 0.2,
+            "h": 0.395,
+            "segs": 24
+          },
+          "translate": [
+            0.5,
+            0,
+            0
+          ],
+          "rotate": [
+            90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-wyoisv8",
+          "kind": "subtract",
+          "label": "Union defonce basse 2x v3",
+          "params": {
+            "a": "step-58jusjh",
+            "b": "step-2lcrx0e"
+          },
+          "translate": [
+            1,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-xqcafzr",
+          "kind": "subtract",
+          "label": "system hinge 3f v0",
+          "params": {
+            "a": "step-ezrtnac",
+            "b": "step-wyoisv8"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": true
+        }
+      ]
+    },
+    "segConfig": {
+      "low": {
+        "cylinderSegs": 8,
+        "sphereSegs": 8,
+        "coneSegs": 8,
+        "roundedBoxSegs": 4
+      },
+      "medium": {
+        "cylinderSegs": 24,
+        "sphereSegs": 16,
+        "coneSegs": 16,
+        "roundedBoxSegs": 8
+      },
+      "high": {
+        "cylinderSegs": 64,
+        "sphereSegs": 48,
+        "coneSegs": 48,
+        "roundedBoxSegs": 16
+      }
+    },
+    "subfamily": "hinge",
+    "family": "system"
+  },
+  "br-bs4wkv3": {
+    "id": "br-bs4wkv3",
+    "name": "pin 2x",
+    "shapeRef": "pin 2x",
+    "color": "#292929",
+    "slots": [
+      {
+        "id": "sl-x97kb81",
+        "typeId": "st-kv5ni7k",
+        "position": [
+          0,
+          0,
+          -0.5
+        ],
+        "quaternion": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "repeats": [
+          {
+            "count": 2,
+            "step": [
+              0,
+              0,
+              1
+            ]
+          }
+        ]
+      }
+    ],
+    "createdAt": "2026-03-29T10:35:39.208Z",
+    "family": "technic",
+    "updatedAt": "2026-03-29T13:32:59.430Z",
+    "csgTree": {
+      "rootId": "step-a1xoilu",
+      "steps": [
+        {
+          "id": "step-2dr7xv3",
+          "kind": "cylinder",
+          "label": "Cylindre",
+          "params": {
+            "r": 0.3,
+            "h": 1.995,
+            "segs": 64
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-ckh1u09",
+          "kind": "cylinder",
+          "label": "defonce centrale",
+          "params": {
+            "r": 0.25,
+            "h": 3,
+            "segs": 24
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-r8aghaj",
+          "kind": "cylinder",
+          "label": "Cylindre butte o",
+          "params": {
+            "r": 0.39,
+            "h": 0.2,
+            "segs": 72
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-lxh7fb1",
+          "kind": "cylinder",
+          "label": "Cylindre butte z-",
+          "params": {
+            "r": 0.36,
+            "h": 0.1,
+            "segs": 72
+          },
+          "translate": [
+            0,
+            0,
+            -0.95
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-fm7copa",
+          "kind": "cylinder",
+          "label": "Cylindre butte z+",
+          "params": {
+            "r": 0.36,
+            "h": 0.1,
+            "segs": 72
+          },
+          "translate": [
+            0,
+            0,
+            0.95
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-oav7zxv",
+          "kind": "union",
+          "label": "butte - 0",
+          "params": {
+            "a": "step-lxh7fb1",
+            "b": "step-fm7copa"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-rgupqcs",
+          "kind": "union",
+          "label": "butte - 1",
+          "params": {
+            "a": "step-r8aghaj",
+            "b": "step-oav7zxv"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-1fa2cxv",
+          "kind": "union",
+          "label": "Union corp butées",
+          "params": {
+            "a": "step-2dr7xv3",
+            "b": "step-rgupqcs"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-1gis0pa",
+          "kind": "roundedBox",
+          "label": "Cube arrondi",
+          "params": {
+            "x": 0.2,
+            "y": 2,
+            "z": 0.6,
+            "r": 0.1,
+            "segs": 8
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-fji4kkd",
+          "kind": "roundedBox",
+          "label": "Cube arrondi (copie)",
+          "params": {
+            "x": 0.2,
+            "y": 2,
+            "z": 1,
+            "r": 0.1,
+            "segs": 8
+          },
+          "translate": [
+            0,
+            0,
+            1
+          ],
+          "rotate": [
+            0,
+            0,
+            90
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-46kxtur",
+          "kind": "roundedBox",
+          "label": "Cube arrondi (copie) (copie)",
+          "params": {
+            "x": 0.2,
+            "y": 2,
+            "z": 1,
+            "r": 0.1,
+            "segs": 8
+          },
+          "translate": [
+            0,
+            0,
+            -1
+          ],
+          "rotate": [
+            0,
+            0,
+            90
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-gbajik4",
+          "kind": "union",
+          "label": "springer hol 2",
+          "params": {
+            "a": "step-fji4kkd",
+            "b": "step-46kxtur"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-3hldmr6",
+          "kind": "union",
+          "label": "defonce trous elesticitée",
+          "params": {
+            "a": "step-1gis0pa",
+            "b": "step-gbajik4"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-42vskj3",
+          "kind": "subtract",
+          "label": "corp - trous elesticitée",
+          "params": {
+            "a": "step-1fa2cxv",
+            "b": "step-3hldmr6"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-a1xoilu",
+          "kind": "subtract",
+          "label": "pin 2x",
+          "params": {
+            "a": "step-42vskj3",
+            "b": "step-ckh1u09"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": true
+        }
+      ]
+    },
+    "segConfig": {
+      "low": {
+        "cylinderSegs": 16,
+        "sphereSegs": 8,
+        "coneSegs": 16,
+        "roundedBoxSegs": 4
+      },
+      "medium": {
+        "cylinderSegs": 32,
+        "sphereSegs": 16,
+        "coneSegs": 32,
+        "roundedBoxSegs": 8
+      },
+      "high": {
+        "cylinderSegs": 96,
+        "sphereSegs": 48,
+        "coneSegs": 96,
+        "roundedBoxSegs": 16
+      }
+    },
+    "_hasOBJ": true,
+    "subfamily": "pin"
+  },
+  "br-99tspx2": {
+    "id": "br-99tspx2",
+    "name": "plate 6x8",
+    "shapeRef": "plate 6x8",
+    "color": "#ff0000",
+    "slots": [
+      {
+        "id": "sl-7dbuz0w",
+        "typeId": "st-hvq44gj",
+        "position": [
+          -3.5,
+          0.2,
+          -2.5
+        ],
+        "quaternion": [
+          -0.7071067811865475,
+          0,
+          0,
+          0.7071067811865476
+        ],
+        "repeats": [
+          {
+            "count": 6,
+            "step": [
+              0,
+              0,
+              1
+            ]
+          },
+          {
+            "count": 8,
+            "step": [
+              1,
+              0,
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "id": "sl-0por6ls",
+        "typeId": "st-muu7dd0",
+        "position": [
+          -3.5,
+          -0.2,
+          -2.5
+        ],
+        "quaternion": [
+          -0.7071067811865475,
+          0,
+          0,
+          0.7071067811865476
+        ],
+        "repeats": [
+          {
+            "count": 8,
+            "step": [
+              1,
+              0,
+              0
+            ]
+          },
+          {
+            "count": 6,
+            "step": [
+              0,
+              0,
+              1
+            ]
+          }
+        ]
+      },
+      {
+        "id": "sl-w6a9czp",
+        "typeId": "st-s1t739k",
+        "position": [
+          -3,
+          -0.2,
+          -2
+        ],
+        "quaternion": [
+          -0.7071067811865475,
+          0,
+          0,
+          0.7071067811865476
+        ],
+        "repeats": [
+          {
+            "count": 7,
+            "step": [
+              1,
+              0,
+              0
+            ]
+          },
+          {
+            "count": 5,
+            "step": [
+              0,
+              0,
+              1
+            ]
+          }
+        ]
+      }
+    ],
+    "createdAt": "2026-03-29T15:13:08.586Z",
+    "csgTree": {
+      "rootId": "step-rdczcaf",
+      "steps": [
+        {
+          "id": "step-31ix26z",
+          "kind": "cylinder",
+          "label": "Cylindre defonce basse",
+          "params": {
+            "r": 0.1,
+            "h": 0.4,
+            "segs": 24
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-8l6ht9f",
+          "kind": "repeat",
+          "label": "Répétition Cylindre defonce basse",
+          "params": {
+            "src": "step-31ix26z",
+            "n": 8,
+            "dx": 1,
+            "dy": 0,
+            "dz": 0
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-klposr4",
+          "kind": "repeat",
+          "label": "Répétition Cylindre defonce basse 2x",
+          "params": {
+            "src": "step-8l6ht9f",
+            "n": 6,
+            "dx": 0,
+            "dy": 0,
+            "dz": 1
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-jwmispi",
+          "kind": "cylinder",
+          "label": "negatif mid hole 2x",
+          "params": {
+            "r": 0.35,
+            "h": 0.3,
+            "segs": 72
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-qd5t6gu",
+          "kind": "cylinder",
+          "label": "negatif mid hole 2x (copie)",
+          "params": {
+            "r": 0.3,
+            "h": 1,
+            "segs": 72
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-ug8agn6",
+          "kind": "subtract",
+          "label": "Soust. negatif mid hole 2x",
+          "params": {
+            "a": "step-jwmispi",
+            "b": "step-qd5t6gu"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-nsjywzy",
+          "kind": "repeat",
+          "label": "Rép. negatif mid hole 2x 1-",
+          "params": {
+            "src": "step-ug8agn6",
+            "n": 5,
+            "dx": 0,
+            "dy": 0,
+            "dz": 1
+          },
+          "translate": [
+            0.5,
+            0,
+            0.5
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-6bqw6ks",
+          "kind": "repeat",
+          "label": "Rép. negatif mid hole 2x 2-",
+          "params": {
+            "src": "step-nsjywzy",
+            "n": 7,
+            "dx": 1,
+            "dy": 0,
+            "dz": 0
+          },
+          "translate": [
+            0,
+            -0.1,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-x8wrtf7",
+          "kind": "cylinder",
+          "label": "Cylindre",
+          "params": {
+            "r": 0.3,
+            "h": 0.22,
+            "segs": 64
+          },
+          "translate": [
+            0,
+            0,
+            0.29
+          ],
+          "rotate": [
+            -90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-fp77v47",
+          "kind": "cone",
+          "label": "Cône",
+          "params": {
+            "r": 2,
+            "h": 2,
+            "segs": 128
+          },
+          "translate": [
+            0,
+            0,
+            -0.32
+          ],
+          "rotate": [
+            -90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-y4cwm38",
+          "kind": "intersect",
+          "label": "system plot",
+          "params": {
+            "a": "step-x8wrtf7",
+            "b": "step-fp77v47"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-k8kkqd4",
+          "kind": "repeat",
+          "label": "Répétition plot",
+          "params": {
+            "src": "step-y4cwm38",
+            "n": 8,
+            "dx": 1,
+            "dy": 0,
+            "dz": 0
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-oa7290i",
+          "kind": "repeat",
+          "label": "Répétition plot 1",
+          "params": {
+            "src": "step-k8kkqd4",
+            "n": 6,
+            "dx": 0,
+            "dy": 0,
+            "dz": 1
+          },
+          "translate": [
+            -3.5,
+            0,
+            -2.5
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-w4xsu71",
+          "kind": "roundedBox",
+          "label": "plate body 2x2",
+          "params": {
+            "x": 7.995,
+            "y": 0.395,
+            "z": 5.995,
+            "r": 0.005,
+            "segs": 1
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-hi20amk",
+          "kind": "union",
+          "label": "Union corp plot 2x",
+          "params": {
+            "a": "step-w4xsu71",
+            "b": "step-oa7290i"
+          },
+          "translate": [
+            0.5,
+            0,
+            0.5
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-ddhm7p9",
+          "kind": "cube",
+          "label": "defonce basse 2x s.0",
+          "params": {
+            "x": 7.6,
+            "y": 0.4,
+            "z": 5.6
+          },
+          "translate": [
+            3.5,
+            -0.2,
+            2.5
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-4466vaa",
+          "kind": "union",
+          "label": "defonce basse 2x s.1",
+          "params": {
+            "a": "step-ddhm7p9",
+            "b": "step-klposr4"
+          },
+          "translate": [
+            0,
+            0,
+            0
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-il08azq",
+          "kind": "subtract",
+          "label": "defonce basse 2X v2",
+          "params": {
+            "a": "step-4466vaa",
+            "b": "step-6bqw6ks"
+          },
+          "translate": [
+            -3,
+            0,
+            -2
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": false
+        },
+        {
+          "id": "step-rdczcaf",
+          "kind": "subtract",
+          "label": "plate 6x8",
+          "params": {
+            "a": "step-hi20amk",
+            "b": "step-il08azq"
+          },
+          "translate": [
+            -0.5,
+            0,
+            -0.5
+          ],
+          "rotate": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ],
+          "visible": true
+        }
+      ]
+    },
+    "segConfig": {
+      "low": {
+        "cylinderSegs": 8,
+        "sphereSegs": 8,
+        "coneSegs": 8,
+        "roundedBoxSegs": 4
+      },
+      "medium": {
+        "cylinderSegs": 24,
+        "sphereSegs": 16,
+        "coneSegs": 16,
+        "roundedBoxSegs": 8
+      },
+      "high": {
+        "cylinderSegs": 64,
+        "sphereSegs": 48,
+        "coneSegs": 48,
+        "roundedBoxSegs": 16
+      }
+    },
+    "_hasOBJ": true,
+    "updatedAt": "2026-03-29T15:24:18.102Z",
+    "family": "system",
+    "subfamily": "plate"
+  }
+}

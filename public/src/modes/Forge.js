@@ -55,6 +55,7 @@ export class Forge {
   // ─── Cycle de vie ─────────────────────────────────────────────────────────
 
   async start() {
+    await this._ensureDefaults();
     this._indexBrickValues();
     this._setupScene();
     this._setupUI();
@@ -62,6 +63,23 @@ export class Forge {
     this._setupViewWidget();
     this._applyPanelWidths();
     this.engine.start();
+  }
+
+  /** Charge les données par défaut (briques + méca) si le catalogue est vide. */
+  async _ensureDefaults() {
+    const bricks = this._bricks();
+    if (Object.keys(bricks).length > 0) return;
+    try {
+      const base = window.RBANG_BASE + 'assets/rbang-bricks-base.json';
+      const meca = window.RBANG_BASE + 'assets/rbang-meca.json';
+      const [bricksData, mecaData] = await Promise.all([
+        fetch(base).then(r => r.ok ? r.json() : null),
+        fetch(meca).then(r => r.ok ? r.json() : null),
+      ]);
+      if (bricksData) this._saveBricks({ ...this._bricks(), ...bricksData });
+      if (mecaData?.slotTypes) this._saveSlotTypes({ ...this._slotTypes(), ...mecaData.slotTypes });
+      if (mecaData?.liaisons)  this._saveLiaisons({ ...this._liaisons(), ...mecaData.liaisons });
+    } catch { /* silencieux */ }
   }
 
   /** Indexe les couleurs, familles et sous-familles existantes pour l'autocomplétion. */

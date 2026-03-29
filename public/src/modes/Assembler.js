@@ -120,6 +120,7 @@ export class Assembler {
     this._setupScene();
     loader.complete();
     loader.step('Gestionnaires');
+    await this._ensureDefaults();
     this._setupManagers();
     this._applyConfig();
     loader.complete();
@@ -450,6 +451,24 @@ export class Assembler {
     e.camera.position.set(0, 8, 14);
     e.controls.target.set(0, 0, 0);
     e.controls.update();
+  }
+
+  // ─── Données par défaut ────────────────────────────────────────────────────
+
+  async _ensureDefaults() {
+    const bricks = this._loadStore('rbang_bricks');
+    if (Object.keys(bricks).length > 0) return;
+    try {
+      const base = window.RBANG_BASE + 'assets/rbang-bricks-base.json';
+      const meca = window.RBANG_BASE + 'assets/rbang-meca.json';
+      const [bricksData, mecaData] = await Promise.all([
+        fetch(base).then(r => r.ok ? r.json() : null),
+        fetch(meca).then(r => r.ok ? r.json() : null),
+      ]);
+      if (bricksData) localStorage.setItem('rbang_bricks', JSON.stringify(bricksData));
+      if (mecaData?.slotTypes) localStorage.setItem('rbang_slot_types', JSON.stringify(mecaData.slotTypes));
+      if (mecaData?.liaisons)  localStorage.setItem('rbang_liaisons',   JSON.stringify(mecaData.liaisons));
+    } catch { /* silencieux */ }
   }
 
   // ─── Managers ──────────────────────────────────────────────────────────────
