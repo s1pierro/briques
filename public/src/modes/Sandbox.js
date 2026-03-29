@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { getManifold, buildCache, manifoldToGeometry, manifoldToPoints } from '../csg-utils.js';
 
 
@@ -64,9 +65,15 @@ export class Sandbox {
     const keys   = Object.keys(bricks);
     if (!keys.length) { this._spawnBox(); return; }
     const brick = bricks[keys[Math.floor(Math.random() * keys.length)]];
-    if (!brick?.shapeRef) { this._spawnBox(); return; }
-    const shapes = load('rbang_shapes');
-    const data   = shapes[brick.shapeRef];
+
+    // csgTree embarqué > shapeRef externe
+    let data;
+    if (brick.csgTree?.steps && brick.csgTree.rootId) {
+      data = brick.csgTree;
+    } else if (brick.shapeRef) {
+      const shapes = load('rbang_shapes');
+      data = shapes[brick.shapeRef];
+    }
     if (!data?.steps || !data.rootId) { this._spawnBox(); return; }
     this._spawnShape(data, brick.color);
   }
@@ -218,12 +225,57 @@ export class Sandbox {
       this.engine.resizeViewport(this.engine._vpLeft, this.engine._vpRight, this.engine._vpTop);
     }));
 
+    // Export GLB
+    panel.append(makeSection('Export'));
+    const exportBtn = document.createElement('button');
+    exportBtn.textContent = '⤓ Export GLB';
+    exportBtn.style.cssText = [
+      'width:100%', 'padding:5px 0', 'font-size:11px', 'cursor:pointer',
+      `background:${C.bg}`, `border:1px solid ${C.border}`, `color:${C.fg}`,
+      'border-radius:2px', 'margin-top:2px',
+    ].join(';');
+    exportBtn.addEventListener('click', () => this._exportGLB());
+    panel.append(exportBtn);
+
     document.body.appendChild(panel);
     this._ui.push(panel);
     this._panel = panel;
 
     this._linearDamping  = 0;
     this._angularDamping = 0;
+  }
+
+  _exportGLB() {
+    const exportScene = new THREE.Scene();
+    const ambient = new THREE.AmbientLight(0xffffff, 0.4);
+    const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+    dir.position.set(5, 10, 7);
+    exportScene.add(ambient, dir);
+
+    for (const { mesh, isStatic } of this.engine._bodies) {
+      if (isStatic) continue;
+      const clone = mesh.clone();
+      const mat = mesh.material;
+      clone.material = new THREE.MeshStandardMaterial({
+        color:     mat.color.clone(),
+        roughness: mat.roughness ?? 0.55,
+        metalness: mat.metalness ?? 0.0,
+      });
+      exportScene.add(clone);
+    }
+
+    if (!exportScene.children.length) return;
+
+    const exporter = new GLTFExporter();
+    exporter.parse(exportScene, (glb) => {
+      const blob = new Blob([glb], { type: 'model/gltf-binary' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `rbang-sandbox-${Date.now()}.glb`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    }, console.error, { binary: true });
   }
 
   _setupStatusBar() {

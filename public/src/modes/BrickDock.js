@@ -113,6 +113,7 @@ export class BrickDock {
       cellLabelBgColor = '#0a0a0f', cellLabelBgOpacity = 0.75,
       cellLabelColor = '#888888', cellLabelFontSize = 8, cellLabelVisible = true,
       cellBorderRadius = 4,
+      cellRotateSpeed = 1.5,
     } = cfg;
     this._cellStyles = {
       bg                : _hexRgba(cellBgColor, cellBgOpacity),
@@ -126,8 +127,12 @@ export class BrickDock {
       labelColor        : cellLabelColor,
       labelFontSize     : cellLabelFontSize,
       labelVisible      : cellLabelVisible,
+      rotateSpeed       : cellRotateSpeed,
     };
-    this._cells.forEach(cell => this._applyCellStyle(cell, cell === this._activeCell));
+    this._cells.forEach(cell => {
+      this._applyCellStyle(cell, cell === this._activeCell);
+      if (cell.tb) cell.tb.rotateSpeed = cellRotateSpeed;
+    });
   }
 
   _applyCellStyle(cell, active) {
@@ -429,16 +434,14 @@ export class BrickDock {
     ].join(';');
     el.appendChild(camHandle);
 
-    // TrackballControls attaché au canvas (même config que la Forge)
-    // tb.enabled = false par défaut — activé uniquement depuis le handle
-    const tb = new TrackballControls(camera, canvas);
-    tb.rotateSpeed          = 3.5;
+    // TrackballControls attaché au handle ↻ uniquement
+    const tb = new TrackballControls(camera, camHandle);
+    tb.rotateSpeed          = this._cellStyles.rotateSpeed ?? 1.5;
     tb.noZoom               = true;
     tb.noPan                = true;
     tb.dynamicDampingFactor = 0.18;
     tb.target.set(0, 0, 0);
     tb.update();
-    tb.enabled = false;
 
     const cell = {
       el, canvas, ctx2d, label, camHandle, scene, camera, tb,
@@ -448,21 +451,6 @@ export class BrickDock {
     };
 
     tb.addEventListener('change', () => { cell._dirty = true; });
-
-    // Handle → active TB et dispatch un pointerdown synthétique sur le canvas
-    // pour que TB initialise son état interne (capture + _pointers)
-    camHandle.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      cell.tb.enabled = true;
-      canvas.dispatchEvent(new PointerEvent('pointerdown', {
-        bubbles: false, cancelable: true,
-        clientX: e.clientX, clientY: e.clientY,
-        pointerId: e.pointerId, pointerType: e.pointerType,
-        pressure: e.pressure, button: e.button, buttons: e.buttons,
-        isPrimary: e.isPrimary,
-      }));
-    }, { passive: false });
 
     await this._loadCellGeometry(cell);
     this._bindCellGestures(cell);
@@ -566,10 +554,6 @@ export class BrickDock {
       if (onBrick) {
         mode = 'assemble';
         cv.setPointerCapture(e.pointerId);
-        cell.tb.enabled = false;
-      } else {
-        mode = 'trackball';
-        // TB n'est activé que depuis le handle — ici on ne fait rien
       }
     }, { passive: false });
 
@@ -579,7 +563,6 @@ export class BrickDock {
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist >= 15 && isTowardEdge(dx, dy)) {
         cv.releasePointerCapture(e.pointerId);
-        cell.tb.enabled = true;
         mode = null;
         this._showFamily(this._famIdx + 1);
       } else if (dist >= 8 && this._onDragBrick) {
@@ -604,14 +587,11 @@ export class BrickDock {
           });
         }
       }
-      // trackball : TB a relâché sa capture en interne ; on éteint TB
-      cell.tb.enabled = false;
       mode = null;
     });
 
     cv.addEventListener('pointercancel', (e) => {
       if (cv.hasPointerCapture(e.pointerId)) cv.releasePointerCapture(e.pointerId);
-      cell.tb.enabled = false;
       if (mode === 'assemble') this._onCancelDrag?.();
       mode = null;
     });

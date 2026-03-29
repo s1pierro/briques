@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { expandSlots } from '../slot-utils.js';
-import { getManifold, buildCache, manifoldToGeometry } from '../csg-utils.js';
+import { getManifold, buildCache, manifoldToGeometry, parseOBJ } from '../csg-utils.js';
 import { AssemblySolver } from './AssemblySolver.js';
 
 // ─── Constantes visuelles ─────────────────────────────────────────────────────
@@ -762,29 +762,58 @@ export class AsmVerse {
    * @returns {Promise<AsmBrick|null>}
    */
   async spawnBrick(brickTypeId, brickData, pos = null, snapTransform = null, shapeData = null) {
-    if (!shapeData) {
+    let geo;
+
+    // ── Priorité 1 : OBJ pré-calculé (geoMedium > geoLow > geoHigh) ──
+    const objText = brickData.geoMedium || brickData.geoLow || brickData.geoHigh;
+    if (objText) {
       try {
-        const store = JSON.parse(localStorage.getItem('rbang_shapes') || '{}');
-        shapeData = store[brickData.shapeRef];
-        console.log('[spawnBrick] fallback shapes localStorage pour', brickData.shapeRef,
-          '→', shapeData ? 'trouvé' : 'ABSENT');
-      } catch { return null; }
+        geo = parseOBJ(objText);
+      } catch (e) {
+        console.warn('[spawnBrick] parseOBJ failed, fallback CSG', e);
+        geo = null;
+      }
     }
-    if (!shapeData?.steps || !shapeData.rootId) {
-      console.warn('[spawnBrick] shapeData invalide pour', brickTypeId,
-        '| steps:', shapeData?.steps?.length, '| rootId:', shapeData?.rootId);
-      return null;
+
+    // ── Priorité 2 : arbre CSG embarqué ──
+    if (!geo && brickData.csgTree?.steps && brickData.csgTree.rootId) {
+      try {
+        const M     = await getManifold();
+        const cache = buildCache(brickData.csgTree.steps, M);
+        const mf    = cache.get(brickData.csgTree.rootId);
+        if (mf) ({ geo } = manifoldToGeometry(mf));
+      } catch (e) {
+        console.warn('[spawnBrick] CSG embarqué failed, fallback shapeRef', e);
+      }
+    }
+
+    // ── Priorité 3 : shapeRef externe (compatibilité) ──
+    if (!geo) {
+      if (!shapeData) {
+        try {
+          const store = JSON.parse(localStorage.getItem('rbang_shapes') || '{}');
+          shapeData = store[brickData.shapeRef];
+        } catch { return null; }
+      }
+      if (!shapeData?.steps || !shapeData.rootId) {
+        console.warn('[spawnBrick] aucune géométrie disponible pour', brickTypeId);
+        return null;
+      }
+      try {
+        const M     = await getManifold();
+        const cache = buildCache(shapeData.steps, M);
+        const mf    = cache.get(shapeData.rootId);
+        if (!mf) return null;
+        ({ geo } = manifoldToGeometry(mf));
+      } catch (e) {
+        console.error('[AsmVerse] spawnBrick shapeRef error', e);
+        return null;
+      }
     }
 
     try {
-      const M     = await getManifold();
-      const cache = buildCache(shapeData.steps, M);
-      const mf    = cache.get(shapeData.rootId);
-      if (!mf) return null;
-
-      const { geo } = manifoldToGeometry(mf);
-      const color   = parseInt((brickData.color || '#888888').replace('#', ''), 16);
-      const mesh    = new THREE.Mesh(
+      const color = parseInt((brickData.color || '#888888').replace('#', ''), 16);
+      const mesh  = new THREE.Mesh(
         geo,
         new THREE.MeshStandardMaterial({ color, roughness: 0.55 })
       );
@@ -816,6 +845,8 @@ export class AsmVerse {
       }));
 
       const brick = new AsmBrick(id, brickTypeId, brickData, mesh, slots, center);
+      // Flag NG : la brique embarque son propre arbre CSG (ou OBJ pré-calculé)
+      brick.ng = !!(brickData.csgTree || brickData.geoMedium || brickData.geoLow || brickData.geoHigh);
       this.bricks.set(id, brick);
       this.slots.registerBrick(brick);   // ← point d'entrée 1 du registre
       return brick;
@@ -984,7 +1015,7 @@ export class AsmVerse {
    * @param {Object}  [liaisonsStore] — rbang_liaisons (id → liaison)
    * @returns {Promise<Map<string,AsmBrick>>}  ancien id → AsmBrick
    */
-  async restore(data, bricksStore, shapesStore, liaisonsStore = {}) {
+  async restore(data, bricksStore, shapesStore, liaisonsStore = {}, onProgress = null) {
     console.log('[restore] instances:', data?.instances?.length,
       '| bricksStore keys:', Object.keys(bricksStore).length,
       '| shapesStore keys:', Object.keys(shapesStore).length,
@@ -1017,6 +1048,7 @@ export class AsmVerse {
       brick.mesh.position.set(s.px, s.py, s.pz);
       brick.mesh.quaternion.set(s.qx, s.qy, s.qz, s.qw);
       idMap.set(s.id, brick);
+      if (onProgress) onProgress(idMap.size, data.instances.length);
     }
 
     console.log('[restore] briques chargées:', idMap.size, '/', data.instances.length);

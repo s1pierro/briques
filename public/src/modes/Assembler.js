@@ -70,6 +70,8 @@ const CFG_DEFAULTS = {
   stripBgColor           : '#121218',
   stripBgOpacity         : 0.6,
   stripFontColor         : '#cccccc',
+  // ── Trackball cellule dock ────────────────────────────────────────────────
+  cellRotateSpeed        : 1.5,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -109,13 +111,95 @@ export class Assembler {
   // ─── Cycle de vie ──────────────────────────────────────────────────────────
 
   async start() {
+    const loader = this._showLoader();
+    loader.step('Scène');
     this._setupScene();
+    loader.complete();
+    loader.step('Gestionnaires');
     this._setupManagers();
     this._applyConfig();
+    loader.complete();
+    loader.step('Interface');
     this._setupUI();
     this._setupEvents();
+    loader.complete();
+    loader.step('Moteur');
     this.engine.start();
-    await this._restoreScene();
+    loader.complete();
+    loader.step('Restauration scène');
+    await this._restoreScene((done, total) => loader.progress(done / total));
+    loader.complete();
+    this._centerViewOnSelection();
+    loader.done();
+  }
+
+  _showLoader() {
+    const el = document.createElement('div');
+    el.style.cssText = [
+      'position:fixed', 'inset:0', 'z-index:200',
+      'display:flex', 'flex-direction:column',
+      'align-items:center', 'justify-content:center',
+      'background:#0a0a10', 'color:#fff',
+      "font-family:'Segoe UI',system-ui,sans-serif",
+      'transition:opacity 0.4s',
+    ].join(';');
+    const title = document.createElement('div');
+    title.textContent = 'Assembleur';
+    title.style.cssText = 'font-size:1.8rem;font-weight:700;letter-spacing:0.15em;color:#7aafc8;margin-bottom:1.5rem;';
+    const list = document.createElement('div');
+    list.style.cssText = 'display:flex;flex-direction:column;gap:8px;min-width:220px;';
+    el.append(title, list);
+    document.body.appendChild(el);
+    const items = [];
+    let current = null;
+    return {
+      step(label) {
+        const row = document.createElement('div');
+        row.style.cssText = 'transition:opacity 0.2s,color 0.2s;';
+
+        const header = document.createElement('div');
+        header.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:0.95rem;';
+        const icon = document.createElement('span');
+        icon.textContent = '⟳';
+        icon.style.cssText = 'width:1.2rem;text-align:center;';
+        const lbl = document.createElement('span');
+        lbl.textContent = label;
+        lbl.style.cssText = 'flex:1;';
+        const pct = document.createElement('span');
+        pct.style.cssText = 'font-size:0.75rem;opacity:0.5;font-variant-numeric:tabular-nums;';
+        header.append(icon, lbl, pct);
+
+        const barBg = document.createElement('div');
+        barBg.style.cssText = 'height:3px;background:rgba(255,255,255,0.1);border-radius:2px;margin-top:3px;overflow:hidden;';
+        const barFill = document.createElement('div');
+        barFill.style.cssText = 'height:100%;width:0%;background:#7aafc8;border-radius:2px;transition:width 0.15s;';
+        barBg.appendChild(barFill);
+
+        row.append(header, barBg);
+        list.appendChild(row);
+        current = { row, icon, pct, barFill };
+        items.push(current);
+      },
+      progress(ratio) {
+        if (!current) return;
+        const p = Math.min(1, Math.max(0, ratio));
+        current.barFill.style.width = (p * 100).toFixed(1) + '%';
+        current.pct.textContent = Math.round(p * 100) + '%';
+      },
+      complete() {
+        if (!current) return;
+        current.barFill.style.width = '100%';
+        current.pct.textContent = '';
+        current.icon.textContent = '✓';
+        current.row.style.color = '#aaffcc';
+      },
+      done() {
+        setTimeout(() => {
+          el.style.opacity = '0';
+          setTimeout(() => el.remove(), 400);
+        }, 300);
+      },
+    };
   }
 
   _loadConfig() {
@@ -148,8 +232,6 @@ export class Assembler {
     this._asmVerse.worldSlots.snapR = cfg.snapR;
     if (this._asmVerse.worldSlots.planMesh) this._asmVerse.worldSlots.planMesh.visible = cfg.planVisible;
     this._asmVerse.slots.clipDist   = cfg.connectionTolerance ?? 0.12;
-    this._solverKey = cfg.involvedBricksSolver ?? 'physics';
-    this._updateSolverBtns?.();
   }
 
   // ─── Persistance de la scène ───────────────────────────────────────────────
@@ -160,14 +242,14 @@ export class Assembler {
     } catch { /* quota exceeded */ }
   }
 
-  async _restoreScene() {
+  async _restoreScene(onProgress = null) {
     let saved;
     try { saved = JSON.parse(localStorage.getItem(SCENE_KEY) || 'null'); } catch { return; }
     if (!saved?.instances?.length) return;
     const bricksStore   = this._loadStore('rbang_bricks');
     const shapesStore   = this._loadStore('rbang_shapes');
     const liaisonsStore = this._loadStore('rbang_liaisons');
-    await this._asmVerse.restore(saved, bricksStore, shapesStore, liaisonsStore);
+    await this._asmVerse.restore(saved, bricksStore, shapesStore, liaisonsStore, onProgress);
     this._updateCount();
   }
 
@@ -349,6 +431,7 @@ export class Assembler {
     this._asmVerse.joints.onConnect = (conn) => this._activateAsmHandlers(conn);
     this._buildGizmo();
     this._dock = new BrickDock(this.engine, { edge: 'bottom', align: 'center' });
+    this._dock.setCellStyles(this._loadConfig());
     this._dock.onPickBrick((brickId, gesture) => {
       this._activeGesture = null;
       this._removeDockGhost();
@@ -826,7 +909,7 @@ export class Assembler {
     const stepsRot   = cfg.asmHelperStepsRot   ?? 16;
     const stepsTrans = cfg.asmHelperStepsTrans  ?? 20;
     // En mode Composante : toujours InvolvedComponentsSolver (cohérent avec computeComponents)
-    const solver = this._mode === 'component' ? 'component' : (this._solverKey ?? 'physics');
+    const solver = this._mode === 'component' ? 'component' : 'asm';
     const connections = this._asmVerse.joints.connections;
     const xray    = this._mode === 'component';
     const sbgHex   = cfg.stripBgColor   ?? '#121218';
@@ -968,7 +1051,7 @@ export class Assembler {
         position:fixed; top:0; left:0; right:0; height:${BAR_H}px;
         background:${C.bgDark}ee; border-bottom:1px solid ${C.border};
         display:flex; align-items:center; padding:0 6px;
-        z-index:54; pointer-events:auto;
+        z-index:56; pointer-events:auto;
         font:10px sans-serif; color:${C.dim};
       }
       .asm-bar-btn {
@@ -1007,24 +1090,28 @@ export class Assembler {
     // ── Sélecteur de mode ────────────────────────────────────────────────────────
     const modeStrip = document.createElement('div');
     modeStrip.style.cssText = [
-      'display:flex', `border:1px solid ${C.border}`, 'border-radius:3px',
+      'display:flex', 'align-items:center', `border:1px solid ${C.border}`, 'border-radius:3px',
       'overflow:hidden', 'flex-shrink:0', 'margin:0 4px',
     ].join(';');
-    const _modeBtn = (icon, title, key) => {
+    const modeLbl = document.createElement('span');
+    modeLbl.textContent = 'Interactions';
+    modeLbl.style.cssText = `color:${C.dim};font-size:9px;padding:0 6px;white-space:nowrap;`;
+    const _modeBtn = (icon, label, title, key) => {
       const btn = document.createElement('button');
       btn.dataset.modeKey = key;
       btn.title = title;
-      btn.textContent = icon;
+      btn.innerHTML = `${icon} <span style="font-size:9px">${label}</span>`;
       btn.style.cssText = [
         'background:transparent', 'border:none', `color:${C.dim}`,
         'font-size:13px', 'cursor:pointer', 'padding:0 7px', 'height:100%', 'line-height:1',
+        'display:flex', 'align-items:center', 'gap:3px',
       ].join(';');
       btn.addEventListener('click', () => this._setMode(key));
       return btn;
     };
-    const _brickModeBtn = _modeBtn('▦', 'Mode Brique',      'brick');
-    const _compModeBtn  = _modeBtn('⬡', 'Mode Composante',  'component');
-    modeStrip.append(_brickModeBtn, _compModeBtn);
+    const _brickModeBtn = _modeBtn('▦', 'Brique',     'Mode Brique',     'brick');
+    const _compModeBtn  = _modeBtn('⬡', 'Composant',  'Mode Composante', 'component');
+    modeStrip.append(modeLbl, _brickModeBtn, _compModeBtn);
 
     this._updateModeBtns = () => {
       for (const btn of modeStrip.querySelectorAll('button')) {
@@ -1034,42 +1121,6 @@ export class Assembler {
       }
     };
     this._updateModeBtns();
-
-    // ── Strip solveur : brique (asm) | classe d'équivalence (physics) ──────────
-    this._solverKey = this._loadConfig().involvedBricksSolver ?? 'physics';
-    const solverStrip = document.createElement('div');
-    solverStrip.style.cssText = [
-      'display:flex', `border:1px solid ${C.border}`, 'border-radius:3px',
-      'overflow:hidden', 'flex-shrink:0', 'margin:0 4px',
-    ].join(';');
-    const _solverBtn = (icon, title, key) => {
-      const btn = document.createElement('button');
-      btn.dataset.solverKey = key;
-      btn.title = title;
-      btn.textContent = icon;
-      btn.style.cssText = [
-        'background:transparent', 'border:none', `color:${C.dim}`,
-        'font-size:13px', 'cursor:pointer', 'padding:0 7px', 'height:100%', 'line-height:1',
-      ].join(';');
-      btn.addEventListener('click', () => {
-        this._solverKey = key;
-        this._saveConfig({ involvedBricksSolver: key });
-        this._updateSolverBtns();
-      });
-      return btn;
-    };
-    solverStrip.append(
-      _solverBtn('◻', 'Solveur : Brique',               'asm'),
-      _solverBtn('⊞', 'Solveur : Classe d\'équivalence', 'physics'),
-    );
-    this._updateSolverBtns = () => {
-      for (const btn of solverStrip.querySelectorAll('button')) {
-        const active = btn.dataset.solverKey === this._solverKey;
-        btn.style.color      = active ? C.accent : C.dim;
-        btn.style.background = active ? `${C.bg}` : 'transparent';
-      }
-    };
-    this._updateSolverBtns();
 
     // ── Toggle déplacement ensemble lié (mode composante uniquement) ─────────
     const linkedMoveBtn = document.createElement('button');
@@ -1119,6 +1170,12 @@ export class Assembler {
     jointsBtn.textContent = '⇄';
     jointsBtn.addEventListener('click', () => this._togglePanel('joints'));
 
+    const bomBtn = document.createElement('button');
+    bomBtn.className = 'asm-bar-btn';
+    bomBtn.title = 'Nomenclature';
+    bomBtn.textContent = '☰';
+    bomBtn.addEventListener('click', () => this._togglePanel('bom'));
+
     const stateBtn = document.createElement('button');
     stateBtn.className = 'asm-bar-btn';
     stateBtn.title = 'État interne';
@@ -1131,13 +1188,26 @@ export class Assembler {
     exportBtn.textContent = '⤓';
     exportBtn.addEventListener('click', () => this._exportGLB());
 
+    const jsonBtn = document.createElement('button');
+    jsonBtn.className = 'asm-bar-btn';
+    jsonBtn.title = 'Exporter scène JSON';
+    jsonBtn.textContent = '{}';
+    jsonBtn.style.fontSize = '11px';
+    jsonBtn.addEventListener('click', () => this._exportScene());
+
+    const importBtn = document.createElement('button');
+    importBtn.className = 'asm-bar-btn';
+    importBtn.title = 'Importer scène JSON';
+    importBtn.textContent = '↑';
+    importBtn.addEventListener('click', () => this._importScene());
+
     const cfgBtn = document.createElement('button');
     cfgBtn.className = 'asm-bar-btn';
     cfgBtn.title = 'Configuration';
     cfgBtn.textContent = '⚙';
     cfgBtn.addEventListener('click', () => this._openConfigModal());
 
-    bar.append(fsBtn, reloadBtn, modeStrip, solverStrip, linkedMoveBtn, centerViewBtn, this._countEl, catalogueBtn, bricksBtn, compBtn, jointsBtn, stateBtn, exportBtn, cfgBtn);
+    bar.append(fsBtn, reloadBtn, modeStrip, linkedMoveBtn, centerViewBtn, this._countEl, catalogueBtn, bomBtn, bricksBtn, compBtn, jointsBtn, stateBtn, importBtn, exportBtn, jsonBtn, cfgBtn);
     document.body.appendChild(bar);
     this._ui.push(bar);
 
@@ -1389,6 +1459,8 @@ export class Assembler {
       v => { this._saveConfig({ cellLabelColor: v }); this._dock.setCellStyles(this._loadConfig()); }));
     cellCard.append(makeSlider('Taille police', 5, 20, 1, cellCfg.cellLabelFontSize,
       v => { this._saveConfig({ cellLabelFontSize: v }); this._dock.setCellStyles(this._loadConfig()); }));
+    cellCard.append(makeSlider('Sensibilité rotation', 0.1, 5, 0.1, cellCfg.cellRotateSpeed ?? 1.5,
+      v => { this._saveConfig({ cellRotateSpeed: v }); this._dock.setCellStyles(this._loadConfig()); }));
 
     body.append(cellCard);
 
@@ -1765,7 +1837,7 @@ export class Assembler {
     ].join(';');
     const title = document.createElement('span');
     title.style.cssText = `color:${C.dim};font-size:9px;text-transform:uppercase;letter-spacing:.1em;`;
-    const panelTitles = { bricks: 'Briques', components: 'Composantes', joints: 'Liaisons', state: 'État interne', catalogue: 'Catalogue' };
+    const panelTitles = { bricks: 'Briques', components: 'Composantes', joints: 'Liaisons', state: 'État interne', catalogue: 'Catalogue', bom: 'Nomenclature' };
     title.textContent = panelTitles[name] ?? name;
     const closeBtn = document.createElement('button');
     closeBtn.textContent = '✕';
@@ -1795,6 +1867,7 @@ export class Assembler {
     else if (name === 'joints')    { this._syncJointsHeaderToggle(panel); this._fillJointsPanel(body); }
     else if (name === 'state')       this._fillStatePanel(body);
     else if (name === 'catalogue')   this._fillCataloguePanel(body);
+    else if (name === 'bom')         this._fillBomPanel(body);
     else                             this._fillComponentsPanel(body);
   }
 
@@ -1836,6 +1909,71 @@ export class Assembler {
       row.append(swatch, info, badge);
       body.appendChild(row);
     }
+  }
+
+  _fillBomPanel(body) {
+    if (!this._asmVerse.bricks.size) {
+      body.appendChild(this._panelEmpty('Aucune brique dans la scène'));
+      return;
+    }
+    // Compter les occurrences par type
+    const counts = new Map(); // brickTypeId → { name, color, count, ng }
+    for (const inst of this._asmVerse.bricks.values()) {
+      const id = inst.brickTypeId;
+      if (!counts.has(id)) {
+        counts.set(id, { name: inst.brickData.name || id, color: inst.brickData.color || '#888', count: 0, ng: inst.ng });
+      }
+      counts.get(id).count++;
+    }
+    // Trier par count décroissant puis par nom
+    const sorted = [...counts.entries()].sort((a, b) => b[1].count - a[1].count || a[1].name.localeCompare(b[1].name));
+    const total = this._asmVerse.bricks.size;
+
+    for (const [, entry] of sorted) {
+      const row = document.createElement('div');
+      row.style.cssText = [
+        'display:flex', 'align-items:center', 'gap:8px',
+        'padding:5px 12px',
+        `border-bottom:1px solid ${C.border}22`,
+      ].join(';');
+
+      const swatch = document.createElement('span');
+      swatch.style.cssText = [
+        'width:10px', 'height:10px', 'border-radius:2px', 'flex-shrink:0',
+        `background:${entry.color}`,
+        `border:1px solid ${C.border}`,
+      ].join(';');
+
+      const name = document.createElement('span');
+      name.style.cssText = `flex:1;color:${C.fg};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`;
+      name.textContent = entry.name;
+
+      const count = document.createElement('span');
+      count.style.cssText = `color:${C.accent};flex-shrink:0;font-variant-numeric:tabular-nums;`;
+      count.textContent = `×${entry.count}`;
+
+      if (entry.ng) {
+        const badge = document.createElement('span');
+        badge.style.cssText = `font:700 8px sans-serif;color:#2e2e2e;background:#88cc88;border-radius:2px;padding:1px 4px;flex-shrink:0;letter-spacing:.04em;`;
+        badge.textContent = 'NG';
+        badge.title = 'Nouvelle génération — CSG embarqué';
+        row.append(swatch, name, badge, count);
+      } else {
+        row.append(swatch, name, count);
+      }
+      body.appendChild(row);
+    }
+
+    // Ligne total
+    const totalRow = document.createElement('div');
+    totalRow.style.cssText = [
+      'display:flex', 'align-items:center', 'justify-content:space-between',
+      'padding:6px 12px',
+      `border-top:1px solid ${C.border}`,
+      `color:${C.dim}`, 'font-size:10px',
+    ].join(';');
+    totalRow.innerHTML = `<span>${sorted.length} type${sorted.length > 1 ? 's' : ''}</span><span style="color:${C.accent}">${total} pièce${total > 1 ? 's' : ''}</span>`;
+    body.appendChild(totalRow);
   }
 
   _initJointsHeaderToggle(panel) {

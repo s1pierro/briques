@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
-import { getManifold, buildCache, manifoldToGeometry } from '../csg-utils.js';
+import { getManifold, buildCache, buildCsgWithSegs, manifoldToGeometry, geometryToOBJ, parseOBJ } from '../csg-utils.js';
 import { expandSlots } from '../slot-utils.js';
 
 // ─── Stores localStorage ──────────────────────────────────────────────────────
@@ -129,19 +129,31 @@ export class Forge {
 
   async _rebuildMesh() {
     this._disposeMeshGroup();
-    if (!this._currentBrick?.shapeRef) return;
-    try {
-      const shapes = JSON.parse(localStorage.getItem('rbang_shapes') || '{}');
-      const data   = shapes[this._currentBrick.shapeRef];
-      if (!data?.steps || !data.rootId) { this._setStatus('Shape introuvable dans le catalogue'); return; }
+    const b = this._currentBrick;
 
+    // Résolution CSG : csgTree embarqué > shapeRef externe
+    let steps, rootId;
+    if (b?.csgTree?.steps && b.csgTree.rootId) {
+      steps  = b.csgTree.steps;
+      rootId = b.csgTree.rootId;
+    } else if (b?.shapeRef) {
+      const shapes = JSON.parse(localStorage.getItem('rbang_shapes') || '{}');
+      const data   = shapes[b.shapeRef];
+      if (!data?.steps || !data.rootId) { this._setStatus('Shape introuvable dans le catalogue'); return; }
+      steps  = data.steps;
+      rootId = data.rootId;
+    } else {
+      return;
+    }
+
+    try {
       const M     = await getManifold();
-      const cache = buildCache(data.steps, M);
-      const mf    = cache.get(data.rootId);
+      const cache = buildCache(steps, M);
+      const mf    = cache.get(rootId);
       if (!mf) { this._setStatus('Erreur CSG'); return; }
 
       const { geo } = manifoldToGeometry(mf);
-      const color   = parseInt((this._currentBrick.color || '#888888').replace('#', ''), 16);
+      const color   = parseInt((b.color || '#888888').replace('#', ''), 16);
       this._brickMat = new THREE.MeshStandardMaterial({ color, roughness: 0.55 });
 
       const mesh = new THREE.Mesh(geo, this._brickMat);
@@ -334,6 +346,21 @@ export class Forge {
     this._updateSaveBtn();
   }
 
+  _cloneBrick(id) {
+    const src = this._bricks()[id];
+    if (!src) return;
+    const clone = {
+      ...structuredClone(src),
+      id: uid('br'),
+      createdAt: new Date().toISOString(),
+    };
+    const store = this._bricks();
+    store[clone.id] = clone;
+    this._saveBricks(store);
+    this._loadBrick(clone.id);
+    this._renderBrickList();
+  }
+
   _deleteBrick(id) {
     const store = this._bricks();
     delete store[id];
@@ -365,6 +392,88 @@ export class Forge {
     this._currentBrick.name = name;
     this._markDirty();
     this._renderBrickList();
+  }
+
+  // ─── CSG embarqué & OBJ ────────────────────────────────────────────────
+
+  _loadCsgInBrick() {
+    const b = this._currentBrick;
+    if (!b) return;
+    const shapes = JSON.parse(localStorage.getItem('rbang_shapes') || '{}');
+    const keys = Object.keys(shapes);
+    if (!keys.length) { this._setStatus('Catalogue de formes vide'); return; }
+
+    // Si shapeRef existe, le pré-sélectionner
+    let selected = b.shapeRef && shapes[b.shapeRef] ? b.shapeRef : keys[0];
+
+    // Popup simple de sélection
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;display:flex;align-items:center;justify-content:center;';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:var(--fg-bg);border:1px solid var(--fg-border);border-radius:4px;padding:16px;min-width:220px;max-height:60vh;display:flex;flex-direction:column;gap:8px;';
+    const title = document.createElement('div');
+    title.className = 'fg-label'; title.textContent = 'Charger un arbre CSG';
+    const sel = document.createElement('select');
+    sel.className = 'fg-select';
+    for (const k of keys) {
+      const opt = document.createElement('option');
+      opt.value = k; opt.textContent = k;
+      if (k === selected) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:6px;';
+    const okBtn = document.createElement('button');
+    okBtn.className = 'fg-btn accent'; okBtn.textContent = 'Charger'; okBtn.style.flex = '1';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'fg-btn'; cancelBtn.textContent = 'Annuler'; cancelBtn.style.flex = '1';
+    btnRow.append(okBtn, cancelBtn);
+    box.append(title, sel, btnRow);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    this._ui.push(overlay);
+
+    cancelBtn.addEventListener('click', () => overlay.remove());
+    okBtn.addEventListener('click', () => {
+      const data = shapes[sel.value];
+      if (!data?.steps || !data.rootId) { this._setStatus('Shape invalide'); overlay.remove(); return; }
+      b.csgTree = { rootId: data.rootId, steps: structuredClone(data.steps) };
+      // Initialiser segConfig par défaut si absent
+      if (!b.segConfig) {
+        b.segConfig = {
+          low:    { cylinderSegs: 8,  sphereSegs: 8,  coneSegs: 8,  roundedBoxSegs: 4 },
+          medium: { cylinderSegs: 24, sphereSegs: 16, coneSegs: 16, roundedBoxSegs: 8 },
+          high:   { cylinderSegs: 64, sphereSegs: 48, coneSegs: 48, roundedBoxSegs: 16 },
+        };
+      }
+      this._markDirty();
+      this._rebuildMesh();
+      this._renderActiveTab();
+      this._setStatus(`CSG "${sel.value}" embarqué (${data.steps.length} étapes)`);
+      overlay.remove();
+    });
+  }
+
+  async _generateOBJs() {
+    const b = this._currentBrick;
+    if (!b?.csgTree?.steps || !b.csgTree.rootId) { this._setStatus('Pas d\'arbre CSG embarqué'); return; }
+    if (!b.segConfig) { this._setStatus('Pas de segConfig'); return; }
+
+    try {
+      const M = await getManifold();
+      for (const [level, propName] of [['low','geoLow'],['medium','geoMedium'],['high','geoHigh']]) {
+        const mf = buildCsgWithSegs(b.csgTree.steps, b.csgTree.rootId, b.segConfig[level], M);
+        if (!mf) { this._setStatus(`Erreur CSG niveau ${level}`); return; }
+        const { geo } = manifoldToGeometry(mf);
+        b[propName] = geometryToOBJ(geo);
+      }
+      this._markDirty();
+      this._renderActiveTab();
+      this._setStatus('Géométries low/med/high générées');
+    } catch (err) {
+      this._setStatus('Erreur génération OBJ');
+      console.error(err);
+    }
   }
 
   // ─── Slots ────────────────────────────────────────────────────────────────
@@ -981,6 +1090,34 @@ export class Forge {
     nameSec.append(nameLbl, nameInp);
     el.appendChild(nameSec);
 
+    // Type ID
+    const idSec = document.createElement('div');
+    idSec.className = 'fg-section';
+    const idLbl = document.createElement('div');
+    idLbl.className = 'fg-label'; idLbl.textContent = 'Type ID';
+    const idInp = document.createElement('input');
+    idInp.className = 'fg-input'; idInp.value = b.id || '';
+    idInp.style.fontFamily = 'monospace';
+    idInp.style.fontSize = '10px';
+    idInp.addEventListener('change', e => {
+      const newId = e.target.value.trim();
+      if (!newId || newId === b.id) { e.target.value = b.id; return; }
+      const store = this._bricks();
+      if (store[newId] && newId !== b.id) {
+        if (!confirm(`Le type "${newId}" existe déjà. Écraser ?`)) { e.target.value = b.id; return; }
+      }
+      // Supprimer l'ancienne clé
+      delete store[b.id];
+      b.id = newId;
+      store[newId] = { ...b, updatedAt: new Date().toISOString() };
+      this._saveBricks(store);
+      this._dirty = false;
+      this._renderBrickList();
+      this._updateSaveBtn();
+    });
+    idSec.append(idLbl, idInp);
+    el.appendChild(idSec);
+
     // Famille (pour le dock de l'Assembler)
     const famSec = document.createElement('div');
     famSec.className = 'fg-section';
@@ -993,15 +1130,86 @@ export class Forge {
     famSec.append(famLbl, famInp);
     el.appendChild(famSec);
 
-    // Géométrie (référence shape)
+    // ── Géométrie ──────────────────────────────────────────────────────────
     const geoSec = document.createElement('div');
     geoSec.className = 'fg-section';
     const geoLbl = document.createElement('div');
     geoLbl.className = 'fg-label'; geoLbl.textContent = 'Géométrie';
-    const geoRef = document.createElement('div');
-    geoRef.style.cssText = 'font:10px monospace;color:var(--fg-accent);padding:4px 7px;background:var(--fg-bg2);border:1px solid var(--fg-border);border-radius:2px;';
-    geoRef.textContent = b.shapeRef || '—';
-    geoSec.append(geoLbl, geoRef);
+    geoSec.appendChild(geoLbl);
+
+    // Source actuelle
+    const srcRow = document.createElement('div');
+    srcRow.style.cssText = 'font:10px monospace;color:var(--fg-accent);padding:4px 7px;background:var(--fg-bg2);border:1px solid var(--fg-border);border-radius:2px;margin-bottom:6px;';
+    srcRow.textContent = b.csgTree ? `CSG embarqué (${b.csgTree.steps.length} étapes)` : (b.shapeRef || '—');
+    geoSec.appendChild(srcRow);
+
+    // Bouton Charger CSG
+    const loadCsgBtn = document.createElement('button');
+    loadCsgBtn.className = 'fg-btn w100';
+    loadCsgBtn.textContent = '↓ Charger CSG depuis catalogue';
+    loadCsgBtn.addEventListener('click', () => this._loadCsgInBrick());
+    geoSec.appendChild(loadCsgBtn);
+
+    // ── Résolution (segConfig) ──
+    if (b.csgTree) {
+      const segLbl = document.createElement('div');
+      segLbl.className = 'fg-label';
+      segLbl.style.marginTop = '10px';
+      segLbl.textContent = 'Résolution segments';
+      geoSec.appendChild(segLbl);
+
+      if (!b.segConfig) b.segConfig = {
+        low:    { cylinderSegs: 8,  sphereSegs: 8,  coneSegs: 8,  roundedBoxSegs: 4 },
+        medium: { cylinderSegs: 24, sphereSegs: 16, coneSegs: 16, roundedBoxSegs: 8 },
+        high:   { cylinderSegs: 64, sphereSegs: 48, coneSegs: 48, roundedBoxSegs: 16 },
+      };
+
+      for (const level of ['low', 'medium', 'high']) {
+        const lvlRow = document.createElement('div');
+        lvlRow.style.cssText = 'margin-bottom:6px;';
+        const lvlLbl = document.createElement('div');
+        lvlLbl.style.cssText = 'font:700 9px sans-serif;color:var(--fg-dim);text-transform:uppercase;letter-spacing:.08em;margin-bottom:2px;';
+        lvlLbl.textContent = level;
+        lvlRow.appendChild(lvlLbl);
+
+        const cfg = b.segConfig[level];
+        for (const [key, label] of [['cylinderSegs','Cyl.'],['sphereSegs','Sph.'],['coneSegs','Cône'],['roundedBoxSegs','RBox']]) {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex;align-items:center;gap:4px;margin-bottom:1px;';
+          const lbl = document.createElement('span');
+          lbl.style.cssText = 'font:10px sans-serif;color:var(--fg-dim);min-width:36px;';
+          lbl.textContent = label;
+          const inp = document.createElement('input');
+          inp.type = 'number'; inp.min = '3'; inp.max = '256'; inp.step = '1';
+          inp.value = cfg[key];
+          inp.className = 'fg-input';
+          inp.style.cssText += 'width:60px;padding:2px 4px;font-size:10px;';
+          inp.addEventListener('change', () => {
+            cfg[key] = Math.max(3, Math.min(256, parseInt(inp.value) || cfg[key]));
+            inp.value = cfg[key];
+            this._markDirty();
+          });
+          row.append(lbl, inp);
+          lvlRow.appendChild(row);
+        }
+        geoSec.appendChild(lvlRow);
+      }
+
+      // Bouton Générer les 3 OBJ
+      const genBtn = document.createElement('button');
+      genBtn.className = 'fg-btn w100 accent';
+      genBtn.textContent = '⚙ Générer géométries (low/med/high)';
+      genBtn.addEventListener('click', () => this._generateOBJs());
+      geoSec.appendChild(genBtn);
+
+      // Indicateur OBJ existants
+      const objStatus = document.createElement('div');
+      objStatus.style.cssText = 'font:10px sans-serif;color:var(--fg-dim);margin-top:4px;';
+      const has = l => b[`geo${l}`] ? '✓' : '✕';
+      objStatus.textContent = `OBJ : Low ${has('Low')}  Med ${has('Medium')}  High ${has('High')}`;
+      geoSec.appendChild(objStatus);
+    }
+
     el.appendChild(geoSec);
 
     // Couleur
@@ -1042,6 +1250,14 @@ export class Forge {
       : `${defCount} slot(s) défini(s)`;
     slotSec.append(slotLbl, slotCount);
     el.appendChild(slotSec);
+
+    // Bouton Cloner
+    const cloneBtn = document.createElement('button');
+    cloneBtn.className = 'fg-rotbtn';
+    cloneBtn.textContent = '⧉ Cloner';
+    cloneBtn.style.cssText = 'width:100%;margin-top:8px;padding:5px 0;cursor:pointer;';
+    cloneBtn.addEventListener('click', () => this._cloneBrick(b.id));
+    el.appendChild(cloneBtn);
   }
 
   // ─── Tab Slots ────────────────────────────────────────────────────────────

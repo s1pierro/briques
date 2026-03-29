@@ -144,3 +144,108 @@ export function manifoldToPoints(manifold) {
   }
   return pts;
 }
+
+// ─── Build CSG avec segments forcés ──────────────────────────────────────────
+
+/**
+ * Clone un arbre CSG et force les valeurs `segs` de chaque primitive
+ * selon un segConfig { cylinderSegs, sphereSegs, coneSegs, roundedBoxSegs }.
+ * Retourne le Manifold racine évalué.
+ */
+export function buildCsgWithSegs(steps, rootId, segConfig, M) {
+  const patched = steps.map(s => {
+    const p = s.params;
+    if (!p) return s;
+    let newSegs = null;
+    switch (s.kind) {
+      case 'cylinder':   newSegs = segConfig.cylinderSegs;   break;
+      case 'sphere':     newSegs = segConfig.sphereSegs;     break;
+      case 'cone':       newSegs = segConfig.coneSegs;       break;
+      case 'roundedBox': newSegs = segConfig.roundedBoxSegs; break;
+    }
+    if (newSegs != null && newSegs !== p.segs) {
+      return { ...s, params: { ...p, segs: newSegs } };
+    }
+    return s;
+  });
+  const cache = buildCache(patched, M);
+  return cache.get(rootId) ?? null;
+}
+
+// ─── Export OBJ ──────────────────────────────────────────────────────────────
+
+/** Convertit une THREE.BufferGeometry (non-indexée) en texte OBJ. */
+export function geometryToOBJ(geo) {
+  const pos = geo.getAttribute('position');
+  const nm  = geo.getAttribute('normal');
+  if (!pos) return '';
+  const lines = ['# rBang OBJ export'];
+
+  // Vertices
+  for (let i = 0; i < pos.count; i++) {
+    lines.push(`v ${pos.getX(i)} ${pos.getY(i)} ${pos.getZ(i)}`);
+  }
+
+  // Normals
+  if (nm) {
+    for (let i = 0; i < nm.count; i++) {
+      lines.push(`vn ${nm.getX(i)} ${nm.getY(i)} ${nm.getZ(i)}`);
+    }
+  }
+
+  // Faces (triangles, 1-indexed)
+  const idx = geo.index;
+  if (idx) {
+    for (let i = 0; i < idx.count; i += 3) {
+      const a = idx.getX(i) + 1, b = idx.getX(i+1) + 1, c = idx.getX(i+2) + 1;
+      lines.push(nm ? `f ${a}//${a} ${b}//${b} ${c}//${c}` : `f ${a} ${b} ${c}`);
+    }
+  } else {
+    for (let i = 0; i < pos.count; i += 3) {
+      const a = i + 1, b = i + 2, c = i + 3;
+      lines.push(nm ? `f ${a}//${a} ${b}//${b} ${c}//${c}` : `f ${a} ${b} ${c}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+// ─── Parse OBJ ───────────────────────────────────────────────────────────────
+
+/** Parse un texte OBJ et retourne une THREE.BufferGeometry. */
+export function parseOBJ(objText) {
+  const verts   = [];
+  const normals = [];
+  const fPos    = [];
+  const fNm     = [];
+
+  for (const raw of objText.split('\n')) {
+    const line = raw.trim();
+    if (line.startsWith('v ')) {
+      const [, x, y, z] = line.split(/\s+/);
+      verts.push(+x, +y, +z);
+    } else if (line.startsWith('vn ')) {
+      const [, x, y, z] = line.split(/\s+/);
+      normals.push(+x, +y, +z);
+    } else if (line.startsWith('f ')) {
+      const parts = line.split(/\s+/).slice(1);
+      // Triangulate fan for faces with > 3 vertices
+      const indices = parts.map(p => {
+        const segs = p.split('//');
+        return { v: (+segs[0]) - 1, n: segs.length > 1 ? (+segs[1]) - 1 : -1 };
+      });
+      for (let i = 1; i < indices.length - 1; i++) {
+        for (const idx of [indices[0], indices[i], indices[i+1]]) {
+          fPos.push(verts[idx.v*3], verts[idx.v*3+1], verts[idx.v*3+2]);
+          if (idx.n >= 0 && normals.length)
+            fNm.push(normals[idx.n*3], normals[idx.n*3+1], normals[idx.n*3+2]);
+        }
+      }
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(fPos), 3));
+  if (fNm.length) geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(fNm), 3));
+  else geo.computeVertexNormals();
+  return geo;
+}
