@@ -255,37 +255,12 @@ export class BrickDock {
     const { top: it = 0, bottom: ib = 0, left: il = 0, right: ir = 0 } = this._insets;
     ['left','right','top','bottom','transform'].forEach(p => el.style.removeProperty(p));
 
+    // Le dock occupe toute la largeur (h) ou hauteur (v) du bord — talon pleine mesure
     switch (this._edge) {
-      case 'bottom':
-        el.style.bottom = ib + 'px';
-        if (this._align === 'center') { el.style.left = '50%'; el.style.transform = 'translateX(-50%)'; }
-        else if (this._align === 'start') el.style.left = il + 'px';
-        else el.style.right = ir + 'px';
-        break;
-      case 'top':
-        el.style.top = it + 'px';
-        if (this._align === 'center') { el.style.left = '50%'; el.style.transform = 'translateX(-50%)'; }
-        else if (this._align === 'start') el.style.left = il + 'px';
-        else el.style.right = ir + 'px';
-        break;
-      case 'left':
-        el.style.left = il + 'px';
-        if (this._align === 'center') {
-          el.style.top = `calc(50% + ${(it - ib) / 2}px)`;
-          el.style.transform = 'translateY(-50%)';
-        }
-        else if (this._align === 'start') el.style.top = it + 'px';
-        else el.style.bottom = ib + 'px';
-        break;
-      case 'right':
-        el.style.right = ir + 'px';
-        if (this._align === 'center') {
-          el.style.top = `calc(50% + ${(it - ib) / 2}px)`;
-          el.style.transform = 'translateY(-50%)';
-        }
-        else if (this._align === 'start') el.style.top = it + 'px';
-        else el.style.bottom = ib + 'px';
-        break;
+      case 'bottom': el.style.bottom = ib + 'px'; el.style.left = il + 'px'; el.style.right  = ir + 'px'; break;
+      case 'top':    el.style.top    = it + 'px'; el.style.left = il + 'px'; el.style.right  = ir + 'px'; break;
+      case 'left':   el.style.left   = il + 'px'; el.style.top  = it + 'px'; el.style.bottom = ib + 'px'; break;
+      case 'right':  el.style.right  = ir + 'px'; el.style.top  = it + 'px'; el.style.bottom = ib + 'px'; break;
     }
   }
 
@@ -306,11 +281,13 @@ export class BrickDock {
     // Cellules : row ou column selon l'orientation du dock
     this._cellsEl.style.flexDirection = isVert ? 'column' : 'row';
 
-    // Alignement : cellules inactives toujours flush côté talon
-    // bottom/right → talon en bas/droite → flex-end
-    // top/left     → talon en haut/gauche → flex-start
+    // Alignement cross-axis : cellules flush côté talon
     this._cellsEl.style.alignItems =
       (this._edge === 'bottom' || this._edge === 'right') ? 'flex-end' : 'flex-start';
+
+    // Alignement main-axis : position du groupe de cellules selon _align
+    const justifyMap = { start: 'flex-start', center: 'center', end: 'flex-end' };
+    this._cellsEl.style.justifyContent = justifyMap[this._align] ?? 'center';
 
     // Talon : dimensions + texte vertical si gauche/droite
     if (isVert) {
@@ -683,9 +660,6 @@ export class BrickDock {
 
   /** Applique un décalage live (px vers le bord) sans transition. */
   _applySlideOffset(px) {
-    const isVert = this._edge === 'left' || this._edge === 'right';
-    const base   = this._align === 'center'
-      ? (isVert ? 'translateY(-50%)' : 'translateX(-50%)') : '';
     const offset = {
       bottom: `translateY(${px}px)`,
       top:    `translateY(${-px}px)`,
@@ -693,16 +667,13 @@ export class BrickDock {
       right:  `translateX(${px}px)`,
     }[this._edge];
     this._el.style.transition = 'none';
-    this._el.style.transform  = base ? `${base} ${offset}` : offset;
+    this._el.style.transform  = offset;
   }
 
   /** Annule le geste : retour à la position nominale avec spring. */
   _cancelSlide() {
-    const isVert = this._edge === 'left' || this._edge === 'right';
-    const base   = this._align === 'center'
-      ? (isVert ? 'translateY(-50%)' : 'translateX(-50%)') : '';
     this._el.style.transition = 'transform 0.22s ease-out';
-    this._el.style.transform  = base || 'none';
+    this._el.style.transform  = 'none';
     setTimeout(() => {
       this._el.style.transition = '';
       this._applyContainerPosition();
@@ -714,23 +685,8 @@ export class BrickDock {
     if (this._slideAnimating) return;
     this._slideAnimating = true;
 
-    const isVert = this._edge === 'left' || this._edge === 'right';
-    const base   = this._align === 'center'
-      ? (isVert ? 'translateY(-50%)' : 'translateX(-50%)') : '';
-
-    const exitTx = {
-      bottom: `${base} translateY(110%)`,
-      top:    `${base} translateY(-110%)`,
-      left:   `${base} translateX(-110%)`,
-      right:  `${base} translateX(110%)`,
-    }[this._edge];
-
-    const entryTx = {
-      bottom: `${base} translateY(-110%)`,
-      top:    `${base} translateY(110%)`,
-      left:   `${base} translateX(110%)`,
-      right:  `${base} translateX(-110%)`,
-    }[this._edge];
+    const exitTx  = { bottom: 'translateY(110%)',  top: 'translateY(-110%)', left: 'translateX(-110%)', right: 'translateX(110%)'  }[this._edge];
+    const entryTx = { bottom: 'translateY(-110%)', top: 'translateY(110%)',  left: 'translateX(110%)',  right: 'translateX(-110%)' }[this._edge];
 
     const T = 150;
     this._el.style.transition = `transform ${T}ms ease-in`;
@@ -742,7 +698,7 @@ export class BrickDock {
       this._el.style.transform  = entryTx;
       requestAnimationFrame(() => requestAnimationFrame(() => {
         this._el.style.transition = `transform ${T}ms ease-out`;
-        this._el.style.transform  = base || 'none';
+        this._el.style.transform  = 'none';
         setTimeout(() => {
           this._el.style.transition = '';
           this._applyContainerPosition();
