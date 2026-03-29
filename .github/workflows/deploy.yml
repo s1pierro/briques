@@ -44,6 +44,14 @@ jobs:
           cp node_modules/manifold-3d/manifold.js dist/manifold/
           cp node_modules/manifold-3d/manifold.wasm dist/manifold/
 
+          # three-gpu-pathtracer
+          mkdir -p dist/pathtracer
+          cp node_modules/three-gpu-pathtracer/build/index.module.js dist/pathtracer/
+
+          # three-mesh-bvh
+          mkdir -p dist/mesh-bvh
+          cp node_modules/three-mesh-bvh/build/index.module.js dist/mesh-bvh/
+
           # Eruda (debug console mobile — facultatif en prod)
           mkdir -p dist/eruda
           cp node_modules/eruda/eruda.js dist/eruda/
