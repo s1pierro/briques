@@ -542,8 +542,9 @@ export class BrickDock {
 
     let startX = 0, startY = 0;
     let mode = null;        // null | 'pending' | 'pick' | 'scroll' | 'slide'
-    let pickPoint = null;   // THREE.Vector3 local — point d'impact sur la brique
+    let pickPoint  = null;  // THREE.Vector3 local — point d'impact sur la brique
     let scrollStart = 0;    // valeur de scroll au moment du verrouillage
+    let slideProj  = 0;     // projection courante vers le bord (px)
 
     cv.addEventListener('pointerdown', (e) => {
       e.preventDefault();
@@ -577,11 +578,7 @@ export class BrickDock {
         if (dist < DISAMBIG) return;
 
         if (this._isTowardEdge(dx, dy)) {
-          // Slide : dock glisse vers le bord → famille suivante
-          mode = null;
-          cv.releasePointerCapture(e.pointerId);
-          this._animateDockSlide(1);
-          return;
+          mode = 'slide';
         } else if (this._isAlongDockAxis(dx, dy)) {
           // Scroll : défilement des cellules dans l'axe du dock
           mode = 'scroll';
@@ -604,6 +601,9 @@ export class BrickDock {
         const isVert = this._edge === 'left' || this._edge === 'right';
         const delta  = isVert ? (e.clientY - startY) : (e.clientX - startX);
         this._setScroll(scrollStart - delta);
+      } else if (mode === 'slide') {
+        slideProj = this._slideProjection(dx, dy);
+        this._applySlideOffset(slideProj);
       }
     }, { passive: false });
 
@@ -612,8 +612,10 @@ export class BrickDock {
       const moved = Math.sqrt(dx * dx + dy * dy) >= DISAMBIG;
       if (cv.hasPointerCapture(e.pointerId)) cv.releasePointerCapture(e.pointerId);
 
-      // pick actif OU tap sur la brique sans mouvement (pending + pickPoint)
-      if (mode === 'pick' || (mode === 'pending' && pickPoint)) {
+      if (mode === 'slide') {
+        if (slideProj >= BrickDock.SLIDE_COMMIT_PX) this._commitSlide();
+        else                                         this._cancelSlide();
+      } else if (mode === 'pick' || (mode === 'pending' && pickPoint)) {
         if (this._onPickBrick) {
           const nearSlots = this._nearSlotsForBrick(cell, startX, startY);
           this._onPickBrick(cell.brickId, {
@@ -622,13 +624,14 @@ export class BrickDock {
           });
         }
       }
-      mode = null;
+      mode = null; slideProj = 0;
     });
 
     cv.addEventListener('pointercancel', (e) => {
       if (cv.hasPointerCapture(e.pointerId)) cv.releasePointerCapture(e.pointerId);
-      if (mode === 'pick') this._onCancelDrag?.();
-      mode = null;
+      if (mode === 'pick')  this._onCancelDrag?.();
+      if (mode === 'slide') this._cancelSlide();
+      mode = null; slideProj = 0;
     });
   }
 
@@ -664,42 +667,85 @@ export class BrickDock {
     return hits.length ? hits[0].point.clone() : null;
   }
 
-  // ── Animation slide dock (changement de famille) ──────────────────────────
+  // ── Slide dock — suivi doigt + commit/cancel ─────────────────────────────
 
-  /** Fait glisser le dock hors écran, change de famille, le ramène. */
-  _animateDockSlide(direction) {
+  static SLIDE_COMMIT_PX = 55; // px minimum vers le bord pour valider
+
+  /** Projection scalaire du déplacement vers le bord (0 si dans le mauvais sens). */
+  _slideProjection(dx, dy) {
+    switch (this._edge) {
+      case 'bottom': return Math.max(0,  dy);
+      case 'top':    return Math.max(0, -dy);
+      case 'left':   return Math.max(0, -dx);
+      case 'right':  return Math.max(0,  dx);
+    }
+  }
+
+  /** Applique un décalage live (px vers le bord) sans transition. */
+  _applySlideOffset(px) {
+    const isVert = this._edge === 'left' || this._edge === 'right';
+    const base   = this._align === 'center'
+      ? (isVert ? 'translateY(-50%)' : 'translateX(-50%)') : '';
+    const offset = {
+      bottom: `translateY(${px}px)`,
+      top:    `translateY(${-px}px)`,
+      left:   `translateX(${-px}px)`,
+      right:  `translateX(${px}px)`,
+    }[this._edge];
+    this._el.style.transition = 'none';
+    this._el.style.transform  = base ? `${base} ${offset}` : offset;
+  }
+
+  /** Annule le geste : retour à la position nominale avec spring. */
+  _cancelSlide() {
+    const isVert = this._edge === 'left' || this._edge === 'right';
+    const base   = this._align === 'center'
+      ? (isVert ? 'translateY(-50%)' : 'translateX(-50%)') : '';
+    this._el.style.transition = 'transform 0.22s ease-out';
+    this._el.style.transform  = base || 'none';
+    setTimeout(() => {
+      this._el.style.transition = '';
+      this._applyContainerPosition();
+    }, 220);
+  }
+
+  /** Valide le geste : complete la sortie, change de famille, revient. */
+  _commitSlide() {
     if (this._slideAnimating) return;
     this._slideAnimating = true;
 
     const isVert = this._edge === 'left' || this._edge === 'right';
     const base   = this._align === 'center'
-      ? (isVert ? 'translateY(-50%)' : 'translateX(-50%)')
-      : '';
+      ? (isVert ? 'translateY(-50%)' : 'translateX(-50%)') : '';
 
-    const exitTx = isVert
-      ? (this._edge === 'left' ? `${base} translateX(-110%)` : `${base} translateX(110%)`)
-      : (this._edge === 'bottom' ? `${base} translateY(110%)` : `${base} translateY(-110%)`);
+    const exitTx = {
+      bottom: `${base} translateY(110%)`,
+      top:    `${base} translateY(-110%)`,
+      left:   `${base} translateX(-110%)`,
+      right:  `${base} translateX(110%)`,
+    }[this._edge];
 
-    const entryTx = isVert
-      ? (this._edge === 'left' ? `${base} translateX(110%)` : `${base} translateX(-110%)`)
-      : (this._edge === 'bottom' ? `${base} translateY(-110%)` : `${base} translateY(110%)`);
+    const entryTx = {
+      bottom: `${base} translateY(-110%)`,
+      top:    `${base} translateY(110%)`,
+      left:   `${base} translateX(110%)`,
+      right:  `${base} translateX(-110%)`,
+    }[this._edge];
 
-    const T = 180; // ms par demi-animation
-
+    const T = 150;
     this._el.style.transition = `transform ${T}ms ease-in`;
     this._el.style.transform  = exitTx;
 
     setTimeout(async () => {
-      await this._showFamily(this._famIdx + direction);
+      await this._showFamily(this._famIdx + 1);
       this._el.style.transition = 'none';
       this._el.style.transform  = entryTx;
-
       requestAnimationFrame(() => requestAnimationFrame(() => {
         this._el.style.transition = `transform ${T}ms ease-out`;
         this._el.style.transform  = base || 'none';
         setTimeout(() => {
           this._el.style.transition = '';
-          this._applyContainerPosition(); // rétablit le positionnement nominal
+          this._applyContainerPosition();
           this._slideAnimating = false;
         }, T);
       }));
@@ -759,15 +805,14 @@ export class BrickDock {
    */
   _bindSlideSurface(el, scrollAlso) {
     const DISAMBIG = 8;
-    let startX = 0, startY = 0, startScroll = 0;
-    let mode = null; // null | 'pending' | 'scroll' | 'consumed'
+    let startX = 0, startY = 0, startScroll = 0, slideProj = 0;
+    let mode = null; // null | 'pending' | 'scroll' | 'slide' | 'consumed'
 
     el.addEventListener('pointerdown', (e) => {
-      // Ignorer si l'event vient d'un canvas de cellule (déjà géré)
-      if (e.target !== el) return;
+      if (e.target !== el) return; // canvas de cellule → géré par _bindCellGestures
       e.preventDefault();
       startX = e.clientX; startY = e.clientY;
-      startScroll = this._scrollPx;
+      startScroll = this._scrollPx; slideProj = 0;
       mode = 'pending';
       el.setPointerCapture(e.pointerId);
     }, { passive: false });
@@ -780,27 +825,37 @@ export class BrickDock {
       if (mode === 'pending') {
         if (dist < DISAMBIG) return;
         if (this._isTowardEdge(dx, dy)) {
-          mode = 'consumed';
-          el.releasePointerCapture(e.pointerId);
-          this._animateDockSlide(1);
-          return;
+          mode = 'slide';
         } else if (scrollAlso && this._isAlongDockAxis(dx, dy)) {
           mode = 'scroll';
         } else {
-          mode = 'consumed'; // geste ambiguë sur surface vide → ignorer
+          mode = 'consumed';
           return;
         }
       }
 
-      if (mode === 'scroll') {
+      if (mode === 'slide') {
+        slideProj = this._slideProjection(dx, dy);
+        this._applySlideOffset(slideProj);
+      } else if (mode === 'scroll') {
         const isVert = this._edge === 'left' || this._edge === 'right';
         const delta  = isVert ? (e.clientY - startY) : (e.clientX - startX);
         this._setScroll(startScroll - delta);
       }
     }, { passive: false });
 
-    el.addEventListener('pointerup',     () => { mode = null; });
-    el.addEventListener('pointercancel', () => { mode = null; });
+    el.addEventListener('pointerup', () => {
+      if (mode === 'slide') {
+        if (slideProj >= BrickDock.SLIDE_COMMIT_PX) this._commitSlide();
+        else                                         this._cancelSlide();
+      }
+      mode = null; slideProj = 0;
+    });
+
+    el.addEventListener('pointercancel', () => {
+      if (mode === 'slide') this._cancelSlide();
+      mode = null; slideProj = 0;
+    });
   }
 
   _setScroll(px) {
