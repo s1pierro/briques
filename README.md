@@ -98,6 +98,15 @@ No build step. Edit files in `public/src/`, reload.
 
 ---
 
+## License
+
+Free non-commercial license — personal, educational and artistic use permitted.
+Commercial use requires written agreement. See [LICENSE](LICENSE).
+
+Copyright © 2026 Thomas Saint Pierre (s1pierro) & Claude Sonnet 4.6 (Anthropic)
+
+---
+
 ## Author
 
 **s1pierro** — self-taught, 20 years of practice (C, C++, JS).
