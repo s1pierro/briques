@@ -21,7 +21,8 @@ const C = {
 };
 
 // Hauteur de la barre de titre — rogne le viewport rendu et le dock
-const BAR_H = 32;
+const BAR_H       = 32;
+const BAR_ARTIC_H = 28;   // hauteur de la barre secondaire (mode articuler)
 
 // Persistance de la configuration de l'Assembler
 const CFG_KEY      = 'rbang_asm_cfg';
@@ -160,6 +161,14 @@ export class Assembler {
     this._gizmo              = null;     // THREE.Group — gizmo de translation monde
     this._gizmoDrag          = null;     // { axis, s0, restoreStates } — drag gizmo en cours
     this._grabState          = null;     // { grabBrick, grabPtLocal, grabPlane, chain } — grab IK articuler
+
+    // ── Persistance des préférences du mode articuler ─────────────────────────
+    this._articulateShowPickers  = true;  // afficher les sélecteurs de liaison
+    this._articulateShowColoring = true;  // coloriser les classes d'équivalence
+    this._articulateCcdIter      = 3;     // itérations CCD (1–8)
+    this._articBar               = null;  // barre secondaire mode articuler
+    this._articPickersBtn        = null;
+    this._articColoringBtn       = null;
   }
 
   // ─── Cycle de vie ──────────────────────────────────────────────────────────
@@ -1211,6 +1220,23 @@ export class Assembler {
         line-height:1; flex-shrink:0;
       }
       .asm-bar-btn:active { color:${C.fg}; }
+      .asm-artic-bar {
+        position:fixed; top:${BAR_H}px; left:0; right:0; height:${BAR_ARTIC_H}px;
+        background:${C.bgDark}dd; border-bottom:1px solid ${C.border}44;
+        display:none; align-items:center; padding:0 10px; gap:4px;
+        z-index:55; pointer-events:auto;
+        font:10px sans-serif; color:${C.dim};
+      }
+      .asm-artic-btn {
+        background:transparent; border:1px solid ${C.border}; border-radius:3px;
+        color:${C.dim}; font-size:11px; cursor:pointer; padding:1px 8px;
+        height:20px; line-height:1; flex-shrink:0; white-space:nowrap;
+      }
+      .asm-artic-btn.on  { color:${C.accent}; border-color:${C.accent}44; background:${C.accent}18; }
+      .asm-artic-btn:active { color:${C.fg}; }
+      .asm-artic-sep {
+        width:1px; height:16px; background:${C.border}; flex-shrink:0; margin:0 4px;
+      }
     `;
     document.head.appendChild(style);
     this._ui.push(style);
@@ -1372,9 +1398,90 @@ export class Assembler {
     cfgBtn.textContent = '⚙';
     cfgBtn.addEventListener('click', () => this._openConfigModal());
 
-    bar.append(fsBtn, reloadBtn, modeStrip, linkedMoveBtn, anchorBtn, centerViewBtn, this._countEl, catalogueBtn, bomBtn, bricksBtn, compBtn, jointsBtn, stateBtn, importBtn, exportBtn, jsonBtn, cfgBtn);
+    bar.append(fsBtn, reloadBtn, modeStrip, linkedMoveBtn, centerViewBtn, this._countEl, catalogueBtn, bomBtn, bricksBtn, compBtn, jointsBtn, stateBtn, importBtn, exportBtn, jsonBtn, cfgBtn);
     document.body.appendChild(bar);
     this._ui.push(bar);
+
+    // ── Barre secondaire — mode articuler ─────────────────────────────────────
+    const articBar = document.createElement('div');
+    articBar.className = 'asm-artic-bar';
+
+    // Bouton ancre (était dans la barre principale)
+    anchorBtn.className = 'asm-artic-btn';
+    anchorBtn.style.display = '';
+
+    // Séparateur
+    const mkSep = () => { const s = document.createElement('div'); s.className = 'asm-artic-sep'; return s; };
+
+    // Toggle sélecteurs de liaison
+    const articPickersBtn = document.createElement('button');
+    articPickersBtn.className = 'asm-artic-btn';
+    articPickersBtn.title = 'Afficher / masquer les sélecteurs et handler de liaison';
+    const _updatePickersBtn = () => {
+      articPickersBtn.textContent = '⊙ Sélecteurs';
+      articPickersBtn.classList.toggle('on', this._articulateShowPickers);
+    };
+    articPickersBtn.addEventListener('click', () => {
+      this._articulateShowPickers = !this._articulateShowPickers;
+      _updatePickersBtn();
+      if (this._articulateState) {
+        for (const p of this._liaisonPickers) p.mesh.visible = this._articulateShowPickers;
+        if (!this._articulateShowPickers) { this._asmHandlers?.detach(); this._asmHandlers = null; }
+      }
+    });
+    _updatePickersBtn();
+    this._articPickersBtn = articPickersBtn;
+
+    // Toggle coloration par classe
+    const articColoringBtn = document.createElement('button');
+    articColoringBtn.className = 'asm-artic-btn';
+    articColoringBtn.title = 'Afficher / masquer la coloration par classe d\'équivalence';
+    const _updateColoringBtn = () => {
+      articColoringBtn.textContent = '⬡ Couleurs';
+      articColoringBtn.classList.toggle('on', this._articulateShowColoring);
+    };
+    articColoringBtn.addEventListener('click', () => {
+      this._articulateShowColoring = !this._articulateShowColoring;
+      _updateColoringBtn();
+      const st = this._articulateState;
+      if (st) {
+        if (this._articulateShowColoring) {
+          for (const [comp, ci] of st.colorMap) {
+            const hex = Assembler.ARTIC_PALETTE[ci % Assembler.ARTIC_PALETTE.length];
+            for (const b of comp.bricks) b.mesh.material.color.setHex(hex);
+          }
+          if (st.refClass) for (const b of st.refClass.bricks) b.mesh.material.color.setHex(0xeeeeee);
+        } else {
+          for (const [brick, hex] of st.savedColors) brick.mesh.material.color.setHex(hex);
+        }
+      }
+    });
+    _updateColoringBtn();
+    this._articColoringBtn = articColoringBtn;
+
+    // Itérations CCD
+    const ccdLbl = document.createElement('span');
+    ccdLbl.style.cssText = `color:${C.dim};white-space:nowrap;`;
+    ccdLbl.textContent = 'CCD';
+    const ccdValEl = document.createElement('span');
+    ccdValEl.style.cssText = `color:${C.fg};min-width:14px;text-align:center;display:inline-block;`;
+    ccdValEl.textContent = this._articulateCcdIter;
+    const mkCcdBtn = (delta) => {
+      const b = document.createElement('button');
+      b.className = 'asm-artic-btn';
+      b.style.padding = '1px 5px';
+      b.textContent = delta > 0 ? '+' : '−';
+      b.addEventListener('click', () => {
+        this._articulateCcdIter = Math.max(1, Math.min(8, this._articulateCcdIter + delta));
+        ccdValEl.textContent = this._articulateCcdIter;
+      });
+      return b;
+    };
+
+    articBar.append(anchorBtn, mkSep(), articPickersBtn, articColoringBtn, mkSep(), ccdLbl, mkCcdBtn(-1), ccdValEl, mkCcdBtn(1));
+    document.body.appendChild(articBar);
+    this._articBar = articBar;
+    this._ui.push(articBar);
 
     // ── Modale de configuration ───────────────────────────────────────────────
     this._setupConfigModal();
@@ -2360,8 +2467,8 @@ export class Assembler {
     this._updateModeBtns?.();
     if (this._linkedMoveBtn)
       this._linkedMoveBtn.style.display = mode === 'component' ? '' : 'none';
-    if (this._anchorBtn)
-      this._anchorBtn.style.display = mode === 'articulate' ? '' : 'none';
+    if (this._articBar)
+      this._articBar.style.display = mode === 'articulate' ? 'flex' : 'none';
     this._updateGizmoForSelection();
     // Entrer dans le mode articuler
     if (mode === 'articulate') this._enterArticulateMode();
@@ -2579,13 +2686,13 @@ export class Assembler {
     const colorMap   = this._graphColor(components);
     const palette    = Assembler.ARTIC_PALETTE;
 
-    // Sauvegarder les couleurs originales et appliquer la coloration par classe
+    // Sauvegarder les couleurs originales, appliquer la coloration selon le toggle
     const savedColors = new Map();
     for (const [comp, ci] of colorMap) {
       const hex = palette[ci % palette.length];
       for (const brick of comp.bricks) {
         savedColors.set(brick, brick.mesh.material.color.getHex());
-        brick.mesh.material.color.setHex(hex);
+        if (this._articulateShowColoring) brick.mesh.material.color.setHex(hex);
       }
     }
 
@@ -2609,9 +2716,11 @@ export class Assembler {
 
     this._articulateState = { components, colorMap, refClass, savedColors, selectedClass: null, classPairs };
 
-    // Feedback visuel de la référence
+    // Feedback visuel de la référence (conditionnel au toggle coloration)
     if (refClass) {
-      for (const brick of refClass.bricks) brick.mesh.material.color.setHex(0xeeeeee);
+      if (this._articulateShowColoring) {
+        for (const brick of refClass.bricks) brick.mesh.material.color.setHex(0xeeeeee);
+      }
       this._articulateRefIds = new Set([...refClass.bricks].map(b => b.id));
     }
 
@@ -2733,7 +2842,13 @@ export class Assembler {
       const mergedConn = this._buildMergedConn(ecA, ecB, conns, st.refClass);
       if (mergedConn) entries.push({ conn: mergedConn });
     }
-    if (entries.length) this._showLiaisonPickers(entries, diam / 2);
+    if (entries.length) {
+      this._showLiaisonPickers(entries, diam / 2);
+      // Appliquer la visibilité selon le toggle
+      if (!this._articulateShowPickers) {
+        for (const p of this._liaisonPickers) p.mesh.visible = false;
+      }
+    }
   }
 
   /** Sélectionne une classe d'équivalence en mode articuler. null = désélection. */
@@ -2770,7 +2885,7 @@ export class Assembler {
     if (!st) return;
 
     // Retirer le feedback de l'ancienne référence
-    if (st.refClass) {
+    if (st.refClass && this._articulateShowColoring) {
       const ci = st.colorMap.get(st.refClass);
       const hex = Assembler.ARTIC_PALETTE[ci % Assembler.ARTIC_PALETTE.length];
       for (const brick of st.refClass.bricks) brick.mesh.material.color.setHex(hex);
@@ -2780,7 +2895,7 @@ export class Assembler {
     st.refClass = (st.refClass === comp) ? null : comp;
 
     // Feedback visuel : la classe de référence reçoit un highlight distinct
-    if (st.refClass) {
+    if (st.refClass && this._articulateShowColoring) {
       for (const brick of st.refClass.bricks) brick.mesh.material.color.setHex(0xeeeeee);
     }
 
@@ -2821,7 +2936,7 @@ export class Assembler {
     const stripBg    = sbgHex + sbgAlpha;
     const stripFont  = cfg.stripFontColor  ?? '#cccccc';
     const handlers = new AsmHandlers({
-      conn: oriented, engine: this.engine, topOffset: BAR_H,
+      conn: oriented, engine: this.engine, topOffset: BAR_H + BAR_ARTIC_H,
       stepsRot, stepsTrans, connections,
       solver: 'articulate',
       anchorBricks,
@@ -2885,8 +3000,8 @@ export class Assembler {
     const targetPt = new THREE.Vector3();
     if (!this._raycaster.ray.intersectPlane(grabPlane, targetPt)) return;
 
-    // CCD — 3 itérations
-    for (let iter = 0; iter < 3; iter++) {
+    // CCD — itérations configurables
+    for (let iter = 0; iter < this._articulateCcdIter; iter++) {
       const currentPt = grabPtLocal.clone()
         .applyQuaternion(grabBrick.mesh.quaternion)
         .add(grabBrick.mesh.position);
