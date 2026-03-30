@@ -394,11 +394,18 @@ export class Assembler {
         inject('rbang_bricks',   'bricks');
         inject('rbang_shapes',   'shapes');
         inject('rbang_liaisons', 'liaisons');
-        // Effacer d'abord (_clearAll → _saveScene écrase SCENE_KEY avec scène vide)
-        // puis écrire le fichier importé, et seulement alors restaurer
+        // Effacer la scène courante, puis restaurer depuis les données importées
+        // sans passer par localStorage (pour éviter le quota exceeded sur les grandes scènes)
         this._clearAll();
-        localStorage.setItem(SCENE_KEY, text);
-        await this._restoreScene();
+        const sceneOnly = { instances: data.instances, connections: data.connections };
+        // Persister dans localStorage si possible (pour la prochaine session)
+        try { localStorage.setItem(SCENE_KEY, JSON.stringify(sceneOnly)); } catch { /* quota */ }
+        // Restaurer directement depuis data (sans relire localStorage)
+        const bricksStore   = this._loadStore('rbang_bricks');
+        const shapesStore   = this._loadStore('rbang_shapes');
+        const liaisonsStore = this._loadStore('rbang_liaisons');
+        await this._asmVerse.restore(sceneOnly, bricksStore, shapesStore, liaisonsStore);
+        this._updateCount();
         const n = this._asmVerse.bricks.size;
         if (n === 0 && data.instances.length > 0)
           alert('Import : aucune brique chargée — les types de briques sont absents du store local.');
