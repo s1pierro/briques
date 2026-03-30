@@ -98,6 +98,35 @@ function _pickerWorldPos(conn) {
   return conn.instA.worldSlotPos(conn.slotA);
 }
 
+/** Position monde du pivot d'une connexion (centroïde des slotB si _sourceConns). */
+function _connPivotWorld(conn) {
+  const srcs = conn._sourceConns;
+  if (srcs?.length > 1) {
+    const sum = new THREE.Vector3();
+    for (const sc of srcs) {
+      sum.add(
+        new THREE.Vector3(...sc.slotB.position)
+          .applyQuaternion(sc.instB.mesh.quaternion)
+          .add(sc.instB.mesh.position)
+      );
+    }
+    return sum.divideScalar(srcs.length);
+  }
+  const { instB, slotB } = conn;
+  return new THREE.Vector3(...slotB.position)
+    .applyQuaternion(instB.mesh.quaternion)
+    .add(instB.mesh.position);
+}
+
+/** Axe monde d'un DOF pour la connexion donnée. */
+function _dofWorldAxis(dof, conn) {
+  const { instB, slotB } = conn;
+  const [ax, ay, az] = dof.axis ?? [0, 0, 1];
+  const slotBQ = new THREE.Quaternion(...(slotB.quaternion ?? [0, 0, 0, 1]));
+  const worldQ = slotBQ.clone().premultiply(instB.mesh.quaternion.clone());
+  return new THREE.Vector3(ax, ay, az).normalize().applyQuaternion(worldQ).normalize();
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export class Assembler {
@@ -130,6 +159,7 @@ export class Assembler {
     this._linkedMove         = false;    // mode déplacement ensemble lié (type touche L)
     this._gizmo              = null;     // THREE.Group — gizmo de translation monde
     this._gizmoDrag          = null;     // { axis, s0, restoreStates } — drag gizmo en cours
+    this._grabState          = null;     // { grabBrick, grabPtLocal, grabPlane, chain } — grab IK articuler
   }
 
   // ─── Cycle de vie ──────────────────────────────────────────────────────────
@@ -742,8 +772,8 @@ export class Assembler {
         const hitInst = [...this._asmVerse.bricks.values()].find(i => i.mesh === hitMesh);
         if (hitInst) {
           if (this._mode === 'articulate') {
-            // Mode articuler : tap uniquement (pas de drag), différé au pointerup
-            this._tapStart = { x: e.clientX, y: e.clientY, inst: hitInst };
+            this._tapStart = { x: e.clientX, y: e.clientY, inst: hitInst, hitPt: hits[0].point.clone() };
+            this.engine.controls.enabled = false;
             return;
           }
           // Sélection différée au pointerup (clic confirmé, sans drag)
@@ -782,6 +812,16 @@ export class Assembler {
           brick.mesh.position.copy(pos).add(delta);
         }
         this._gizmo.position.copy(gizmoOrigin).add(delta);
+        return;
+      }
+      // Mode articuler — grab IK
+      if (this._mode === 'articulate') {
+        if (this._grabState) {
+          this._updateArticulateGrab(e);
+        } else if (this._tapStart?.inst) {
+          const dx = e.clientX - this._tapStart.x, dy = e.clientY - this._tapStart.y;
+          if (Math.sqrt(dx * dx + dy * dy) >= 12) this._startArticulateGrab(e);
+        }
         return;
       }
       if (!this._stackCandidate) return;
@@ -839,6 +879,16 @@ export class Assembler {
         return;
       }
       if (!this._stackCandidate) {
+        // Fin du grab IK articuler
+        if (this._grabState) {
+          this._grabState = null;
+          this._setProcess('idle');
+          this.engine.controls.enabled = true;
+          this._asmVerse.joints.observe(this._asmVerse.slots);
+          this._updateArticulatePickers();
+          this._tapStart = null;
+          return;
+        }
         // Tap sur un picker → activer la liaison choisie
         if (this._pickerCandidate) {
           const { conn, mobileInst, startX, startY } = this._pickerCandidate;
@@ -2792,6 +2842,195 @@ export class Assembler {
   _updateArticulatePickers() {
     for (const p of this._liaisonPickers) {
       p.mesh.position.copy(_pickerWorldPos(p.conn));
+    }
+  }
+
+  // ─── Grab IK (mode articuler) ──────────────────────────────────────────────
+
+  /** Démarre un grab IK : calcule la chaîne cinématique et le plan de projection. */
+  _startArticulateGrab(e) {
+    const st = this._articulateState;
+    if (!st?.refClass || !this._tapStart?.inst) return;
+    const { inst, hitPt } = this._tapStart;
+
+    const grabbedClass = st.components.find(c => c.contains(inst));
+    if (!grabbedClass || grabbedClass === st.refClass) return;
+
+    const chain = this._findChainToRef(grabbedClass, st.refClass, st.classPairs);
+    if (!chain?.length) return;
+
+    // Point de saisie en espace local de la brique
+    const grabPtLocal = hitPt.clone()
+      .sub(inst.mesh.position)
+      .applyQuaternion(inst.mesh.quaternion.clone().invert());
+
+    // Plan de projection : normal = direction caméra, passant par hitPt
+    const camDir = new THREE.Vector3();
+    this.engine.camera.getWorldDirection(camDir);
+    const grabPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(camDir, hitPt);
+
+    this._grabState = { grabBrick: inst, grabPtLocal, grabPlane, chain };
+    this._setProcess('dragging');
+  }
+
+  /** Met à jour le grab IK à chaque pointermove. */
+  _updateArticulateGrab(e) {
+    if (!this._grabState) return;
+    const { grabBrick, grabPtLocal, grabPlane, chain } = this._grabState;
+
+    this._mouse.x =  (e.clientX / innerWidth)  * 2 - 1;
+    this._mouse.y = -(e.clientY / innerHeight) * 2 + 1;
+    this._raycaster.setFromCamera(this._mouse, this.engine.camera);
+
+    const targetPt = new THREE.Vector3();
+    if (!this._raycaster.ray.intersectPlane(grabPlane, targetPt)) return;
+
+    // CCD — 3 itérations
+    for (let iter = 0; iter < 3; iter++) {
+      const currentPt = grabPtLocal.clone()
+        .applyQuaternion(grabBrick.mesh.quaternion)
+        .add(grabBrick.mesh.position);
+      if (currentPt.distanceTo(targetPt) < 1e-4) break;
+      for (const step of chain) this._ccdStep(step, grabBrick, grabPtLocal, targetPt);
+    }
+
+    this._updateArticulatePickers();
+  }
+
+  /** Trouve le chemin de paires de classes entre grabbedClass et refClass (BFS).
+   *  Retourne un tableau ordonné { mergedConn, mobileBricks } de grabbed vers ref. */
+  _findChainToRef(grabbedClass, refClass, classPairs) {
+    const prev    = new Map(); // ec → { from, pair }
+    const visited = new Set([grabbedClass]);
+    const queue   = [grabbedClass];
+
+    while (queue.length) {
+      const ec = queue.shift();
+      if (ec === refClass) break;
+      for (const link of ec.links) {
+        if (visited.has(link.other)) continue;
+        visited.add(link.other);
+        const pair = classPairs.find(p =>
+          (p.ecA === ec && p.ecB === link.other) ||
+          (p.ecA === link.other && p.ecB === ec)
+        );
+        prev.set(link.other, { from: ec, pair });
+        queue.push(link.other);
+      }
+    }
+
+    if (!prev.has(refClass)) return null;
+
+    // Reconstruire le chemin grabbedClass → refClass
+    const path = [];
+    let curr = refClass;
+    while (curr !== grabbedClass) {
+      const { from, pair } = prev.get(curr);
+      path.push({ ecFrom: from, ecTo: curr, pair });
+      curr = from;
+    }
+    path.reverse();
+
+    // Construire les étapes CCD : pour le joint entre ecFrom et ecTo,
+    // les briques mobiles = tout le sous-arbre cinématique raciné en ecFrom
+    // (BFS depuis ecFrom en bloquant l'arête vers ecTo)
+    const chain = [];
+    for (const { ecFrom, ecTo, pair } of path) {
+      const mergedConn = pair
+        ? this._buildMergedConn(pair.ecA, pair.ecB, pair.conns, ecTo)
+        : null;
+      if (!mergedConn) continue;
+      chain.push({ mergedConn, mobileBricks: this._subtreeBricks(ecFrom, ecTo) });
+    }
+
+    return chain;
+  }
+
+  /** Toutes les briques du sous-arbre cinématique raciné en 'root',
+   *  sans traverser l'arête vers 'blockedNeighbor'. */
+  _subtreeBricks(root, blockedNeighbor) {
+    const visited = new Set([root]);
+    const queue   = [root];
+    while (queue.length) {
+      const ec = queue.shift();
+      for (const link of ec.links) {
+        if (link.other === blockedNeighbor || visited.has(link.other)) continue;
+        visited.add(link.other);
+        queue.push(link.other);
+      }
+    }
+    const bricks = new Set();
+    for (const ec of visited) for (const b of ec.bricks) bricks.add(b);
+    return bricks;
+  }
+
+  /** Une étape CCD : ajuste le joint pour rapprocher le point de saisie du target. */
+  _ccdStep(step, grabBrick, grabPtLocal, targetPt) {
+    const { mergedConn, mobileBricks } = step;
+    const pivot = _connPivotWorld(mergedConn);
+
+    const currentPt = grabPtLocal.clone()
+      .applyQuaternion(grabBrick.mesh.quaternion)
+      .add(grabBrick.mesh.position);
+
+    const vCurr = currentPt.clone().sub(pivot);
+    const vTgt  = targetPt.clone().sub(pivot);
+
+    for (const dof of (mergedConn.liaison?.asmDof ?? [])) {
+      const axis = _dofWorldAxis(dof, mergedConn);
+
+      switch (dof.type) {
+        case 'rotation': {
+          const vCp  = vCurr.clone().sub(axis.clone().multiplyScalar(axis.dot(vCurr)));
+          const vTp  = vTgt.clone().sub(axis.clone().multiplyScalar(axis.dot(vTgt)));
+          const len  = vCp.length() * vTp.length();
+          if (len < 1e-6) break;
+          const sinA = new THREE.Vector3().crossVectors(vCp, vTp).dot(axis) / len;
+          const cosA = vCp.dot(vTp) / len;
+          const rot  = new THREE.Quaternion().setFromAxisAngle(axis, Math.atan2(sinA, cosA));
+          for (const b of mobileBricks) {
+            b.mesh.position.sub(pivot).applyQuaternion(rot).add(pivot);
+            b.mesh.quaternion.premultiply(rot);
+          }
+          break;
+        }
+        case 'translation': {
+          const t = vTgt.clone().sub(vCurr).dot(axis);
+          for (const b of mobileBricks) b.mesh.position.addScaledVector(axis, t);
+          break;
+        }
+        case 'cylindrical': {
+          // Translation sur l'axe, puis rotation autour
+          const t = vTgt.clone().sub(vCurr).dot(axis);
+          for (const b of mobileBricks) b.mesh.position.addScaledVector(axis, t);
+          const cur2  = grabPtLocal.clone()
+            .applyQuaternion(grabBrick.mesh.quaternion).add(grabBrick.mesh.position);
+          const vC2   = cur2.clone().sub(pivot);
+          const vCp2  = vC2.clone().sub(axis.clone().multiplyScalar(axis.dot(vC2)));
+          const vTgtR = vTgt.clone().sub(axis.clone().multiplyScalar(axis.dot(vTgt)));
+          const len2  = vCp2.length() * vTgtR.length();
+          if (len2 < 1e-6) break;
+          const sinA2 = new THREE.Vector3().crossVectors(vCp2, vTgtR).dot(axis) / len2;
+          const cosA2 = vCp2.dot(vTgtR) / len2;
+          const rot2  = new THREE.Quaternion().setFromAxisAngle(axis, Math.atan2(sinA2, cosA2));
+          for (const b of mobileBricks) {
+            b.mesh.position.sub(pivot).applyQuaternion(rot2).add(pivot);
+            b.mesh.quaternion.premultiply(rot2);
+          }
+          break;
+        }
+        case 'ball': {
+          if (vCurr.length() < 1e-6 || vTgt.length() < 1e-6) break;
+          const rot = new THREE.Quaternion().setFromUnitVectors(
+            vCurr.clone().normalize(), vTgt.clone().normalize()
+          );
+          for (const b of mobileBricks) {
+            b.mesh.position.sub(pivot).applyQuaternion(rot).add(pivot);
+            b.mesh.quaternion.premultiply(rot);
+          }
+          break;
+        }
+      }
     }
   }
 
