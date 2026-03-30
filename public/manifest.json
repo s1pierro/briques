@@ -4,8 +4,8 @@
   "description": "Assemblage de briques 3D — Three.js + Rapier",
   "start_url": "./",
   "scope": "./",
-  "display": "standalone",
-  "orientation": "landscape",
+  "display": "fullscreen",
+  "orientation": "any",
   "background_color": "#0e0e0e",
   "theme_color": "#0e0e0e",
   "screenshots": [
