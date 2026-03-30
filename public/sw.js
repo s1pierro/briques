@@ -1,8 +1,8 @@
-const CACHE = 'rbang-v1';
+const CACHE = 'rbang-v2';
 const DEV   = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
 
 // Fichiers précachés au moment de l'installation (prod uniquement)
-const PRECACHE = ['/', '/index.html', '/icon.svg'];
+const PRECACHE = ['./', './index.html', './icon.svg'];
 
 self.addEventListener('install', e => {
   if (DEV) { self.skipWaiting(); return; }
