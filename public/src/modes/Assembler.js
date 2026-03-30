@@ -67,8 +67,9 @@ const CFG_DEFAULTS = {
   cellLabelFontSize      : 8,
   cellLabelVisible       : true,
   floorVisible           : true,
-  // ── Mode Articuler ────────────────────────────────────────────────────────
-  articulatePickerDiam   : 0.6,       // diamètre des sphères liaison (0.5 – 2)
+  // ── Piqueurs de liaison ───────────────────────────────────────────────────
+  pickerDiam             : 0.32,      // diamètre brique/composant (0.1 – 1)
+  articulatePickerDiam   : 0.6,       // diamètre articuler (0.5 – 2)
   // ── Bandeau DOF (strips) ──────────────────────────────────────────────────
   stripBgColor           : '#121218',
   stripBgOpacity         : 0.6,
@@ -1742,6 +1743,9 @@ export class Assembler {
         n => `÷ ${n}`,
         v => this._saveConfig({ asmHelperStepsTrans: v }),
       ),
+      makeSlider('Piqueurs Brique/Composant (⌀)', 0.1, 1, 0.02, cfg.pickerDiam ?? 0.32, v => {
+        this._saveConfig({ pickerDiam: v });
+      }),
       makeSlider('Piqueurs Articuler (⌀)', 0.5, 2, 0.05, cfg.articulatePickerDiam ?? 0.6, v => {
         this._saveConfig({ articulatePickerDiam: v });
         // Mettre à jour les sphères si le mode articuler est actif
@@ -2292,7 +2296,7 @@ export class Assembler {
         // État intermédiaire : plusieurs liaisons → pickers de sélection
         this._asmHandlers?.detach();
         this._asmHandlers = null;
-        this._showLiaisonPickers(dofConns.map(conn => ({ conn })));
+        this._showLiaisonPickers(dofConns.map(conn => ({ conn })), this._loadConfig().pickerDiam / 2);
       } else if (dofConns.length === 1) {
         this._activateAsmHandlers(dofConns[0], brick);
       } else {
@@ -2423,7 +2427,7 @@ export class Assembler {
       this._showLiaisonPickers(comp.links.map(({ connection }) => ({
         conn:       connection,
         mobileInst: comp.contains(connection.instA) ? connection.instA : connection.instB,
-      })), 0.32);
+      })), this._loadConfig().pickerDiam / 2);
     }
 
     this._updateGizmoForSelection();
