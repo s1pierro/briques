@@ -39,6 +39,37 @@
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js');
     }
+
+    // Bouton d'installation PWA
+    (function () {
+      let _deferredPrompt = null;
+      const btn = document.createElement('button');
+      btn.textContent = '⊕ Installer';
+      btn.style.cssText = [
+        'position:fixed', 'bottom:16px', 'left:50%', 'transform:translateX(-50%)',
+        'z-index:99999', 'display:none',
+        'padding:10px 24px', 'border:none', 'border-radius:24px',
+        'background:#f0c040', 'color:#0e0e0e', 'font-size:15px',
+        'font-weight:600', 'cursor:pointer', 'box-shadow:0 2px 12px #0008'
+      ].join(';');
+      document.body.appendChild(btn);
+
+      window.addEventListener('beforeinstallprompt', e => {
+        e.preventDefault();
+        _deferredPrompt = e;
+        btn.style.display = 'block';
+      });
+
+      btn.addEventListener('click', async () => {
+        if (!_deferredPrompt) return;
+        btn.style.display = 'none';
+        _deferredPrompt.prompt();
+        await _deferredPrompt.userChoice;
+        _deferredPrompt = null;
+      });
+
+      window.addEventListener('appinstalled', () => { btn.style.display = 'none'; });
+    })();
   </script>
 </body>
 </html>
