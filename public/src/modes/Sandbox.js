@@ -51,6 +51,7 @@ export class Sandbox {
       this.engine.camera.getWorldDirection(dir);
       const p = this.engine.camera.position;
       const { body } = this.engine.addDynamicSphere(0.35, p.x, p.y, p.z, 0xff4400, 80);
+      this._applyBodyDefaults(body);
       body.setLinvel({ x: dir.x * 25, y: dir.y * 25, z: dir.z * 25 }, true);
     };
 
@@ -103,8 +104,11 @@ export class Sandbox {
       e.scene.add(mesh);
       const body = e.world.createRigidBody(e.R.RigidBodyDesc.dynamic().setTranslation(x, y, z));
       const cd   = (e.R.ColliderDesc.convexHull(pts) ?? e.R.ColliderDesc.ball(0.5))
-                     .setRestitution(0.3).setFriction(0.6);
+                     .setRestitution(this._restitution).setFriction(this._friction);
       e.world.createCollider(cd, body);
+      body.setLinearDamping(this._linearDamping);
+      body.setAngularDamping(this._angularDamping);
+      body.enableCcd(this._ccd);
       e._bodies.push({ mesh, body, isStatic: false });
     } catch {
       this._spawnBox();
@@ -112,12 +116,23 @@ export class Sandbox {
   }
 
   _spawnBox() {
-    this.engine.addDynamicBox(1, 1, 1,
+    const { mesh, body } = this.engine.addDynamicBox(1, 1, 1,
       (Math.random() - 0.5) * 5,
       8 + Math.random() * 2,
       (Math.random() - 0.5) * 5,
       0x888888
     );
+    this._applyBodyDefaults(body);
+  }
+
+  _applyBodyDefaults(body) {
+    body.setLinearDamping(this._linearDamping);
+    body.setAngularDamping(this._angularDamping);
+    body.enableCcd(this._ccd);
+    for (let i = 0; i < body.numColliders(); i++) {
+      const col = this.engine.world.getCollider(body.collider(i));
+      if (col) { col.setRestitution(this._restitution); col.setFriction(this._friction); }
+    }
   }
 
   _setupPhysicsPanel() {
@@ -167,19 +182,67 @@ export class Sandbox {
       return row;
     };
 
-    panel.append(makeSection('Moteur physique'));
+    // Helpers pour appliquer une valeur à tous les corps dynamiques existants
+    const applyToBodies   = fn => this.engine._bodies.forEach(b => { if (!b.isStatic) fn(b.body); });
+    const applyToColliders = fn => this.engine._bodies.forEach(b => {
+      if (b.isStatic) return;
+      for (let i = 0; i < b.body.numColliders(); i++) {
+        const col = this.engine.world.getCollider(b.body.collider(i));
+        if (col) fn(col);
+      }
+    });
+
+    panel.append(makeSection('Solveur'));
     panel.append(makeSlider('Gravité', -30, 0, 0.1, -9.81, v => {
       this.engine.world.gravity = { x: 0, y: v, z: 0 };
     }));
-    panel.append(makeSlider('Solver iter.', 1, 50, 1, 4, v => {
+    panel.append(makeSlider('Itérations', 1, 50, 1, 4, v => {
       this.engine.world.numSolverIterations = v;
+    }));
+    panel.append(makeSlider('Sous-pas', 1, 8, 1, 1, v => {
+      this.engine.substeps = v;
+    }));
+
+    panel.append(makeSection('Corps dynamiques'));
+    panel.append(makeSlider('Rebond', 0, 1, 0.05, 0.3, v => {
+      this._restitution = v;
+      applyToColliders(col => col.setRestitution(v));
+    }));
+    panel.append(makeSlider('Friction', 0, 1, 0.05, 0.6, v => {
+      this._friction = v;
+      applyToColliders(col => col.setFriction(v));
     }));
     panel.append(makeSlider('Amort. lin.', 0, 5, 0.05, 0, v => {
       this._linearDamping = v;
+      applyToBodies(b => b.setLinearDamping(v));
     }));
     panel.append(makeSlider('Amort. ang.', 0, 20, 0.1, 0, v => {
       this._angularDamping = v;
+      applyToBodies(b => b.setAngularDamping(v));
     }));
+
+    // CCD — toggle
+    const ccdRow = document.createElement('div');
+    ccdRow.style.cssText = 'display:flex;align-items:center;gap:5px;margin-bottom:3px;';
+    const ccdLbl = document.createElement('span');
+    ccdLbl.textContent = 'CCD';
+    ccdLbl.style.cssText = `color:${C.dim};flex-shrink:0;min-width:90px;font-size:10px;`;
+    const ccdBtn = document.createElement('button');
+    ccdBtn.textContent = 'Off';
+    ccdBtn.style.cssText = [
+      'flex:1', 'padding:2px 0', 'font-size:10px', 'cursor:pointer',
+      `background:${C.bg}`, `border:1px solid ${C.border}`, `color:${C.fg}`,
+      'border-radius:2px',
+    ].join(';');
+    ccdBtn.addEventListener('click', () => {
+      this._ccd = !this._ccd;
+      ccdBtn.textContent = this._ccd ? 'On' : 'Off';
+      ccdBtn.style.color = this._ccd ? C.accent : C.fg;
+      applyToBodies(b => b.enableCcd(this._ccd));
+    });
+    ccdBtn.addEventListener('touchstart', e => { e.preventDefault(); ccdBtn.click(); }, { passive: false });
+    ccdRow.append(ccdLbl, ccdBtn);
+    panel.append(ccdRow);
 
     // Pause / pas-à-pas
     panel.append(makeSection('Simulation'));
@@ -244,8 +307,11 @@ export class Sandbox {
     this._ui.push(panel);
     this._panel = panel;
 
+    this._restitution    = 0.3;
+    this._friction       = 0.6;
     this._linearDamping  = 0;
     this._angularDamping = 0;
+    this._ccd            = false;
   }
 
   _exportGLB() {

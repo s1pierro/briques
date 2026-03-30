@@ -16,6 +16,8 @@ export class GameEngine {
     this.onUpdate     = null;
     /** Appelé après controls.update(), avant le rendu — utile pour contraintes caméra */
     this.onPostUpdate = null;
+    /** Nombre de sous-pas physiques par frame (1 = défaut) */
+    this.substeps     = 1;
   }
 
   // ─── Initialisation ────────────────────────────────────────────────────────
@@ -180,8 +182,9 @@ export class GameEngine {
 
     // Pas physique (skip si pausé — le rendu continue)
     if (!this.physPaused) {
-      this.world.timestep = dt;
-      this.world.step();
+      const n = Math.max(1, this.substeps | 0);
+      this.world.timestep = dt / n;
+      for (let i = 0; i < n; i++) this.world.step();
     } else if (this._pendingStep) {
       this._pendingStep = false;
       this.world.timestep = 1 / 60;
