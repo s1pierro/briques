@@ -1,4 +1,4 @@
-const CACHE = 'rbang-v2';
+const CACHE = 'rbang-v3';
 const DEV   = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
 
 // Fichiers précachés au moment de l'installation (prod uniquement)
