@@ -991,7 +991,7 @@ export class Assembler {
     // En mode Composante : toujours InvolvedComponentsSolver (cohérent avec computeComponents)
     const solver = this._mode === 'component' ? 'component' : 'asm';
     const connections = this._asmVerse.joints.connections;
-    const xray    = this._mode === 'component';
+    const xray    = true;
     const sbgHex   = cfg.stripBgColor   ?? '#121218';
     const sbgAlpha = Math.round((cfg.stripBgOpacity ?? 0.6) * 255).toString(16).padStart(2, '0');
     const stripBg    = sbgHex + sbgAlpha;
