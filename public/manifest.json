@@ -8,6 +8,14 @@
   "orientation": "landscape",
   "background_color": "#0e0e0e",
   "theme_color": "#0e0e0e",
+  "screenshots": [
+    { "src": "./assets/screenshots/Screenshot-wide-0.png",  "sizes": "1920x1200", "type": "image/png", "form_factor": "wide" },
+    { "src": "./assets/screenshots/Screenshot-wide-1.png",  "sizes": "1920x1200", "type": "image/png", "form_factor": "wide" },
+    { "src": "./assets/screenshots/Screenshot-wide-2.png",  "sizes": "1181x690",  "type": "image/png", "form_factor": "wide" },
+    { "src": "./assets/screenshots/Screenshot-narow-0.png", "sizes": "1200x1920", "type": "image/png", "form_factor": "narrow" },
+    { "src": "./assets/screenshots/Screenshot-narow-1.png", "sizes": "1200x1920", "type": "image/png", "form_factor": "narrow" },
+    { "src": "./assets/screenshots/Screenshot-narow-2.png", "sizes": "1200x1920", "type": "image/png", "form_factor": "narrow" }
+  ],
   "icons": [
     {
       "src": "./icon-192.png",
