@@ -1423,11 +1423,13 @@ export class Assembler {
     };
 
     const makeSlider = (label, min, max, step, init, onChange) => {
-      const row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:10px;';
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'display:flex;flex-direction:column;gap:3px;margin-bottom:10px;';
       const lbl = document.createElement('span');
       lbl.textContent = label;
-      lbl.style.cssText = `color:${C.dim};font-size:10px;flex-shrink:0;min-width:70px;`;
+      lbl.style.cssText = `color:${C.dim};font-size:10px;`;
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:6px;';
       const sl = document.createElement('input');
       sl.type = 'range';
       sl.min = String(min); sl.max = String(max); sl.step = String(step);
@@ -1438,8 +1440,9 @@ export class Assembler {
       val.textContent = fmt(init);
       val.style.cssText = `color:var(--asm-accent);min-width:34px;text-align:right;font-size:10px;font-variant-numeric:tabular-nums;`;
       sl.addEventListener('input', () => { const v = parseFloat(sl.value); val.textContent = fmt(v); onChange(v); });
-      row.append(lbl, sl, val);
-      return row;
+      row.append(sl, val);
+      wrap.append(lbl, row);
+      return wrap;
     };
 
     // ── Carte : Dock ─────────────────────────────────────────────────────────
