@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { InvolvedBricksSolver }      from './InvolvedBricksSolver.js';
 import { InvolvedBricksSolverAsm }   from './InvolvedBricksSolverAsm.js';
 import { InvolvedComponentsSolver }  from './InvolvedComponentsSolver.js';
+import { ArticulateTreeSolver }     from './ArticulateTreeSolver.js';
 
 // ─── Constantes visuelles ──────────────────────────────────────────────────────
 
@@ -40,14 +41,15 @@ const CURSOR_R    = 0.95;  // rayon du curseur (même cercle que les marqueurs)
 
 export class AsmDofHandler {
 
-  constructor({ dof, conn, engine, stripIndex = 0, topOffset = 0, steps = 0, connections = [], solver = 'physics', xray = false, stripBg = '#12121899', stripFont = '#cccccc' }) {
+  constructor({ dof, conn, engine, stripIndex = 0, topOffset = 0, steps = 0, connections = [], solver = 'physics', xray = false, stripBg = '#12121899', stripFont = '#cccccc', anchorBricks = null }) {
     this._dof         = dof;
     this._conn        = conn;
     this._engine      = engine;
     this._stripIndex  = stripIndex;
     this._topOffset   = topOffset;
     this._connections = connections; // toutes les connexions de la scène (pour InvolvedBricksSolver)
-    this._solver      = solver;      // 'physics' | 'asm' | 'component'
+    this._solver      = solver;      // 'physics' | 'asm' | 'component' | 'articulate'
+    this._anchorBricks = anchorBricks; // Set<AsmBrick> — classe de référence (mode articuler)
     this._xray        = xray;        // true → helper visible à travers la géométrie
     this._stripBg     = stripBg;
     this._stripFont   = stripFont;
@@ -60,6 +62,7 @@ export class AsmDofHandler {
     this._refU          = null; // vecteur "zéro" dans le plan du disque
     this._refV          = null; // vecteur orthogonal dans le plan du disque
     this._involvedBricks = [conn.instA]; // briques à déplacer (résolu à l'attach)
+    this.onMove    = null; // callback après chaque _moveDelta
 
     this._lblEl    = null;
     this._limEl    = null;
@@ -210,7 +213,9 @@ export class AsmDofHandler {
     // ── Briques embarquées ────────────────────────────────────────────────────
     // null pour ball (pas d'axe unique → fallback instA seule)
     const solverAxis = (dof.type === 'ball') ? null : this._refAxis;
-    const solverInst = this._solver === 'component'
+    const solverInst = this._solver === 'articulate'
+      ? new ArticulateTreeSolver(this._anchorBricks)
+      : this._solver === 'component'
       ? new InvolvedComponentsSolver()
       : this._solver === 'asm'
       ? new InvolvedBricksSolverAsm()
@@ -563,6 +568,7 @@ export class AsmDofHandler {
         brick.mesh.quaternion.premultiply(q);
       }
     }
+    this.onMove?.();
   }
 
   /** Applique un delta brut en respectant le mode step et min/max. */
@@ -644,7 +650,7 @@ function _areColinear(axA, axB, eps = 0.99) {
 
 export class AsmHandlers {
 
-  constructor({ conn, engine, topOffset = 0, stepsRot = 0, stepsTrans = 0, connections = [], solver = 'physics', xray = false, stripBg = '#12121899', stripFont = '#cccccc' }) {
+  constructor({ conn, engine, topOffset = 0, stepsRot = 0, stepsTrans = 0, connections = [], solver = 'physics', xray = false, stripBg = '#12121899', stripFont = '#cccccc', anchorBricks = null }) {
     this._conn        = conn;
     this._engine      = engine;
     this._topOffset   = topOffset;
@@ -655,7 +661,9 @@ export class AsmHandlers {
     this._xray        = xray;
     this._stripBg     = stripBg;
     this._stripFont   = stripFont;
+    this._anchorBricks = anchorBricks;
     this._onReleaseFn = null;
+    this._onMoveFn    = null;
 
     // Grouper les DOFs : colinéaires ensemble, indépendants seuls
     const allDofs = conn.liaison?.asmDof ?? [];
@@ -674,6 +682,12 @@ export class AsmHandlers {
     this._handlers.forEach(h => h.onRelease = fn);
   }
 
+  /** Callback appelé après chaque déplacement (pointermove → _moveDelta). */
+  set onMove(fn) {
+    this._onMoveFn = fn;
+    this._handlers.forEach(h => h.onMove = fn);
+  }
+
   attach() {
     this._handlers = [];
     let stripIndex = 0;
@@ -686,8 +700,10 @@ export class AsmHandlers {
         steps, connections: this._connections,
         solver: this._solver, xray: this._xray,
         stripBg: this._stripBg, stripFont: this._stripFont,
+        anchorBricks: this._anchorBricks,
       });
       handler.onRelease = this._onReleaseFn;
+      handler.onMove    = this._onMoveFn;
       handler.attach();
 
       // Si le groupe a des alternatives colinéaires → bouton switch dans le strip

@@ -67,6 +67,8 @@ const CFG_DEFAULTS = {
   cellLabelFontSize      : 8,
   cellLabelVisible       : true,
   floorVisible           : true,
+  // ── Mode Articuler ────────────────────────────────────────────────────────
+  articulatePickerDiam   : 0.6,       // diamètre des sphères liaison (0.5 – 2)
   // ── Bandeau DOF (strips) ──────────────────────────────────────────────────
   stripBgColor           : '#121218',
   stripBgOpacity         : 0.6,
@@ -100,7 +102,9 @@ export class Assembler {
     this._asmHandlers   = null; // AsmHandlers actifs (DOF d'assemblage)
 
     // ── État global des modes ──────────────────────────────────────────────────
-    this._mode               = 'brick';  // 'brick' | 'component'
+    this._mode               = 'brick';  // 'brick' | 'component' | 'articulate'
+    this._articulateState    = null;     // { components, colorMap, refClass, savedColors, selectedClass }
+    this._articulateRefIds   = null;     // Set<string> — IDs des briques de la ref, persiste entre les modes
     this._process            = 'idle';   // 'idle' | 'dragging' | 'trackball' | 'assembling'
     this._selectedBrick      = null;     // AsmBrick | null
     this._selectedComponent  = null;     // AsmEquivalenceClass | null
@@ -715,6 +719,11 @@ export class Assembler {
         const hitMesh = hits[0].object;
         const hitInst = [...this._asmVerse.bricks.values()].find(i => i.mesh === hitMesh);
         if (hitInst) {
+          if (this._mode === 'articulate') {
+            // Mode articuler : tap uniquement (pas de drag), différé au pointerup
+            this._tapStart = { x: e.clientX, y: e.clientY, inst: hitInst };
+            return;
+          }
           // Sélection différée au pointerup (clic confirmé, sans drag)
           this._stackCandidate = { inst: hitInst, startX: e.clientX, startY: e.clientY, grabPt: hits[0].point.clone() };
           this.engine.controls.enabled = false;
@@ -815,17 +824,37 @@ export class Assembler {
           this.engine.controls.enabled = true;
           const dx = e.clientX - startX, dy = e.clientY - startY;
           if (Math.sqrt(dx * dx + dy * dy) < 12) {
-            this._clearLiaisonPickers();
-            this._activateAsmHandlers(conn, mobileInst ?? this._selectedBrick);
+            if (this._mode === 'articulate') {
+              // Mode articuler : les pickers restent visibles, on active le handler orienté
+              this._activateArticulateHandler(conn);
+            } else {
+              this._clearLiaisonPickers();
+              this._activateAsmHandlers(conn, mobileInst ?? this._selectedBrick);
+            }
           }
           return;
         }
-        // Tap en zone vide → désélection (seulement si peu de mouvement = pas un orbit caméra)
+        // Tap en zone vide ou sur brique (mode articuler)
         if (this._tapStart) {
           const dx = e.clientX - this._tapStart.x, dy = e.clientY - this._tapStart.y;
           if (Math.sqrt(dx * dx + dy * dy) < 12) {
-            if (this._mode === 'component') this._selectComponent(null);
-            else this._selectBrick(null);
+            if (this._mode === 'articulate') {
+              // Tap sur une brique → sélection de sa classe d'équivalence
+              if (this._tapStart.inst) {
+                const comp = this._articulateState?.components?.find(c => c.contains(this._tapStart.inst));
+                if (comp && comp === this._articulateState?.selectedClass) {
+                  this._selectArticulateClass(null); // toggle off
+                } else {
+                  this._selectArticulateClass(comp);
+                }
+              } else {
+                this._selectArticulateClass(null);
+              }
+            } else if (this._mode === 'component') {
+              this._selectComponent(null);
+            } else {
+              this._selectBrick(null);
+            }
           }
           this._tapStart = null;
         }
@@ -1159,9 +1188,10 @@ export class Assembler {
       btn.addEventListener('click', () => this._setMode(key));
       return btn;
     };
-    const _brickModeBtn = _modeBtn('▦', 'Brique',     'Mode Brique',     'brick');
-    const _compModeBtn  = _modeBtn('⬡', 'Composant',  'Mode Composante', 'component');
-    modeStrip.append(modeLbl, _brickModeBtn, _compModeBtn);
+    const _brickModeBtn  = _modeBtn('▦', 'Brique',     'Mode Brique',     'brick');
+    const _compModeBtn   = _modeBtn('⬡', 'Composant',  'Mode Composante', 'component');
+    const _articModeBtn  = _modeBtn('⚙', 'Articuler',  'Mode Articuler',  'articulate');
+    modeStrip.append(modeLbl, _brickModeBtn, _compModeBtn, _articModeBtn);
 
     this._updateModeBtns = () => {
       for (const btn of modeStrip.querySelectorAll('button')) {
@@ -1185,6 +1215,19 @@ export class Assembler {
       this._updateGizmoForSelection();
     });
     this._linkedMoveBtn = linkedMoveBtn;
+
+    // ── Bouton ancre (mode articuler uniquement) ──────────────────────────────
+    const anchorBtn = document.createElement('button');
+    anchorBtn.className = 'asm-bar-btn';
+    anchorBtn.title = 'Définir comme classe de référence (⚓)';
+    anchorBtn.textContent = '⚓';
+    anchorBtn.style.display = 'none';
+    anchorBtn.addEventListener('click', () => {
+      if (this._mode === 'articulate' && this._articulateState?.selectedClass) {
+        this._setReferenceClass(this._articulateState.selectedClass);
+      }
+    });
+    this._anchorBtn = anchorBtn;
 
     // ── Bouton centrer la vue ─────────────────────────────────────────────────
     const centerViewBtn = document.createElement('button');
@@ -1257,7 +1300,7 @@ export class Assembler {
     cfgBtn.textContent = '⚙';
     cfgBtn.addEventListener('click', () => this._openConfigModal());
 
-    bar.append(fsBtn, reloadBtn, modeStrip, linkedMoveBtn, centerViewBtn, this._countEl, catalogueBtn, bomBtn, bricksBtn, compBtn, jointsBtn, stateBtn, importBtn, exportBtn, jsonBtn, cfgBtn);
+    bar.append(fsBtn, reloadBtn, modeStrip, linkedMoveBtn, anchorBtn, centerViewBtn, this._countEl, catalogueBtn, bomBtn, bricksBtn, compBtn, jointsBtn, stateBtn, importBtn, exportBtn, jsonBtn, cfgBtn);
     document.body.appendChild(bar);
     this._ui.push(bar);
 
@@ -1699,6 +1742,17 @@ export class Assembler {
         n => `÷ ${n}`,
         v => this._saveConfig({ asmHelperStepsTrans: v }),
       ),
+      makeSlider('Piqueurs Articuler (⌀)', 0.5, 2, 0.05, cfg.articulatePickerDiam ?? 0.6, v => {
+        this._saveConfig({ articulatePickerDiam: v });
+        // Mettre à jour les sphères si le mode articuler est actif
+        if (this._mode === 'articulate' && this._articulateState) {
+          const r = v / 2;
+          for (const p of this._liaisonPickers) {
+            p.mesh.geometry.dispose();
+            p.mesh.geometry = new THREE.SphereGeometry(r, 12, 10);
+          }
+        }
+      }),
       solverRow,
       tolRow,
       stripBgRow,
@@ -2177,8 +2231,11 @@ export class Assembler {
 
   // ─── Gestion des modes et de l'état interne ──────────────────────────────────
 
-  /** Bascule entre 'brick' et 'component'. Réinitialise processus et sélection. */
+  /** Bascule entre 'brick', 'component' et 'articulate'. Réinitialise processus et sélection. */
   _setMode(mode) {
+    const prev = this._mode;
+    // Quitter le mode articuler si on en sort
+    if (prev === 'articulate' && mode !== 'articulate') this._leaveArticulateMode();
     this._mode = mode;
     this._process = 'idle';
     this._clearComponentHighlight();
@@ -2187,7 +2244,11 @@ export class Assembler {
     this._updateModeBtns?.();
     if (this._linkedMoveBtn)
       this._linkedMoveBtn.style.display = mode === 'component' ? '' : 'none';
+    if (this._anchorBtn)
+      this._anchorBtn.style.display = mode === 'articulate' ? '' : 'none';
     this._updateGizmoForSelection();
+    // Entrer dans le mode articuler
+    if (mode === 'articulate') this._enterArticulateMode();
     // Rafraîchir le panel état s'il est ouvert
     const p = this._panels?.state;
     if (p?.style.display === 'flex') this._refreshPanel('state');
@@ -2372,6 +2433,219 @@ export class Assembler {
   /** Retourne la classe d'équivalence contenant brick, ou null. */
   _findComponent(brick) {
     return this._asmVerse.computeComponents().find(c => c.contains(brick)) ?? null;
+  }
+
+  // ─── Mode Articuler ──────────────────────────────────────────────────────────
+
+  static ARTIC_PALETTE = [0x4fc3f7, 0xffb74d, 0x81c784, 0xf06292, 0xba68c8, 0xfff176];
+
+  /** Greedy graph coloring — retourne Map<component, colorIndex>. */
+  _graphColor(components) {
+    const colorMap = new Map();
+    for (const comp of components) {
+      const neighborColors = new Set();
+      for (const link of comp.links) {
+        if (colorMap.has(link.other)) neighborColors.add(colorMap.get(link.other));
+      }
+      let ci = 0;
+      while (neighborColors.has(ci)) ci++;
+      colorMap.set(comp, ci);
+    }
+    return colorMap;
+  }
+
+  /** Entre dans le mode articuler : colore les classes, affiche tous les pickers DOF, masque le dock. */
+  _enterArticulateMode() {
+    // Masquer le dock
+    if (this._dock?.el) this._dock.el.style.display = 'none';
+
+    const components = this._asmVerse.computeComponents();
+    const colorMap   = this._graphColor(components);
+    const palette    = Assembler.ARTIC_PALETTE;
+
+    // Sauvegarder les couleurs originales et appliquer la coloration par classe
+    const savedColors = new Map();
+    for (const [comp, ci] of colorMap) {
+      const hex = palette[ci % palette.length];
+      for (const brick of comp.bricks) {
+        savedColors.set(brick, brick.mesh.material.color.getHex());
+        brick.mesh.material.color.setHex(hex);
+      }
+    }
+
+    // Collecter toutes les connexions DOF inter-classes (dédupliquées)
+    const dofConns = [];
+    const seen = new Set();
+    for (const comp of components) {
+      for (const link of comp.links) {
+        const conn = link.connection;
+        if (seen.has(conn)) continue;
+        seen.add(conn);
+        dofConns.push(conn);
+      }
+    }
+
+    this._articulateState = { components, colorMap, refClass: null, savedColors, selectedClass: null };
+
+    // Afficher les pickers pour toutes les liaisons DOF
+    this._clearLiaisonPickers();
+    if (dofConns.length) {
+      const diam = this._loadConfig().articulatePickerDiam ?? 0.6;
+      this._showLiaisonPickers(dofConns.map(conn => ({ conn })), diam / 2);
+    }
+
+    // Restaurer ou auto-sélectionner la classe de référence
+    let refClass = null;
+    if (this._articulateRefIds) {
+      // Retrouver la composante dont les briques correspondent aux IDs mémorisés
+      refClass = components.find(c =>
+        [...c.bricks].some(b => this._articulateRefIds.has(b.id))
+      ) ?? null;
+    }
+    if (!refClass) {
+      // Auto-sélection : classe avec le plus de liaisons DOF vers d'autres classes
+      let maxLinks = -1;
+      for (const comp of components) {
+        if (comp.links.length > maxLinks) { maxLinks = comp.links.length; refClass = comp; }
+      }
+    }
+    if (refClass) this._setReferenceClass(refClass);
+  }
+
+  /** Quitte le mode articuler : restaure les couleurs, retire les pickers, réaffiche le dock. */
+  _leaveArticulateMode() {
+    if (!this._articulateState) return;
+    const { savedColors } = this._articulateState;
+
+    // Restaurer les couleurs originales
+    for (const [brick, hex] of savedColors) {
+      brick.mesh.material.color.setHex(hex);
+      brick.mesh.material.emissive.setHex(0x000000);
+      brick.mesh.material.emissiveIntensity = 0;
+    }
+
+    this._clearLiaisonPickers();
+    this._asmHandlers?.detach();
+    this._asmHandlers = null;
+    this._articulateState = null;
+
+    // Réafficher le dock
+    if (this._dock?.el) this._dock.el.style.display = '';
+  }
+
+  /** Sélectionne une classe d'équivalence en mode articuler. null = désélection. */
+  _selectArticulateClass(comp) {
+    const st = this._articulateState;
+    if (!st) return;
+
+    // Désélectionner la classe précédente
+    if (st.selectedClass) {
+      for (const brick of st.selectedClass.bricks) {
+        brick.mesh.material.emissiveIntensity = 0;
+      }
+    }
+
+    st.selectedClass = comp;
+
+    // Highlight de la nouvelle classe
+    if (comp) {
+      for (const brick of comp.bricks) {
+        brick.mesh.material.emissive.setHex(0xffffff);
+        brick.mesh.material.emissiveIntensity = 0.25;
+      }
+    }
+
+    // Mettre à jour l'apparence du bouton ancre
+    if (this._anchorBtn) {
+      this._anchorBtn.style.color = comp ? C.accent : C.dim;
+    }
+  }
+
+  /** Définit une classe comme référence (pivot) pour orienter les AsmHandlers. */
+  _setReferenceClass(comp) {
+    const st = this._articulateState;
+    if (!st) return;
+
+    // Retirer le feedback de l'ancienne référence
+    if (st.refClass) {
+      const ci = st.colorMap.get(st.refClass);
+      const hex = Assembler.ARTIC_PALETTE[ci % Assembler.ARTIC_PALETTE.length];
+      for (const brick of st.refClass.bricks) {
+        brick.mesh.material.color.setHex(hex);
+      }
+    }
+
+    // Toggle si même classe
+    st.refClass = (st.refClass === comp) ? null : comp;
+
+    // Feedback visuel : la classe de référence reçoit un highlight distinct
+    if (st.refClass) {
+      for (const brick of st.refClass.bricks) {
+        brick.mesh.material.color.setHex(0xeeeeee);
+      }
+    }
+
+    // Persister les IDs des briques de la classe de référence
+    this._articulateRefIds = st.refClass
+      ? new Set([...st.refClass.bricks].map(b => b.id))
+      : null;
+
+    // Si un handler DOF est actif, le réorienter
+    if (this._asmHandlers) {
+      const conn = this._asmHandlers.conn;
+      this._activateArticulateHandler(conn);
+    }
+  }
+
+  /** Active un AsmHandler pour une connexion en mode articuler, orienté selon la classe de référence. */
+  _activateArticulateHandler(conn) {
+    this._asmHandlers?.detach();
+    this._asmHandlers = null;
+
+    const st = this._articulateState;
+    // Déterminer le côté mobile : celui qui n'est PAS dans la classe de référence
+    let oriented = conn;
+    if (st?.refClass) {
+      // Si instA est dans la classe de référence, swap pour que instA = mobile
+      if (st.refClass.contains(conn.instA) && !st.refClass.contains(conn.instB)) {
+        oriented = { ...conn, instA: conn.instB, slotA: conn.slotB, instB: conn.instA, slotB: conn.slotA };
+      }
+      // Si instB est dans la ref, pas besoin de swap (instA est déjà mobile)
+    }
+
+    const anchorBricks = st?.refClass ? st.refClass.bricks : null;
+    const cfg        = this._loadConfig();
+    const stepsRot   = cfg.asmHelperStepsRot   ?? 16;
+    const stepsTrans = cfg.asmHelperStepsTrans  ?? 20;
+    const connections = this._asmVerse.joints.connections;
+    const sbgHex   = cfg.stripBgColor   ?? '#121218';
+    const sbgAlpha = Math.round((cfg.stripBgOpacity ?? 0.6) * 255).toString(16).padStart(2, '0');
+    const stripBg    = sbgHex + sbgAlpha;
+    const stripFont  = cfg.stripFontColor  ?? '#cccccc';
+    const handlers = new AsmHandlers({
+      conn: oriented, engine: this.engine, topOffset: BAR_H,
+      stepsRot, stepsTrans, connections,
+      solver: 'articulate',
+      anchorBricks,
+      xray: true, stripBg, stripFont,
+    });
+    if (handlers.active) {
+      handlers.onMove    = () => this._updateArticulatePickers();
+      handlers.onRelease = () => {
+        this._asmVerse.joints.observe(this._asmVerse.slots);
+        this._updateArticulatePickers();
+      };
+      handlers.attach();
+      this._asmHandlers = handlers;
+    }
+  }
+
+  /** Met à jour les positions des liaison pickers en mode articuler après manipulation DOF. */
+  _updateArticulatePickers() {
+    for (const p of this._liaisonPickers) {
+      const pos = p.conn.instA.worldSlotPos(p.conn.slotA);
+      p.mesh.position.copy(pos);
+    }
   }
 
   /** BFS traversant TOUTES les connexions (rigides + DOF) depuis brick. */
@@ -2578,7 +2852,7 @@ export class Assembler {
   }
 
   _fillStatePanel(body) {
-    const MODE_LABELS = { brick: 'Brique', component: 'Composante' };
+    const MODE_LABELS = { brick: 'Brique', component: 'Composante', articulate: 'Articuler' };
     const PROC_LABELS = {
       idle:       'Repos',
       dragging:   'Déplacement',
@@ -2591,7 +2865,12 @@ export class Assembler {
       ['PROCESSUS', PROC_LABELS[this._process] || this._process],
     ];
 
-    if (this._mode === 'brick') {
+    if (this._mode === 'articulate') {
+      const st = this._articulateState;
+      rows.push(['CLASSES', st ? `${st.components.length} classe(s)` : '—']);
+      rows.push(['SÉLECTION', st?.selectedClass ? `Classe (${st.selectedClass.size} briques)` : '—']);
+      rows.push(['RÉFÉRENCE', st?.refClass ? `Classe (${st.refClass.size} briques)` : '—']);
+    } else if (this._mode === 'brick') {
       const sel = this._selectedBrick;
       rows.push(['SÉLECTION', sel ? (sel.brickData.name || sel.brickTypeId) : '—']);
       if (this._stackCandidate) {
