@@ -1371,14 +1371,16 @@ export class Assembler {
     closeBtn.addEventListener('click', () => this._closeConfigModal());
     header.append(htitle, closeBtn);
 
-    // ── Corps (flex-wrap, cartes) ────────────────────────────────────────────
+    // ── Corps (colonnes masonry) ─────────────────────────────────────────────
     const body = document.createElement('div');
     body.style.cssText = [
-      'display:flex', 'flex-wrap:wrap',
+      'display:flex', 'flex-direction:row',
       'gap:14px', 'padding:16px',
       'overflow-y:auto', 'flex:1',
       'align-items:flex-start',
     ].join(';');
+    this._configBody  = body;
+    this._configCards = [];
 
     const cfg = this._loadConfig();
 
@@ -1483,7 +1485,7 @@ export class Assembler {
       makeToggle('Activer au tap extérieur', this._dock._activateOnOutsideTap,
         v => { this._dock.setActivateOnOutsideTap(v); this._saveConfig({ activateOnOutsideTap: v }); }),
     );
-    body.append(dockCard);
+        this._configCards.push(dockCard);
 
     // ── Carte : Cellules ──────────────────────────────────────────────────────
     const cellCard = makeCard('Cellules');
@@ -1558,7 +1560,7 @@ export class Assembler {
     cellCard.append(makeSlider('Sensibilité rotation', 0.1, 5, 0.1, cellCfg.cellRotateSpeed ?? 1.5,
       v => { this._saveConfig({ cellRotateSpeed: v }); this._dock.setCellStyles(this._loadConfig()); }));
 
-    body.append(cellCard);
+        this._configCards.push(cellCard);
 
     // ── Carte : Stack ─────────────────────────────────────────────────────────
     const stackCard = makeCard('Stack');
@@ -1576,7 +1578,7 @@ export class Assembler {
         v => { this._dock.setStackPersist(v); this._saveConfig({ stackPersist: v }); }),
       clearBtn,
     );
-    body.append(stackCard);
+        this._configCards.push(stackCard);
 
     // ── Carte : World Slots ───────────────────────────────────────────────────
     const wsCard = makeCard('World Slots');
@@ -1588,7 +1590,7 @@ export class Assembler {
       makeToggle('Sol visible', this._floor?.mesh.visible ?? true,
         v => { if (this._floor) this._floor.mesh.visible = v; this._saveConfig({ floorVisible: v }); }),
     );
-    body.append(wsCard);
+        this._configCards.push(wsCard);
 
     // ── Carte : LOD ──────────────────────────────────────────────────────────
     const lodCard = makeCard('LOD (Level of Detail)');
@@ -1596,7 +1598,7 @@ export class Assembler {
       v => { this._saveConfig({ lodDistHigh: v }); this._lodDistHigh = v; }));
     lodCard.append(makeSlider('Dist. med → low', 5, 50, 1, cfg.lodDistLow ?? 12,
       v => { this._saveConfig({ lodDistLow: v }); this._lodDistLow = v; }));
-    body.append(lodCard);
+        this._configCards.push(lodCard);
 
     // ── Carte : Asm Helpers ───────────────────────────────────────────────────
     const helpersCard = makeCard('Asm Helpers');
@@ -1763,7 +1765,7 @@ export class Assembler {
       stripOpRow,
       stripFontRow,
     );
-    body.append(helpersCard);
+        this._configCards.push(helpersCard);
 
     // ── Carte : Thème ────────────────────────────────────────────────────────
     const themeCard = makeCard('Thème');
@@ -1801,7 +1803,7 @@ export class Assembler {
       swatchRow.append(sw);
     }
     themeCard.append(swatchRow);
-    body.append(themeCard);
+        this._configCards.push(themeCard);
 
     // ── Carte : Scène ─────────────────────────────────────────────────────────
     const sceneCard = makeCard('Scène');
@@ -1828,17 +1830,53 @@ export class Assembler {
       makeActionBtn('Importer (.json)', () => { this._closeConfigModal(); this._importScene(); }),
       resetBtn,
     );
-    body.append(sceneCard);
+        this._configCards.push(sceneCard);
 
     modal.append(header, body);
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
     this._ui.push(overlay);
     this._configOverlay = overlay;
+
+    // Re-layout si le corps est redimensionné (rotation écran, resize fenêtre)
+    new ResizeObserver(() => {
+      if (overlay.style.display !== 'none') this._layoutConfigCards();
+    }).observe(body);
+  }
+
+  /** Masonry greedy : répartit les cartes dans N colonnes, la plus courte en premier. */
+  _layoutConfigCards() {
+    const body  = this._configBody;
+    const cards = this._configCards;
+    if (!body || !cards?.length) return;
+
+    const GAP       = 14;
+    const MIN_COL_W = 240;
+    const colCount  = Math.max(1, Math.floor((body.clientWidth + GAP) / (MIN_COL_W + GAP)));
+
+    body.innerHTML = '';
+    const cols = Array.from({ length: colCount }, () => {
+      const col = document.createElement('div');
+      col.style.cssText = `display:flex;flex-direction:column;gap:${GAP}px;flex:1;min-width:0;`;
+      body.appendChild(col);
+      return col;
+    });
+
+    // Greedy : chaque carte va dans la colonne la plus courte à cet instant
+    for (const card of cards) {
+      let minH = Infinity, target = cols[0];
+      for (const col of cols) {
+        if (col.scrollHeight < minH) { minH = col.scrollHeight; target = col; }
+      }
+      target.appendChild(card);
+    }
   }
 
   _openConfigModal() {
-    if (this._configOverlay) this._configOverlay.style.display = 'flex';
+    if (!this._configOverlay) return;
+    this._configOverlay.style.display = 'flex';
+    // Layout après affichage (clientWidth disponible seulement une fois visible)
+    requestAnimationFrame(() => this._layoutConfigCards());
   }
 
   _closeConfigModal() {
