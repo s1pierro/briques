@@ -535,8 +535,22 @@ export class AsmDofHandler {
     return new THREE.Vector3(ax, ay, az).normalize().applyQuaternion(worldQ).normalize();
   }
 
-  /** Position monde du slot B (pivot fixe). */
+  /** Position monde du pivot (slot B fixe).
+   *  Si la connexion est synthétique (_sourceConns), retourne le centroïde
+   *  des positions slotB de toutes les connexions sources. */
   _pivotWorld() {
+    const srcs = this._conn._sourceConns;
+    if (srcs?.length > 1) {
+      const sum = new THREE.Vector3();
+      for (const sc of srcs) {
+        sum.add(
+          new THREE.Vector3(...sc.slotB.position)
+            .applyQuaternion(sc.instB.mesh.quaternion)
+            .add(sc.instB.mesh.position)
+        );
+      }
+      return sum.divideScalar(srcs.length);
+    }
     const { instB, slotB } = this._conn;
     return new THREE.Vector3(...slotB.position)
       .applyQuaternion(instB.mesh.quaternion)

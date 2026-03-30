@@ -83,6 +83,21 @@ const CFG_DEFAULTS = {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Assembler
+// ─── Utilitaire picker ────────────────────────────────────────────────────────
+
+/** Retourne la position monde du picker pour une connexion.
+ *  Si la connexion est synthétique (_sourceConns), calcule le centroïde
+ *  des positions slotA de toutes les connexions sources. */
+function _pickerWorldPos(conn) {
+  const srcs = conn._sourceConns;
+  if (srcs?.length > 1) {
+    const sum = new THREE.Vector3();
+    for (const sc of srcs) sum.add(sc.instA.worldSlotPos(sc.slotA));
+    return sum.divideScalar(srcs.length);
+  }
+  return conn.instA.worldSlotPos(conn.slotA);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export class Assembler {
@@ -1075,7 +1090,7 @@ export class Assembler {
     for (const entry of entries) {
       const conn       = entry.conn ?? entry;   // accepte {conn,mobileInst} ou conn direct
       const mobileInst = entry.mobileInst ?? null;
-      const pos = conn.instA.worldSlotPos(conn.slotA);
+      const pos = _pickerWorldPos(conn);
       const mesh = new THREE.Mesh(
         new THREE.SphereGeometry(radius, 12, 10),
         new THREE.MeshBasicMaterial({
@@ -2524,31 +2539,12 @@ export class Assembler {
       }
     }
 
-    // Collecter toutes les connexions DOF inter-classes (dédupliquées)
-    const dofConns = [];
-    const seen = new Set();
-    for (const comp of components) {
-      for (const link of comp.links) {
-        const conn = link.connection;
-        if (seen.has(conn)) continue;
-        seen.add(conn);
-        dofConns.push(conn);
-      }
-    }
+    // Construire les paires de classes voisines (1 picker par paire)
+    const classPairs = this._buildClassPairs(components);
 
-    this._articulateState = { components, colorMap, refClass: null, savedColors, selectedClass: null };
-
-    // Afficher les pickers pour toutes les liaisons DOF
-    this._clearLiaisonPickers();
-    if (dofConns.length) {
-      const diam = this._loadConfig().articulatePickerDiam ?? 0.6;
-      this._showLiaisonPickers(dofConns.map(conn => ({ conn })), diam / 2);
-    }
-
-    // Restaurer ou auto-sélectionner la classe de référence
+    // Déterminer la classe de référence avant de construire les pickers
     let refClass = null;
     if (this._articulateRefIds) {
-      // Retrouver la composante dont les briques correspondent aux IDs mémorisés
       refClass = components.find(c =>
         [...c.bricks].some(b => this._articulateRefIds.has(b.id))
       ) ?? null;
@@ -2560,7 +2556,17 @@ export class Assembler {
         if (comp.links.length > maxLinks) { maxLinks = comp.links.length; refClass = comp; }
       }
     }
-    if (refClass) this._setReferenceClass(refClass);
+
+    this._articulateState = { components, colorMap, refClass, savedColors, selectedClass: null, classPairs };
+
+    // Feedback visuel de la référence
+    if (refClass) {
+      for (const brick of refClass.bricks) brick.mesh.material.color.setHex(0xeeeeee);
+      this._articulateRefIds = new Set([...refClass.bricks].map(b => b.id));
+    }
+
+    // Construire et afficher les pickers (1 par paire, DOFs fusionnés)
+    this._rebuildArticulatePickers();
   }
 
   /** Quitte le mode articuler : restaure les couleurs, retire les pickers, réaffiche le dock. */
@@ -2582,6 +2588,102 @@ export class Assembler {
 
     // Réafficher le dock
     if (this._dock?.el) this._dock.el.style.display = '';
+  }
+
+  /** Construit les paires de classes voisines avec toutes leurs connexions DOF. */
+  _buildClassPairs(components) {
+    const pairs = [];
+    const seenPairs = new Set();
+    for (let i = 0; i < components.length; i++) {
+      const ecA = components[i];
+      for (const link of ecA.links) {
+        const ecB  = link.other;
+        const j    = components.indexOf(ecB);
+        const key  = i < j ? `${i}-${j}` : `${j}-${i}`;
+        if (seenPairs.has(key)) continue;
+        seenPairs.add(key);
+        const conns = ecA.links
+          .filter(lk => lk.other === ecB)
+          .map(lk => lk.connection);
+        pairs.push({ ecA, ecB, conns });
+      }
+    }
+    return pairs;
+  }
+
+  /** Fusionne les DOFs de plusieurs connexions entre deux classes voisines.
+   *  Déduplique les DOFs colinéaires en espace monde — retourne une connexion synthétique. */
+  _buildMergedConn(ecA, ecB, conns, refClass) {
+    // Côté fixe = refClass si appartient à la paire, sinon ecA par défaut
+    const fixedClass  = (refClass === ecA || refClass === ecB) ? refClass : ecA;
+
+    // Orienter chaque conn : instB = côté fixe, instA = côté mobile
+    const oriented = conns.map(conn => {
+      if (fixedClass.contains(conn.instB)) return conn;
+      return { instA: conn.instB, slotA: conn.slotB, instB: conn.instA, slotB: conn.slotA, liaison: conn.liaison };
+    });
+
+    // Calculer les axes monde pour tous les DOFs
+    const worldDofs = [];
+    for (const conn of oriented) {
+      const { instB, slotB } = conn;
+      const slotBQ  = new THREE.Quaternion(...(slotB.quaternion ?? [0, 0, 0, 1]));
+      const worldQ  = slotBQ.clone().premultiply(instB.mesh.quaternion.clone());
+      for (const dof of (conn.liaison?.asmDof ?? [])) {
+        const worldAxis = new THREE.Vector3(...(dof.axis ?? [0, 0, 1]))
+          .normalize().applyQuaternion(worldQ).normalize();
+        worldDofs.push({ worldAxis, dof, conn });
+      }
+    }
+
+    if (worldDofs.length === 0) return null;
+
+    // Dédupliquer par type + axe monde colinéaire
+    const unique = [];
+    for (const wd of worldDofs) {
+      const isDup = unique.some(u =>
+        u.dof.type === wd.dof.type &&
+        Math.abs(u.worldAxis.dot(wd.worldAxis)) >= 0.99
+      );
+      if (!isDup) unique.push(wd);
+    }
+
+    // Connexion représentative = celle du premier DOF unique (détermine position du pivot)
+    const repConn   = unique[0].conn;
+    const { instA: repInstA, slotA: repSlotA, instB: repInstB, slotB: repSlotB } = repConn;
+
+    // Transformer les axes monde uniques en axes locaux du repère instB/slotB de repConn
+    const repSlotBQ   = new THREE.Quaternion(...(repSlotB.quaternion ?? [0, 0, 0, 1]));
+    const repWorldQ   = repSlotBQ.clone().premultiply(repInstB.mesh.quaternion.clone());
+    const repWorldQInv = repWorldQ.clone().invert();
+
+    const mergedAsmDof = unique.map(wd => ({
+      ...wd.dof,
+      axis: wd.worldAxis.clone().applyQuaternion(repWorldQInv).normalize().toArray(),
+    }));
+
+    return {
+      instA       : repInstA,
+      slotA       : repSlotA,
+      instB       : repInstB,
+      slotB       : repSlotB,
+      liaison     : { ...(repConn.liaison ?? {}), asmDof: mergedAsmDof },
+      _sourceConns: oriented,   // connexions sources orientées — pour le centroïde du picker
+    };
+  }
+
+  /** Reconstruit les pickers articuler (1 par paire de classes voisines, DOFs fusionnés). */
+  _rebuildArticulatePickers() {
+    const st = this._articulateState;
+    if (!st) return;
+    this._clearLiaisonPickers();
+    const diam    = this._loadConfig().articulatePickerDiam ?? 0.6;
+    const entries = [];
+    for (const { ecA, ecB, conns } of st.classPairs) {
+      const mergedConn = this._buildMergedConn(ecA, ecB, conns, st.refClass);
+      if (mergedConn) entries.push({ conn: mergedConn });
+    }
+    if (entries.length) this._showLiaisonPickers(entries, diam / 2);
   }
 
   /** Sélectionne une classe d'équivalence en mode articuler. null = désélection. */
@@ -2621,9 +2723,7 @@ export class Assembler {
     if (st.refClass) {
       const ci = st.colorMap.get(st.refClass);
       const hex = Assembler.ARTIC_PALETTE[ci % Assembler.ARTIC_PALETTE.length];
-      for (const brick of st.refClass.bricks) {
-        brick.mesh.material.color.setHex(hex);
-      }
+      for (const brick of st.refClass.bricks) brick.mesh.material.color.setHex(hex);
     }
 
     // Toggle si même classe
@@ -2631,9 +2731,7 @@ export class Assembler {
 
     // Feedback visuel : la classe de référence reçoit un highlight distinct
     if (st.refClass) {
-      for (const brick of st.refClass.bricks) {
-        brick.mesh.material.color.setHex(0xeeeeee);
-      }
+      for (const brick of st.refClass.bricks) brick.mesh.material.color.setHex(0xeeeeee);
     }
 
     // Persister les IDs des briques de la classe de référence
@@ -2641,11 +2739,10 @@ export class Assembler {
       ? new Set([...st.refClass.bricks].map(b => b.id))
       : null;
 
-    // Si un handler DOF est actif, le réorienter
-    if (this._asmHandlers) {
-      const conn = this._asmHandlers.conn;
-      this._activateArticulateHandler(conn);
-    }
+    // Détacher le handler actif et reconstruire les pickers orientés selon la nouvelle référence
+    this._asmHandlers?.detach();
+    this._asmHandlers = null;
+    this._rebuildArticulatePickers();
   }
 
   /** Active un AsmHandler pour une connexion en mode articuler, orienté selon la classe de référence. */
@@ -2694,8 +2791,7 @@ export class Assembler {
   /** Met à jour les positions des liaison pickers en mode articuler après manipulation DOF. */
   _updateArticulatePickers() {
     for (const p of this._liaisonPickers) {
-      const pos = p.conn.instA.worldSlotPos(p.conn.slotA);
-      p.mesh.position.copy(pos);
+      p.mesh.position.copy(_pickerWorldPos(p.conn));
     }
   }
 
