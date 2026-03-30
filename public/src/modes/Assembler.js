@@ -312,7 +312,6 @@ export class Assembler {
   }
 
   _toast(msg, duration = 2000) {
-    const C = this._cfg;
     const t = document.createElement('div');
     t.textContent = msg;
     t.style.cssText = [
