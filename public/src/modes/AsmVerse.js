@@ -148,7 +148,7 @@ export class AsmSlots {
    * @param {AsmBrick|null}  [exceptConnectedTo]   — …sauf ceux déjà liés à cette brique
    * @returns {Object[]}  slots triés (dist croissante)
    */
-  nearSlotsOf(brick, cx, cy, camera, freeOnly = false, exceptConnectedTo = null) {
+  nearSlotsOf(brick, cx, cy, camera, freeOnly = false, exceptConnectedTo = null, grabPt3D = null) {
     const ndcX =  (cx / innerWidth)  * 2 - 1;
     const ndcY = -(cy / innerHeight) * 2 + 1;
     const touch = new THREE.Vector2(ndcX, ndcY);
@@ -163,9 +163,10 @@ export class AsmSlots {
         );
       })
       .map(e => {
-        const wp = e.brick.worldSlotPos(e.slot).clone();
-        wp.project(camera);
-        const d = touch.distanceTo(new THREE.Vector2(wp.x, wp.y));
+        const wp = e.brick.worldSlotPos(e.slot);
+        const d  = grabPt3D
+          ? wp.distanceTo(grabPt3D)                                    // distance 3D monde
+          : (() => { const p = wp.clone().project(camera); return touch.distanceTo(new THREE.Vector2(p.x, p.y)); })();
         return { slot: e.slot, dist: d };
       })
       .sort((a, b) => a.dist - b.dist)
@@ -932,9 +933,9 @@ export class AsmVerse {
    * Déplace brickA puis déclenche l'observateur de scène.
    * @returns {Object|null} connexion détectée, ou null si aucune liaison compatible
    */
-  connectDrag(brickA, grabX, grabY, brickB, dropX, dropY, camera) {
+  connectDrag(brickA, grabX, grabY, brickB, dropX, dropY, camera, grabPt3D = null) {
     // brickA est en cours de déplacement : tous ses slots sont temporairement libres
-    const nearA  = this.slots.nearSlotsOf(brickA, grabX, grabY, camera);
+    const nearA  = this.slots.nearSlotsOf(brickA, grabX, grabY, camera, false, null, grabPt3D);
     const nearB  = this.slots.nearSlotsOf(brickB, dropX, dropY, camera, true, brickA);
     const result = this.worldSlots.resolve(nearA, nearB);
     if (!result) {
@@ -956,8 +957,8 @@ export class AsmVerse {
    * Utilisé pour le preview en temps réel pendant le drag.
    * @returns {{ position, quaternion } | null}
    */
-  previewSnap(brickA, grabX, grabY, brickB, dropX, dropY, camera) {
-    const nearA  = this.slots.nearSlotsOf(brickA, grabX, grabY, camera);
+  previewSnap(brickA, grabX, grabY, brickB, dropX, dropY, camera, grabPt3D = null) {
+    const nearA  = this.slots.nearSlotsOf(brickA, grabX, grabY, camera, false, null, grabPt3D);
     const nearB  = this.slots.nearSlotsOf(brickB, dropX, dropY, camera, true, brickA);
     const result = this.worldSlots.resolve(nearA, nearB);
     if (!result) return null;

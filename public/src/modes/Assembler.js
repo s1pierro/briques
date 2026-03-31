@@ -293,6 +293,7 @@ export class Assembler {
     this._dock.setActivateOnOutsideTap(cfg.activateOnOutsideTap);
     this._dock.setStackPersist(cfg.stackPersist);
     this._dock.setCellStyles(cfg);
+    this._dock.setCellSizes(cfg.cellSize ?? 110, cfg.cellActiveSize ?? 190);
     this._asmVerse.worldSlots.planY = cfg.planY;
     this._asmVerse.worldSlots.snapR = cfg.snapR;
     if (this._asmVerse.worldSlots.planMesh) this._asmVerse.worldSlots.planMesh.visible = cfg.planVisible;
@@ -938,6 +939,7 @@ export class Assembler {
             }
           }
           this._tapStart = null;
+          this.engine.controls.enabled = true;
         }
         return;
       }
@@ -1004,6 +1006,7 @@ export class Assembler {
     window.addEventListener('pointercancel', () => {
       this._tapStart        = null;
       this._pickerCandidate = null;
+      this._grabState       = null;
       if (this._gizmoDrag) {
         // Restaurer les positions initiales
         for (const { brick, pos } of this._gizmoDrag.restoreStates) {
@@ -1104,7 +1107,7 @@ export class Assembler {
     if (hits.length > 0) {
       const target = others.find(i => i.mesh === hits[0].object);
       if (target) {
-        const snap = this._asmVerse.previewSnap(inst, grabX, grabY, target, cx, cy, this.engine.camera);
+        const snap = this._asmVerse.previewSnap(inst, grabX, grabY, target, cx, cy, this.engine.camera, this._stackCandidate?.grabPt);
         if (snap) {
           inst.mesh.position.copy(snap.position);
           inst.mesh.quaternion.copy(snap.quaternion);
@@ -1740,6 +1743,10 @@ export class Assembler {
       v => { this._saveConfig({ cellLabelFontSize: v }); this._dock.setCellStyles(this._loadConfig()); }));
     cellCard.append(makeSlider('Sensibilité rotation', 0.1, 5, 0.1, cellCfg.cellRotateSpeed ?? 1.5,
       v => { this._saveConfig({ cellRotateSpeed: v }); this._dock.setCellStyles(this._loadConfig()); }));
+    cellCard.append(makeSlider('Cellule inactive (px)', 60, 200, 5, cellCfg.cellSize ?? 110,
+      v => { this._saveConfig({ cellSize: v }); this._dock.setCellSizes(v, this._loadConfig().cellActiveSize ?? 190); }));
+    cellCard.append(makeSlider('Cellule active (px)', 100, 320, 5, cellCfg.cellActiveSize ?? 190,
+      v => { this._saveConfig({ cellActiveSize: v }); this._dock.setCellSizes(this._loadConfig().cellSize ?? 110, v); }));
 
         this._configCards.push(cellCard);
 
@@ -2084,14 +2091,15 @@ export class Assembler {
 
   // Assemble instA (brique saisie) sur instB (brique cible) après un drag-drop scène→scène
   _connectDrag(instA, grabX, grabY, instB, dropX, dropY) {
-    const conn = this._asmVerse.connectDrag(instA, grabX, grabY, instB, dropX, dropY, this.engine.camera);
+    const grabPt = this._stackCandidate?.grabPt ?? null;
+    const conn = this._asmVerse.connectDrag(instA, grabX, grabY, instB, dropX, dropY, this.engine.camera, grabPt);
     if (conn) {
       this._showSnapHelper(instA.mesh.position.clone());
       this._updateCount();
       return true;
     }
     this._asmVerse._solver.diagnose(
-      this._asmVerse.slots.nearSlotsOf(instA, grabX, grabY, this.engine.camera),
+      this._asmVerse.slots.nearSlotsOf(instA, grabX, grabY, this.engine.camera, false, null, grabPt),
       this._asmVerse.slots.nearSlotsOf(instB, dropX, dropY, this.engine.camera),
       this._asmVerse.slots.typeIds
     );
@@ -2119,7 +2127,7 @@ export class Assembler {
   }
 
   _isOverUI(target) {
-    return target.closest?.('.brick-dock, .asm-bar, .asm-modal-overlay, .asm-panel, .asm-dof-strip');
+    return target.closest?.('.brick-dock, .asm-bar, .asm-artic-bar, .asm-modal-overlay, .asm-panel, .asm-dof-strip');
   }
 
   _updateCount() {

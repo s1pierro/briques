@@ -4,9 +4,9 @@ import { getManifold, buildCache, manifoldToGeometry } from '../csg-utils.js';
 import { expandSlots } from '../slot-utils.js';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
-const CELL        = 110;  // px — cellule inactive
-const CELL_ACTIVE = 190;  // px — cellule active
-const GAP         = 6;    // px — espacement entre cellules
+const CELL_DEFAULT        = 110;  // px — cellule inactive (défaut)
+const CELL_ACTIVE_DEFAULT = 190;  // px — cellule active (défaut)
+const GAP                 = 6;    // px — espacement entre cellules
 const STACK_KEY   = 'rbang_dock_stack';
 
 // Couleurs (même thème Industrial que l'Assembler)
@@ -73,6 +73,9 @@ export class BrickDock {
     this._raycaster      = new THREE.Raycaster();
     this._stackFamily = { name: '(tmp)Stack', bricks: [] };
     this._cellStyles = { ...CELL_STYLES_DEFAULTS };
+    this._geoCache = new Map(); // brickId → BufferGeometry (source, jamais disposée)
+    this._cellSize       = CELL_DEFAULT;
+    this._cellActiveSize = CELL_ACTIVE_DEFAULT;
 
     // Renderer WebGL UNIQUE partagé par toutes les cellules
     // → évite d'épuiser la limite de contextes WebGL du navigateur (~8-16 sur mobile)
@@ -82,7 +85,7 @@ export class BrickDock {
       // preserveDrawingBuffer non nécessaire : render + drawImage sont synchrones dans le même rAF
     });
     this._sharedRenderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    this._sharedRenderer.setSize(CELL_ACTIVE, CELL_ACTIVE);
+    this._sharedRenderer.setSize(CELL_ACTIVE_DEFAULT, CELL_ACTIVE_DEFAULT);
 
     this._buildDOM();
     this._startLoop();
@@ -137,6 +140,14 @@ export class BrickDock {
     });
   }
 
+  /** Met à jour les tailles des cellules et reconstruit la famille courante. */
+  async setCellSizes(inactive, active) {
+    this._cellSize       = inactive;
+    this._cellActiveSize = active;
+    this._sharedRenderer.setSize(active, active);
+    await this._showFamily(this._famIdx);
+  }
+
   _applyCellStyle(cell, active) {
     const s = this._cellStyles;
     cell.el.style.background        = active ? s.activeBg          : s.bg;
@@ -156,12 +167,20 @@ export class BrickDock {
     if (idx >= 0) this._showFamily(idx);
   }
 
-  pushToStack(brickId, brickData) {
+  async pushToStack(brickId, brickData) {
     const alreadyIn = this._stackFamily.bricks.some(b => b.id === brickId);
     if (alreadyIn) { this.showStack(); return; }
     this._stackFamily.bricks.unshift({ id: brickId, data: brickData });
     if (this._stackPersist) this._saveStack();
-    this.showStack();
+    // Si on est déjà sur la stack : juste insérer la cellule en tête, sans tout reconstruire
+    if (this._families[this._famIdx] === this._stackFamily && this._cells.length > 0) {
+      const cell = await this._createCell(brickId, brickData);
+      this._cells.unshift(cell);
+      this._trackEl.prepend(cell.el);
+      cell.tb.handleResize();
+    } else {
+      this.showStack();
+    }
   }
 
   setStackPersist(enabled) {
@@ -197,6 +216,8 @@ export class BrickDock {
   destroy() {
     cancelAnimationFrame(this._animId);
     this._disposeCells();
+    for (const g of this._geoCache.values()) g.dispose();
+    this._geoCache.clear();
     this._sharedRenderer.dispose();
     this._el?.remove();
   }
@@ -312,8 +333,9 @@ export class BrickDock {
   async _createCell(brickId, brickData) {
     const el = document.createElement('div');
     const s = this._cellStyles;
+    const cs = this._cellSize, ca = this._cellActiveSize;
     el.style.cssText = [
-      `width:${CELL}px`, `height:${CELL}px`, 'flex-shrink:0',
+      `width:${cs}px`, `height:${cs}px`, 'flex-shrink:0',
       `background:${s.bg}`,
       `border-style:solid`, `border-width:${s.borderWidth}px`, `border-color:${s.borderColor}`,
       `border-radius:${s.borderRadius}px`, 'overflow:hidden', 'position:relative',
@@ -322,11 +344,11 @@ export class BrickDock {
     ].join(';');
 
     // Canvas 2D — réceptacle de l'image rendue par le renderer partagé
-    const pxSize = Math.round(CELL_ACTIVE * Math.min(devicePixelRatio, 2));
+    const pxSize = Math.round(ca * Math.min(devicePixelRatio, 2));
     const canvas = document.createElement('canvas');
     canvas.width  = pxSize;
     canvas.height = pxSize;
-    canvas.style.cssText = `width:${CELL}px;height:${CELL}px;display:block;touch-action:none;transition:width 0.18s ease, height 0.18s ease;`;
+    canvas.style.cssText = `width:${cs}px;height:${cs}px;display:block;touch-action:none;transition:width 0.18s ease, height 0.18s ease;`;
     el.appendChild(canvas);
     const ctx2d = canvas.getContext('2d');
 
@@ -375,12 +397,28 @@ export class BrickDock {
     ].join(';');
     el.appendChild(camHandle);
 
+    // Bouton zoom — affiché uniquement sur la cellule active
+    const zoomBtn = document.createElement('div');
+    zoomBtn.textContent = '⊕';
+    zoomBtn.style.cssText = [
+      'position:absolute', 'bottom:4px', 'right:4px',
+      'width:28px', 'height:28px',
+      'display:none',
+      'pointer-events:auto', 'touch-action:none', 'cursor:pointer',
+      'color:#7aafc8', 'font-size:16px', 'line-height:28px', 'text-align:center',
+      'background:rgba(20,20,20,0.65)', 'border-radius:6px',
+      'border:1px solid rgba(120,160,200,0.4)',
+      'user-select:none',
+    ].join(';');
+    el.appendChild(zoomBtn);
+
     // TrackballControls attaché au handle ↻ uniquement
     const tb = new TrackballControls(camera, camHandle);
 
     // Enregistré APRÈS TC (bubble phase) : TC reçoit l'event en premier,
     // puis on stoppe la remontée vers _cellsEl pour court-circuiter le dock
     camHandle.addEventListener('pointerdown', e => { e.stopPropagation(); });
+    zoomBtn.addEventListener('pointerdown',   e => { e.stopPropagation(); });
     tb.rotateSpeed          = this._cellStyles.rotateSpeed ?? 1.5;
     tb.noZoom               = true;
     tb.noPan                = true;
@@ -389,13 +427,38 @@ export class BrickDock {
     tb.update();
 
     const cell = {
-      el, canvas, ctx2d, label, camHandle, scene, camera, tb,
+      el, canvas, ctx2d, label, camHandle, zoomBtn, scene, camera, tb,
+      _zoomed: false,
       brickId, brickData, mesh: null,
       _camRadius : 3,    // ajusté après chargement géométrie
       _dirty     : true, // déclenche un re-render au prochain frame
     };
 
     tb.addEventListener('change', () => { cell._dirty = true; });
+
+    // Logique zoom ⊕/⊖ — cycle: normal → 50% → 25% → normal
+    const ZOOM_STEPS = [1, 0.5, 0.25];
+    let zoomIdx = 0;
+    const handleZoom = (e) => {
+      e.preventDefault(); e.stopPropagation();
+      zoomIdx = (zoomIdx + 1) % ZOOM_STEPS.length;
+      cell._zoomed = zoomIdx !== 0;
+      const dir = cell.camera.position.clone().normalize();
+      cell.camera.position.copy(dir.multiplyScalar(cell._camRadius * ZOOM_STEPS[zoomIdx]));
+      cell.tb.update();
+      zoomBtn.textContent = zoomIdx === 0 ? '⊕' : zoomIdx === 1 ? '⊖' : '⊗';
+      cell._dirty = true;
+    };
+    zoomBtn.addEventListener('click', handleZoom);
+    zoomBtn.addEventListener('touchstart', e => { e.preventDefault(); handleZoom(e); }, { passive: false });
+    // Réinitialiser le zoom à la désactivation
+    cell._resetZoom = () => {
+      zoomIdx = 0; cell._zoomed = false;
+      zoomBtn.textContent = '⊕';
+      const dir = cell.camera.position.clone().normalize();
+      cell.camera.position.copy(dir.multiplyScalar(cell._camRadius));
+      cell.tb.update();
+    };
 
     await this._loadCellGeometry(cell);
     this._bindCellGestures(cell);
@@ -408,13 +471,18 @@ export class BrickDock {
       const bricks = this._loadStore('rbang_bricks');
       const brick  = bricks[cell.brickId] || cell.brickData;
 
-      // Résolution de la géométrie : csgTree embarqué > shapeRef
+      // Résolution de la géométrie : cache → csgTree embarqué > shapeRef
       let geo;
-      if (brick.csgTree?.steps && brick.csgTree?.rootId) {
+      const cachedGeo = this._geoCache.get(cell.brickId);
+      if (cachedGeo) {
+        geo = cachedGeo.clone();
+      } else if (brick.csgTree?.steps && brick.csgTree?.rootId) {
         const M  = await getManifold();
         const mf = buildCache(brick.csgTree.steps, M).get(brick.csgTree.rootId);
         if (!mf) return;
         ({ geo } = manifoldToGeometry(mf));
+        this._geoCache.set(cell.brickId, geo);
+        geo = geo.clone();
       } else {
         const data = shapes[brick.shapeRef];
         if (!data?.steps || !data.rootId) return;
@@ -422,6 +490,8 @@ export class BrickDock {
         const mf = buildCache(data.steps, M).get(data.rootId);
         if (!mf) return;
         ({ geo } = manifoldToGeometry(mf));
+        this._geoCache.set(cell.brickId, geo);
+        geo = geo.clone();
       }
       const color    = parseInt((brick.color || '#888888').replace('#', ''), 16);
       const mesh     = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.55 }));
@@ -447,11 +517,13 @@ export class BrickDock {
     if (this._activeCell === cell) return;
     this._deactivateCell();
     this._activeCell = cell;
-    cell.canvas.style.width  = CELL_ACTIVE + 'px';
-    cell.canvas.style.height = CELL_ACTIVE + 'px';
-    cell.el.style.width      = CELL_ACTIVE + 'px';
-    cell.el.style.height     = CELL_ACTIVE + 'px';
+    const ca = this._cellActiveSize;
+    cell.canvas.style.width  = ca + 'px';
+    cell.canvas.style.height = ca + 'px';
+    cell.el.style.width      = ca + 'px';
+    cell.el.style.height     = ca + 'px';
     cell.camHandle.style.display = '';
+    cell.zoomBtn.style.display   = '';
     this._applyCellStyle(cell, true);
     cell.tb.handleResize();
     cell._dirty = true;
@@ -463,10 +535,13 @@ export class BrickDock {
     this._activeCell = null;
     cell.tb.enabled = false;
     cell.camHandle.style.display = 'none';
-    cell.canvas.style.width  = CELL + 'px';
-    cell.canvas.style.height = CELL + 'px';
-    cell.el.style.width      = CELL + 'px';
-    cell.el.style.height     = CELL + 'px';
+    cell.zoomBtn.style.display   = 'none';
+    cell._resetZoom?.();
+    const cs = this._cellSize;
+    cell.canvas.style.width  = cs + 'px';
+    cell.canvas.style.height = cs + 'px';
+    cell.el.style.width      = cs + 'px';
+    cell.el.style.height     = cs + 'px';
     this._applyCellStyle(cell, false);
     cell.tb.handleResize();
     cell._dirty = true;
@@ -773,9 +848,10 @@ export class BrickDock {
   _setScroll(px) {
     const isVert   = this._edge === 'left' || this._edge === 'right';
     const n        = this._cells.length;
-    const total    = n * (CELL + GAP) + GAP;
+    const cs       = this._cellSize;
+    const total    = n * (cs + GAP) + GAP;
     const viewport = isVert ? innerHeight : innerWidth;
-    const max      = Math.max(0, total - viewport + CELL); // laisser au moins une cellule visible
+    const max      = Math.max(0, total - viewport + cs); // laisser au moins une cellule visible
     this._scrollPx = Math.max(0, Math.min(px, max));
     const axis     = isVert ? 'translateY' : 'translateX';
     this._trackEl.style.transform = `${axis}(-${this._scrollPx}px)`;
@@ -784,7 +860,7 @@ export class BrickDock {
   // ── Boucle de rendu ────────────────────────────────────────────────────────
 
   _startLoop() {
-    let _rendererSize = CELL_ACTIVE; // taille CSS courante du renderer partagé
+    let _rendererSize = this._cellActiveSize;
     const step = () => {
       this._animId = requestAnimationFrame(step);
       const r = this._sharedRenderer;
@@ -792,7 +868,7 @@ export class BrickDock {
         cell.tb.update(); // nécessaire pour l'amortissement dynamique
         if (!cell._dirty) continue;
         cell._dirty = false;
-        const size = cell === this._activeCell ? CELL_ACTIVE : CELL;
+        const size = cell === this._activeCell ? this._cellActiveSize : this._cellSize;
         if (_rendererSize !== size) { r.setSize(size, size); _rendererSize = size; }
         r.render(cell.scene, cell.camera);
         cell.ctx2d.clearRect(0, 0, cell.canvas.width, cell.canvas.height);

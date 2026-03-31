@@ -11,6 +11,7 @@ export class Sandbox {
     this.engine = engine;
     this._ui    = [];
     this._spawnInterval = null;
+    this._geoCache = new Map(); // key → { geo, pts }
   }
 
   start() {
@@ -28,6 +29,8 @@ export class Sandbox {
     this.engine.stop();
     this._ui.forEach(el => el.remove());
     this._ui = [];
+    for (const { geo } of this._geoCache.values()) geo.dispose();
+    this._geoCache.clear();
   }
 
   _setupScene() {
@@ -65,9 +68,10 @@ export class Sandbox {
   _spawnRandom() {
     const load = key => { try { return JSON.parse(localStorage.getItem(key) || '{}'); } catch { return {}; } };
     const bricks = load('rbang_bricks');
-    const keys   = Object.keys(bricks);
-    if (!keys.length) { this._spawnBox(); return; }
-    const brick = bricks[keys[Math.floor(Math.random() * keys.length)]];
+    const brickKeys = Object.keys(bricks);
+    if (!brickKeys.length) { this._spawnBox(); return; }
+    const brickKey = brickKeys[Math.floor(Math.random() * brickKeys.length)];
+    const brick    = bricks[brickKey];
 
     // csgTree embarqué > shapeRef externe
     let data;
@@ -78,19 +82,30 @@ export class Sandbox {
       data = shapes[brick.shapeRef];
     }
     if (!data?.steps || !data.rootId) { this._spawnBox(); return; }
-    this._spawnShape(data, brick.color);
+    this._spawnShape(brickKey, data, brick.color);
   }
 
-  async _spawnShape(data, colorHex) {
+  async _spawnShape(brickKey, data, colorHex) {
     try {
-      const M      = await getManifold();
-      const cache  = buildCache(data.steps, M);
-      const mf     = cache.get(data.rootId);
-      if (!mf) { this._spawnBox(); return; }
+      let geo, pts;
+      const cached = this._geoCache.get(brickKey);
+      if (cached) {
+        geo = cached.geo.clone();
+        pts = cached.pts;
+      } else {
+        const M    = await getManifold();
+        const cacheM = buildCache(data.steps, M);
+        const mf   = cacheM.get(data.rootId);
+        if (!mf) { this._spawnBox(); return; }
 
-      const { geo } = manifoldToGeometry(mf);
-      const mfLow   = buildCsgWithSegs(data.steps, data.rootId, SEG_LOW, M);
-      const pts     = manifoldToPoints(mfLow ?? mf);
+        ({ geo } = manifoldToGeometry(mf));
+        const mfLow = buildCsgWithSegs(data.steps, data.rootId, SEG_LOW, M);
+        pts = manifoldToPoints(mfLow ?? mf);
+        this._geoCache.set(brickKey, { geo, pts });
+        geo = geo.clone();
+        // Yield après CSG heavy — laisse le renderer passer un frame
+        await new Promise(r => setTimeout(r));
+      }
 
       const color = colorHex ? parseInt(colorHex.replace('#', ''), 16) : 0x888888;
       const mesh  = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color }));

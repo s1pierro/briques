@@ -20,13 +20,13 @@ export class AssemblySolver {
    * @returns {{ slotA, slotB, liaison } | null}
    */
   solve(nearA, nearB) {
-    // Priorité au slot ciblé (nearB, trié par proximité au point de dépôt) :
-    // on cherche d'abord une correspondance pour nearB[0], puis nearB[1], etc.
-    for (const sb of nearB) {
-      for (const sa of nearA) {
-        const li = this._findLiaison(sa.typeId, sb.typeId);
-        if (li) return { slotA: sa, slotB: sb, liaison: li };
-      }
+    // Un seul slot cible retenu : le plus proche du point de dépôt.
+    // On cherche ensuite le slot source compatible le plus proche du point de capture.
+    if (!nearB.length) return null;
+    const sb = nearB[0];
+    for (const sa of nearA) {
+      const li = this._findLiaison(sa.typeId, sb.typeId);
+      if (li) return { slotA: sa, slotB: sb, liaison: li };
     }
     return null;
   }
@@ -52,6 +52,7 @@ export class AssemblySolver {
     console.group('[AssemblySolver] solve() → null');
     if (!nearA.length) { console.warn('Source : aucun slot défini'); console.groupEnd(); return; }
     if (!nearB.length) { console.warn('Cible  : aucun slot défini'); console.groupEnd(); return; }
+    console.info('Slot cible retenu :', nearB[0]?.typeId, '— autres ignorés :', nearB.slice(1).map(s => s.typeId));
 
     const nullA = nearA.filter(s => !s.typeId);
     const nullB = nearB.filter(s => !s.typeId);

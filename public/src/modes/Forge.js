@@ -11,6 +11,21 @@ const LS_SLOT_TYPES = 'rbang_slot_types';
 const LS_LIAISONS   = 'rbang_liaisons';
 
 function loadStore(key)       { try { return JSON.parse(localStorage.getItem(key) || '{}'); } catch { return {}; } }
+
+/** Flèche épaisse (cylindre + cône) alignée sur `dir`, depuis l'origine. */
+function makeThickArrow(dir, color, length, headLen, headR, shaftR, renderOrder = 998) {
+  const mat = c => new THREE.MeshBasicMaterial({ color: c, depthWrite: false });
+  const shaftLen = length - headLen;
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(shaftR, shaftR, shaftLen, 8), mat(color));
+  shaft.position.y = shaftLen / 2;
+  const head = new THREE.Mesh(new THREE.ConeGeometry(headR, headLen, 8), mat(color));
+  head.position.y = shaftLen + headLen / 2;
+  const g = new THREE.Group();
+  g.add(shaft, head);
+  g.traverse(o => { o.renderOrder = renderOrder; });
+  g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+  return g;
+}
 function saveStore(key, data) { localStorage.setItem(key, JSON.stringify(data)); }
 function uid(prefix = 'id')   { return prefix + '-' + Math.random().toString(36).slice(2, 9); }
 
@@ -237,14 +252,12 @@ export class Forge {
     group.quaternion.set(qx, qy, qz, qw);
 
     const selected = (slot._defId ?? slot.id) === this._selectedSlotId;
-    const axLen    = 0.12;
+    const axLen    = 0.25;
 
     // Trièdre XYZ
     const addArrow = (dir, baseColor, selColor) => {
       const color = selected ? selColor : baseColor;
-      const a     = new THREE.ArrowHelper(dir, new THREE.Vector3(), axLen, color, axLen * 0.3, axLen * 0.15);
-      a.traverse(o => { if (o.material) { o.material = o.material.clone(); o.material.depthWrite = false; } o.renderOrder = 998; });
-      group.add(a);
+      group.add(makeThickArrow(dir, color, axLen, axLen * 0.28, axLen * 0.10, axLen * 0.04, 998));
     };
     addArrow(new THREE.Vector3(1, 0, 0), 0x992222, 0xff4444);
     addArrow(new THREE.Vector3(0, 1, 0), 0x229922, 0x44ff44);
@@ -252,7 +265,7 @@ export class Forge {
 
     // Sphère origine
     const sp = new THREE.Mesh(
-      new THREE.SphereGeometry(0.022, 8, 8),
+      new THREE.SphereGeometry(0.032, 8, 8),
       new THREE.MeshBasicMaterial({ color: selected ? 0xffffff : 0x999999, depthWrite: false })
     );
     sp.renderOrder = 999;
@@ -280,15 +293,13 @@ export class Forge {
 
     const addArrows = () => {
       [axis.clone(), axis.clone().negate()].forEach(dir => {
-        const a = new THREE.ArrowHelper(dir, new THREE.Vector3(), 0.16, color, 0.05, 0.03);
-        a.traverse(o => { if (o.material) { o.material = o.material.clone(); o.material.depthWrite = false; } o.renderOrder = 997; });
-        group.add(a);
+        group.add(makeThickArrow(dir, color, 0.32, 0.09, 0.030, 0.014, 997));
       });
     };
 
     switch (dof.type) {
       case 'rotation': {
-        const m = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.014, 24, 1, true), mat());
+        const m = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.05, 32, 1, true), mat());
         alignToAxis(m);
         group.add(m);
         break;
@@ -298,13 +309,13 @@ export class Forge {
         break;
       }
       case 'ball': {
-        const m = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 8), mat());
+        const m = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 10), mat());
         m.renderOrder = 997;
         group.add(m);
         break;
       }
       case 'cylindrical': {
-        const m = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.014, 24, 1, true), mat());
+        const m = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.05, 32, 1, true), mat());
         alignToAxis(m);
         group.add(m);
         addArrows();
@@ -762,12 +773,13 @@ export class Forge {
       .fg-blist::-webkit-scrollbar       { width:6px; }
       .fg-blist::-webkit-scrollbar-track { background:var(--fg-bg2); }
       .fg-blist::-webkit-scrollbar-thumb { background:#555; border-radius:2px; }
-      .fg-bitem { padding:5px 10px 5px 12px; cursor:pointer; font:11px sans-serif;
+      .fg-bitem { padding:5px 10px 5px 6px; cursor:pointer; font:11px sans-serif;
         color:var(--fg-text); border-left:3px solid transparent;
         display:flex; align-items:center; gap:5px; }
       .fg-bitem.sel { background:var(--fg-sel); color:var(--fg-text2); border-left-color:var(--fg-accent); }
       .fg-bitem-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
       .fg-bdel { font:12px sans-serif; color:var(--fg-dim); padding:0 2px; flex-shrink:0; }
+      .fg-bdrag { font:13px sans-serif; color:var(--fg-dim); padding:0 3px; flex-shrink:0; cursor:grab; touch-action:none; user-select:none; }
       .fg-bactions { padding:8px; border-top:1px solid var(--fg-border);
         display:flex; flex-direction:column; gap:4px; flex-shrink:0; }
 
@@ -1059,32 +1071,118 @@ export class Forge {
 
   // ─── Liste briques ─────────────────────────────────────────────────────────
 
+  _getBrickOrder() {
+    try { return JSON.parse(localStorage.getItem('rbang_bricks_order') || '[]'); } catch { return []; }
+  }
+  _setBrickOrder(ids) {
+    localStorage.setItem('rbang_bricks_order', JSON.stringify(ids));
+  }
+
   _renderBrickList() {
     const el    = this._blistEl;
     const store = this._bricks();
     el.innerHTML = '';
 
-    const names = Object.values(store);
-    if (!names.length) {
+    const allIds = Object.keys(store);
+    if (!allIds.length) {
       el.innerHTML = '<div style="padding:12px;font:10px sans-serif;color:var(--fg-dim);text-align:center;">Aucune brique</div>';
       return;
     }
 
-    for (const b of names) {
+    const order  = this._getBrickOrder();
+    const sorted = [
+      ...order.filter(id => store[id]),
+      ...allIds.filter(id => !order.includes(id)),
+    ];
+
+    for (const id of sorted) {
+      const b   = store[id];
       const row = document.createElement('div');
       row.className = 'fg-bitem' + (b.id === this._currentBrick?.id ? ' sel' : '');
+      row.dataset.brickId = id;
+
+      const handle = document.createElement('span');
+      handle.className = 'fg-bdrag';
+      handle.textContent = '⠿';
+      handle.title = 'Réordonner';
+
       const name = document.createElement('span');
       name.className = 'fg-bitem-name';
       name.textContent = b.name || b.id;
+
       const del = document.createElement('span');
       del.className = 'fg-bdel';
       del.textContent = '✕';
       del.title = 'Supprimer';
       del.addEventListener('click', (e) => { e.stopPropagation(); this._deleteBrick(b.id); });
-      row.append(name, del);
+
+      row.append(handle, name, del);
       row.addEventListener('click', () => this._loadBrick(b.id));
       el.appendChild(row);
     }
+
+    this._bindListDragReorder(el);
+  }
+
+  _bindListDragReorder(el) {
+    let ghost = null, placeholder = null, dragging = null, offsetY = 0;
+
+    const cleanup = () => {
+      ghost?.remove();       ghost = null;
+      placeholder?.remove(); placeholder = null;
+      dragging = null;
+    };
+
+    el.addEventListener('pointerdown', (e) => {
+      if (!e.target.closest('.fg-bdrag')) return;
+      e.preventDefault(); e.stopPropagation();
+      const row = e.target.closest('.fg-bitem');
+      if (!row) return;
+      dragging = row;
+      const rect = row.getBoundingClientRect();
+      offsetY = e.clientY - rect.top;
+
+      ghost = row.cloneNode(true);
+      ghost.style.cssText = `position:fixed;left:${rect.left}px;width:${rect.width}px;` +
+        `top:${rect.top}px;opacity:0.8;pointer-events:none;z-index:9999;` +
+        `background:var(--fg-sel);border-left:3px solid var(--fg-accent);`;
+      document.body.appendChild(ghost);
+
+      placeholder = document.createElement('div');
+      placeholder.style.cssText = 'height:2px;background:var(--fg-accent);margin:1px 8px;border-radius:1px;';
+      row.after(placeholder);
+      row.style.opacity = '0.3';
+      el.setPointerCapture(e.pointerId);
+    }, { passive: false });
+
+    el.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      e.preventDefault();
+      ghost.style.top = (e.clientY - offsetY) + 'px';
+      // Trouver la position d'insertion
+      const rows = [...el.querySelectorAll('.fg-bitem[data-brick-id]')].filter(r => r !== dragging);
+      let insertBefore = null;
+      for (const r of rows) {
+        const mid = r.getBoundingClientRect().top + r.getBoundingClientRect().height / 2;
+        if (e.clientY < mid) { insertBefore = r; break; }
+      }
+      if (insertBefore) insertBefore.before(placeholder);
+      else el.appendChild(placeholder);
+    }, { passive: false });
+
+    const commit = () => {
+      if (!dragging) return;
+      placeholder.before(dragging);  // insère la row à la position finale
+      const newOrder = [...el.querySelectorAll('.fg-bitem[data-brick-id]')]
+        .map(r => r.dataset.brickId);
+      this._setBrickOrder(newOrder);
+      dragging.style.opacity = '';
+      cleanup();
+      this._renderBrickList();
+    };
+
+    el.addEventListener('pointerup',     commit);
+    el.addEventListener('pointercancel', () => { if (dragging) { dragging.style.opacity = ''; cleanup(); } });
   }
 
   // ─── Tabs ─────────────────────────────────────────────────────────────────
