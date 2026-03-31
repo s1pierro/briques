@@ -1481,7 +1481,13 @@ export class Assembler {
       return b;
     };
 
-    articBar.append(anchorBtn, mkSep(), articPickersBtn, articColoringBtn, mkSep(), ccdLbl, mkCcdBtn(-1), ccdValEl, mkCcdBtn(1));
+    const kinGraphBtn = document.createElement('button');
+    kinGraphBtn.className = 'asm-artic-btn';
+    kinGraphBtn.title = 'Graphe cinématique des liaisons';
+    kinGraphBtn.textContent = '⬡ Graphe';
+    kinGraphBtn.addEventListener('click', () => this._togglePanel('kingraph'));
+
+    articBar.append(anchorBtn, mkSep(), articPickersBtn, articColoringBtn, mkSep(), kinGraphBtn, mkSep(), ccdLbl, mkCcdBtn(-1), ccdValEl, mkCcdBtn(1));
     document.body.appendChild(articBar);
     this._articBar = articBar;
     this._ui.push(articBar);
@@ -2161,17 +2167,28 @@ export class Assembler {
     const widths = { state: 'min(240px,85vw)', bricks: 'min(320px,90vw)', components: 'min(320px,90vw)' };
     const panel = document.createElement('div');
     panel.className = 'asm-panel';
-    panel.style.cssText = [
-      'position:fixed',
-      `top:${BAR_H}px`, 'right:0',
-      `width:${widths[name] || 'min(320px,90vw)'}`, 'max-height:calc(100dvh - ' + BAR_H + 'px)',
-      `background:${C.bgDark}ee`,
-      `border-left:1px solid ${C.border}`,
-      `border-bottom:1px solid ${C.border}`,
-      'display:none', 'flex-direction:column',
-      'z-index:52', 'pointer-events:auto',
-      'font:11px sans-serif',
-    ].join(';');
+    if (name === 'kingraph') {
+      panel.style.cssText = [
+        'position:fixed', `top:${BAR_H + BAR_ARTIC_H}px`, 'bottom:0', 'left:0', 'right:0',
+        `background:${C.bgDark}f2`,
+        `border-top:1px solid ${C.border}`,
+        'display:none', 'flex-direction:column',
+        'z-index:52', 'pointer-events:auto',
+        'font:11px sans-serif',
+      ].join(';');
+    } else {
+      panel.style.cssText = [
+        'position:fixed',
+        `top:${BAR_H}px`, 'right:0',
+        `width:${widths[name] || 'min(320px,90vw)'}`, 'max-height:calc(100dvh - ' + BAR_H + 'px)',
+        `background:${C.bgDark}ee`,
+        `border-left:1px solid ${C.border}`,
+        `border-bottom:1px solid ${C.border}`,
+        'display:none', 'flex-direction:column',
+        'z-index:52', 'pointer-events:auto',
+        'font:11px sans-serif',
+      ].join(';');
+    }
 
     // En-tête
     const header = document.createElement('div');
@@ -2182,7 +2199,7 @@ export class Assembler {
     ].join(';');
     const title = document.createElement('span');
     title.style.cssText = `color:${C.dim};font-size:9px;text-transform:uppercase;letter-spacing:.1em;`;
-    const panelTitles = { bricks: 'Briques', components: 'Composantes', joints: 'Liaisons', state: 'État interne', catalogue: 'Catalogue', bom: 'Nomenclature' };
+    const panelTitles = { bricks: 'Briques', components: 'Composantes', joints: 'Liaisons', state: 'État interne', catalogue: 'Catalogue', bom: 'Nomenclature', kingraph: 'Graphe cinématique' };
     title.textContent = panelTitles[name] ?? name;
     const closeBtn = document.createElement('button');
     closeBtn.textContent = '✕';
@@ -2213,6 +2230,7 @@ export class Assembler {
     else if (name === 'state')       this._fillStatePanel(body);
     else if (name === 'catalogue')   this._fillCataloguePanel(body);
     else if (name === 'bom')         this._fillBomPanel(body);
+    else if (name === 'kingraph')    this._fillKinGraphPanel(body);
     else                             this._fillComponentsPanel(body);
   }
 
@@ -2319,6 +2337,288 @@ export class Assembler {
     ].join(';');
     totalRow.innerHTML = `<span>${sorted.length} type${sorted.length > 1 ? 's' : ''}</span><span style="color:${C.accent}">${total} pièce${total > 1 ? 's' : ''}</span>`;
     body.appendChild(totalRow);
+  }
+
+  _fillKinGraphPanel(body) {
+    // ── Données ───────────────────────────────────────────────────────────────
+    const components = this._articulateState?.components
+      ?? this._asmVerse.computeComponents();
+
+    if (components.length === 0) {
+      body.appendChild(this._panelEmpty('Aucune classe dans la scène'));
+      return;
+    }
+
+    const palette = Assembler.ARTIC_PALETTE;
+    const colorMap = this._articulateState?.colorMap ?? this._graphColor(components);
+
+    // Nœuds
+    const nodes = components.map((comp, i) => {
+      const ci  = colorMap.get(comp) ?? 0;
+      const hex = palette[ci % palette.length];
+      const rv  = ((hex >> 16) & 255), gv = ((hex >> 8) & 255), bv = (hex & 255);
+      const names = [...comp.bricks].map(br => br.brickData?.name || br.brickTypeId);
+      const label = names.length === 1 ? (names[0] || '?') : `${names.length} br.`;
+      return { comp, i, x: 0, y: 0, color: `rgb(${rv},${gv},${bv})`, label };
+    });
+    const nodeFor = comp => nodes.find(n => n.comp === comp);
+
+    // Arêtes dédupliquées (1 entrée par paire, DOF abrégé)
+    const edgeMap = new Map();
+    const dofAbbr = dof => (dof || []).map(d => {
+      const t = d.type;
+      if (t === 'rotation')    return 'R';
+      if (t === 'translation') return 'T';
+      if (t === 'ball')        return 'Rot';
+      if (t === 'cylindrical') return 'Cyl';
+      return (t?.[0] ?? '?').toUpperCase();
+    }).join('+') || '?';
+
+    for (const comp of components) {
+      const nA = nodeFor(comp);
+      for (const { connection: conn, other } of comp.links) {
+        const nB = nodeFor(other);
+        if (!nA || !nB) continue;
+        const key = nA.i < nB.i ? `${nA.i}-${nB.i}` : `${nB.i}-${nA.i}`;
+        if (!edgeMap.has(key)) edgeMap.set(key, { source: nA, target: nB, dofs: [], fullName: '' });
+        const abbr = dofAbbr(conn.liaison?.dof);
+        if (!edgeMap.get(key).dofs.includes(abbr)) edgeMap.get(key).dofs.push(abbr);
+        if (!edgeMap.get(key).fullName) edgeMap.get(key).fullName = conn.liaison?.name || '';
+      }
+    }
+    const edges = [...edgeMap.values()];
+
+    // ── Détection de cycles (DFS, non-orienté) ────────────────────────────────
+    const cycleEdgeKeys = new Set();
+    {
+      const visited = new Set(), inStack = new Set();
+      const dfs = (node, parentKey) => {
+        visited.add(node.i); inStack.add(node.i);
+        for (const e of edges) {
+          const nb = e.source === node ? e.target : e.target === node ? e.source : null;
+          if (!nb) continue;
+          const eKey = node.i < nb.i ? `${node.i}-${nb.i}` : `${nb.i}-${node.i}`;
+          if (eKey === parentKey) continue;
+          if (inStack.has(nb.i)) cycleEdgeKeys.add(eKey);
+          else if (!visited.has(nb.i)) dfs(nb, eKey);
+        }
+        inStack.delete(node.i);
+      };
+      for (const n of nodes) if (!visited.has(n.i)) dfs(n, null);
+    }
+
+    // ── Layout BFS hiérarchique ───────────────────────────────────────────────
+    // Racine = classe de référence, ou nœud de degré max, ou extrémité de chaîne (degré 1)
+    const degOf = nd => edges.filter(e => e.source === nd || e.target === nd).length;
+    const refNode = nodes.find(n => n.comp === this._articulateState?.refClass);
+    const leafNode = nodes.find(n => degOf(n) <= 1) ?? nodes[0];
+    const bfsRoot = refNode ?? leafNode;
+
+    const levelOf  = new Map(); // node.i → level index
+    const bfsRows  = [];        // bfsRows[level] = [node, ...]
+    const bfsVisit = new Set([bfsRoot.i]);
+    let bfsQueue   = [bfsRoot];
+    while (bfsQueue.length) {
+      const lvl = bfsRows.length;
+      bfsRows.push([...bfsQueue]);
+      bfsQueue.forEach(n => levelOf.set(n.i, lvl));
+      const next = [];
+      for (const nd of bfsQueue) {
+        for (const e of edges) {
+          const nb = e.source === nd ? e.target : e.target === nd ? e.source : null;
+          if (nb && !bfsVisit.has(nb.i)) { bfsVisit.add(nb.i); next.push(nb); }
+        }
+      }
+      bfsQueue = next;
+    }
+    // Nœuds non atteints (composantes déconnectées)
+    for (const nd of nodes) {
+      if (!bfsVisit.has(nd.i)) { bfsRows.push([nd]); levelOf.set(nd.i, bfsRows.length - 1); }
+    }
+
+    // Dimensions adaptatives
+    const W        = window.innerWidth;
+    const availH   = window.innerHeight - BAR_H - BAR_ARTIC_H - 44; // 44 = header panel + résumé
+    const NR       = Math.max(22, Math.min(42, Math.floor(W / Math.max(nodes.length, 1) / 1.8)));
+    const PAD_X    = NR + 6;
+    const PAD_Y    = NR + 10;
+    const STEP_X   = NR * 2.6;
+
+    // Pour chaque niveau, si trop de nœuds → déborder sur plusieurs lignes de rendu
+    const maxPerRow  = Math.max(1, Math.floor((W - PAD_X * 2) / STEP_X));
+    const renderRows = bfsRows.flatMap(lvlNodes => {
+      const rows = [];
+      for (let i = 0; i < lvlNodes.length; i += maxPerRow) rows.push(lvlNodes.slice(i, i + maxPerRow));
+      return rows;
+    });
+
+    // STEP_Y : étirer pour occuper toute la hauteur disponible (plafonné à NR*5 pour ne pas être absurde)
+    const nGaps  = Math.max(1, renderRows.length - 1);
+    const STEP_Y = renderRows.length <= 1
+      ? NR * 3.4
+      : Math.min(NR * 5, Math.max(NR * 3.0, (availH - PAD_Y * 2) / nGaps));
+    const H      = PAD_Y * 2 + nGaps * STEP_Y;
+
+    // Placer les nœuds
+    renderRows.forEach((row, ri) => {
+      const rowW = row.length * STEP_X;
+      const x0   = (W - rowW) / 2 + STEP_X / 2;
+      row.forEach((nd, ci) => {
+        nd.x = x0 + ci * STEP_X;
+        nd.y = PAD_Y + ri * STEP_Y;
+      });
+    });
+
+    // ── SVG ──────────────────────────────────────────────────────────────────
+    const NS  = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.style.cssText = `width:100%;height:${H}px;min-height:100%;display:block;flex-shrink:0;`;
+
+    const mk = (tag, attrs) => {
+      const el = document.createElementNS(NS, tag);
+      for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+      return el;
+    };
+
+    // Defs
+    const defs = mk('defs', {});
+    const mkMarker = (id, color) => {
+      const m = mk('marker', { id, markerWidth: '7', markerHeight: '5', refX: '6', refY: '2.5', orient: 'auto' });
+      m.appendChild(mk('path', { d: 'M0,0 L7,2.5 L0,5 Z', fill: color }));
+      return m;
+    };
+    defs.appendChild(mkMarker('arr-n', '#777777'));
+    defs.appendChild(mkMarker('arr-c', '#f06292'));
+    // Halo texte
+    const flt = mk('filter', { id: 'halo', x: '-30%', y: '-50%', width: '160%', height: '200%' });
+    const feM = mk('feMorphology', { operator: 'dilate', radius: '1.5', in: 'SourceGraphic', result: 'exp' });
+    const feF = mk('feFlood', { 'flood-color': C.bgDark, 'flood-opacity': '0.9', result: 'col' });
+    const feC = mk('feComposite', { in: 'col', in2: 'exp', operator: 'in', result: 'h' });
+    const feMe = mk('feMerge', {});
+    feMe.append(mk('feMergeNode', { in: 'h' }), mk('feMergeNode', { in: 'SourceGraphic' }));
+    flt.append(feM, feF, feC, feMe);
+    defs.appendChild(flt);
+    svg.appendChild(defs);
+
+    svg.appendChild(mk('rect', { x: 0, y: 0, width: W, height: H, fill: C.bgDark + 'dd' }));
+
+    // ── Arêtes ────────────────────────────────────────────────────────────────
+    const edgeLabels = [];
+    for (const e of edges) {
+      const key     = e.source.i < e.target.i ? `${e.source.i}-${e.target.i}` : `${e.target.i}-${e.source.i}`;
+      const isCycle = cycleEdgeKeys.has(key);
+      const stroke  = isCycle ? '#f06292' : '#666666';
+
+      const dx = e.target.x - e.source.x, dy = e.target.y - e.source.y;
+      const d  = Math.sqrt(dx * dx + dy * dy) || 1;
+      const x1 = e.source.x + NR * dx / d, y1 = e.source.y + NR * dy / d;
+      const x2 = e.target.x - (NR + 4) * dx / d, y2 = e.target.y - (NR + 4) * dy / d;
+
+      // Courber les arêtes de cycle vers l'extérieur pour éviter le chevauchement
+      const perp = isCycle ? 0.28 : 0;
+      const cx   = (x1 + x2) / 2 - perp * dy;
+      const cy_  = (y1 + y2) / 2 + perp * dx;
+      const pathD = perp
+        ? `M ${x1} ${y1} Q ${cx} ${cy_} ${x2} ${y2}`
+        : `M ${x1} ${y1} L ${x2} ${y2}`;
+
+      svg.appendChild(mk('path', {
+        d: pathD, stroke, 'stroke-width': isCycle ? 2.5 : 1.8, fill: 'none',
+        'stroke-dasharray': isCycle ? '6 3' : 'none',
+        'marker-end': `url(#${isCycle ? 'arr-c' : 'arr-n'})`,
+      }));
+      // Position du label = milieu du chemin
+      const lx = perp ? cx : (x1 + x2) / 2;
+      const ly = perp ? cy_ : (y1 + y2) / 2;
+      edgeLabels.push({ e, key, isCycle, stroke, lx, ly });
+    }
+
+    // ── Nœuds ─────────────────────────────────────────────────────────────────
+    const FS    = Math.max(9, Math.min(13, NR * 0.44));
+    const FSSub = Math.max(8, Math.min(10, NR * 0.32));
+
+    for (const nd of nodes) {
+      const isRef = this._articulateState?.refClass === nd.comp;
+      const cnt   = nd.comp.bricks.size;
+
+      if (isRef) svg.appendChild(mk('circle', { cx: nd.x, cy: nd.y, r: NR + 7, fill: 'none', stroke: '#ffffff', 'stroke-width': '2', opacity: '0.3' }));
+
+      svg.appendChild(mk('circle', {
+        cx: nd.x, cy: nd.y, r: NR,
+        fill: nd.color, stroke: isRef ? '#ffffff' : '#00000033', 'stroke-width': isRef ? 2 : 1, opacity: '0.95',
+      }));
+
+      if (cnt > 1) svg.appendChild(mk('circle', { cx: nd.x, cy: nd.y, r: NR - 5, fill: 'none', stroke: '#ffffff33', 'stroke-width': '1.5' }));
+
+      if (isRef) {
+        const a = mk('text', { x: nd.x + NR - 1, y: nd.y - NR + 7, 'font-size': String(FSSub + 1), 'text-anchor': 'middle', fill: '#fff' });
+        a.textContent = '⚓'; svg.appendChild(a);
+      }
+
+      // Label (1 ou 2 lignes)
+      const maxCh = Math.max(5, Math.floor(NR * 1.5 / (FS * 0.55)));
+      const short = nd.label.length > maxCh ? nd.label.slice(0, maxCh - 1) + '…' : nd.label;
+      const yBase = cnt > 1 ? nd.y - FS * 0.4 : nd.y;
+      const tName = mk('text', {
+        x: nd.x, y: yBase, 'text-anchor': 'middle', 'dominant-baseline': 'middle',
+        'font-size': String(FS), 'font-weight': 'bold', fill: '#fff',
+        style: 'pointer-events:none', filter: 'url(#halo)',
+      });
+      tName.textContent = short;
+      svg.appendChild(tName);
+
+      if (cnt > 1) {
+        const tCnt = mk('text', {
+          x: nd.x, y: nd.y + FS * 0.8,
+          'text-anchor': 'middle', 'dominant-baseline': 'middle',
+          'font-size': String(FSSub), fill: '#ffffffbb', style: 'pointer-events:none',
+        });
+        tCnt.textContent = `×${cnt}`;
+        svg.appendChild(tCnt);
+      }
+    }
+
+    // ── Labels d'arêtes (DOF abrégé, nom complet en title) ────────────────────
+    const FSE = Math.max(8, Math.min(11, NR * 0.34));
+    for (const { e, isCycle, stroke, lx, ly } of edgeLabels) {
+      const shortDof = e.dofs.join(' | ');
+      const grp = mk('g', {});
+      // Fond pill
+      const pill = mk('rect', {
+        x: lx - shortDof.length * FSE * 0.32 - 4, y: ly - FSE * 0.7 - 1,
+        width: shortDof.length * FSE * 0.64 + 8, height: FSE * 1.5,
+        rx: '3', fill: isCycle ? '#f0629222' : C.bgDark + 'cc',
+        stroke: isCycle ? '#f06292' : '#44444488', 'stroke-width': '0.8',
+      });
+      grp.appendChild(pill);
+      const t = mk('text', {
+        x: lx, y: ly, 'text-anchor': 'middle', 'dominant-baseline': 'middle',
+        'font-size': String(FSE), fill: isCycle ? '#f06292' : '#aaaaaa',
+        style: 'pointer-events:none',
+      });
+      t.textContent = shortDof;
+      // Tooltip : nom complet
+      if (e.fullName) { const title = mk('title', {}); title.textContent = e.fullName; t.appendChild(title); }
+      grp.appendChild(t);
+      svg.appendChild(grp);
+    }
+
+    body.style.cssText = 'overflow-y:auto;flex:1;display:flex;flex-direction:column;';
+    body.appendChild(svg);
+
+    // ── Résumé ────────────────────────────────────────────────────────────────
+    const summary = document.createElement('div');
+    summary.style.cssText = `padding:5px 14px;flex-shrink:0;border-top:1px solid ${C.border}33;color:${C.dim};font-size:10px;display:flex;gap:20px;flex-wrap:wrap;align-items:center;`;
+    const totalDof = edges.reduce((s, e) => s + e.dofs.length, 0);
+    summary.innerHTML = [
+      `<span>Classes : <b style="color:${C.fg}">${nodes.length}</b></span>`,
+      `<span>Liaisons : <b style="color:${C.accent}">${totalDof}</b></span>`,
+      cycleEdgeKeys.size
+        ? `<span style="color:#f06292">⬡ ${cycleEdgeKeys.size} boucle${cycleEdgeKeys.size > 1 ? 's' : ''} fermée${cycleEdgeKeys.size > 1 ? 's' : ''}</span>`
+        : `<span>Chaîne ouverte</span>`,
+    ].join('');
+    body.appendChild(summary);
   }
 
   _initJointsHeaderToggle(panel) {
